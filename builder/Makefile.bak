@@ -1,0 +1,63 @@
+#------------------------------------
+#
+
+
+
+#------------------------------------
+# apt install libssl-dev device-tree-compiler swig python3-distutils 
+# apt install python3-dev python3-setuptools
+# ti-linux-fw_DIR: git checkout ti-linux-firmware
+#
+uboot_DIR=$(PKGDIR2)/u-boot-beagleplay
+uboot-r5_BUILDDIR=$(BUILDDIR2)/uboot-r5
+uboot-r5_MAKE=$(MAKE) O=$(uboot-r5_BUILDDIR) \
+    CROSS_COMPILE=$(ARM_CROSS_COMPILE) -C $(uboot_DIR)
+ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
+k3-image-gen_DIR=$(PKGDIR2)/k3-image-gen
+k3-image-gen_BUILDDIR=$(BUILDDIR2)/k3-image-gen-r5
+k3-image-gen_MAKE=$(MAKE) O=$(k3-image-gen_BUILDDIR) \
+    CROSS_COMPILE=$(ARM_CROSS_COMPILE) -C $(k3-image-gen_DIR)
+
+uboot-r5_defconfig $(uboot-r5_BUILDDIR)/.config: | $(uboot-r5_BUILDDIR)
+	if [ -f uboot-am62x_evm_a53_defconfig ]; then \
+	  cp uboot-am62x_evm_r5_defconfig $(uboot-r5_BUILDDIR)/.config && \
+	  yes "" | $(uboot-r5_MAKE) oldconfig; \
+	else \
+	  $(uboot-r5_MAKE) am62x_evm_r5_defconfig; \
+	fi
+
+uboot-r5 $(uboot-r5_BUILDDIR)/spl/u-boot-spl.bin: | $(uboot-r5_BUILDDIR)/.config
+	$(uboot-r5_MAKE) $(PARALLEL_BUILD)
+
+uboot-r5_tiboot3: | $(uboot-r5_BUILDDIR)/spl/u-boot-spl.bin
+	$(k3-image-gen_MAKE) SOC=am62x \
+	    SBL=$(uboot-r5_BUILDDIR)/spl/u-boot-spl.bin
+
+$(addprefix uboot-r5_,menuconfig savedefconfig): | $(uboot-r5_BUILDDIR)/.config
+	$(uboot-r5_MAKE) $(@:uboot-r5_%=%)
+
+uboot-a53_BUILDDIR=$(BUILDDIR2)/uboot-a53
+uboot-a53_MAKE=$(MAKE) O=$(uboot-a53_BUILDDIR) \
+    CROSS_COMPILE=$(CROSS_COMPILE) \
+    ATF=$(atf_BUILDDIR)/k3/lite/release/bl31.bin \
+    DM=$(ti-linux-fw_DIR)/ti-dm/am62xx/ipc_echo_testb_mcu1_0_release_strip.xer5f \
+    -C $(uboot_DIR)
+
+uboot-a53_defconfig $(uboot-a53_BUILDDIR)/.config: | $(uboot-a53_BUILDDIR)
+	if [ -f uboot-am62x_evm_a53_defconfig ]; then \
+	  cp uboot-am62x_evm_a53_defconfig $(uboot-a53_BUILDDIR)/.config && \
+	  yes "" | $(uboot-a53_MAKE) oldconfig; \
+	else \
+	  $(uboot-a53_MAKE) am62x_evm_a53_defconfig; \
+	fi
+
+uboot-a53 $(uboot-a53_BUILDDIR)/spl/u-boot-spl.bin: | $(uboot-a53_BUILDDIR)/.config
+	$(uboot-a53_MAKE) $(PARALLEL_BUILD)
+
+$(addprefix uboot-a53_,menuconfig savedefconfig oldconfig): | $(uboot-a53_BUILDDIR)/.config
+	$(uboot-a53_MAKE) $(@:uboot-a53_%=%)
+
+$(addprefix uboot-a53_,help):
+	$(uboot-a53_MAKE) $(@:uboot-a53_%=%)
+
+GENDIR+=$(uboot-r5_BUILDDIR) $(uboot-a53_BUILDDIR)
