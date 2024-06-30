@@ -62,42 +62,45 @@ GENPYVENV:=
 #
 .DEFAULT_GOAL=help
 help:
-	$(Q)echo "APP_ATTR: $(APP_ATTR)"
-	$(AARCH64_CROSS_COMPILE)gcc -dumpmachine
-	$(ARM_CROSS_COMPILE)gcc -dumpmachine
+	@echo "APP_ATTR: $(APP_ATTR)"
+	@echo "AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
+	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
 
 #------------------------------------
 #
-atfa_DIR=$(PKGDIR2)/arm-trusted-firmware-upstream
-atfa-bp_BUILDDIR=$(BUILDDIR2)/atfa-bp
-atfa-bp_MAKE=$(MAKE) BUILD_BASE=$(atfa-bp_BUILDDIR) ARCH=aarch64 PLAT=k3 \
-    TARGET_BOARD=lite SPD=opteed K3_PM_SYSTEM_SUSPEND=1 DEBUG=1 \
-	CROSS_COMPILE=$(AARCH64_CROSS_COMPILE) -C $(atfa_DIR)
+atf_DIR=$(PKGDIR2)/arm-trusted-firmware-upstream
+atf_BUILDDIR=$(BUILDDIR2)/atf-$(APP_PLATFORM)
+atf_MAKE=$(MAKE) BUILD_BASE=$(atf_BUILDDIR) $(atf_MAKEARGS-$(APP_PLATFORM)) \
+    -C $(atf_DIR)
 
-atfa-bp:
-	$(atfa-bp_MAKE) $(PARALLEL_BUILD) all
+atf_MAKEARGS-bp+=ARCH=aarch64 PLAT=k3 TARGET_BOARD=lite SPD=opteed \
+    K3_PM_SYSTEM_SUSPEND=1 DEBUG=1 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
-atf: atfa_$(APP_PLATFORM)
+atf:
+	$(atf_MAKE) $(PARALLEL_BUILD) all
+
 atf_%:
-	$(MAKE) atfa-$(APP_PLATFORM)$(@:atf%=%)
+	$(atf_MAKE) $(PARALLEL_BUILD) $(@:atf_%=%)
 
 #------------------------------------
 # for build doc: pip install pyelftools cryptography
 #
 optee_DIR=$(PKGDIR2)/optee_os-upstream
-optee-bp_BUILDDIR=$(BUILDDIR2)/optee-bp
-optee-bp_MAKE=$(MAKE) O=$(optee-bp_BUILDDIR) CFG_ARM64_core=y \
-    PLATFORM=k3-am62x CFG_TEE_CORE_LOG_LEVEL=2 CFG_TEE_CORE_DEBUG=y \
-	CFG_WITH_SOFTWARE_PRNG=y CROSS_COMPILE=$(ARM_CROSS_COMPILE) \
-	CROSS_COMPILE64=$(AARCH64_CROSS_COMPILE) -C $(optee_DIR)
+optee_BUILDDIR=$(BUILDDIR2)/optee-$(APP_PLATFORM)
+optee_MAKE=$(MAKE) O=$(optee_BUILDDIR) $(optee_MAKEARGS-$(APP_PLATFORM)) \
+    -C $(optee_DIR)
 
-optee-bp: | $(BUILDDIR)/pyvenv
+optee_MAKEARGS-bp+=CFG_ARM64_core=y PLATFORM=k3-am62x CFG_TEE_CORE_LOG_LEVEL=2 \
+    CFG_TEE_CORE_DEBUG=y CFG_WITH_SOFTWARE_PRNG=y \
+    CROSS_COMPILE=$(ARM_CROSS_COMPILE) CROSS_COMPILE64=$(AARCH64_CROSS_COMPILE)
+
+optee: | $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(optee-bp_MAKE) $(PARALLEL_BUILD)
+	  $(optee_MAKE) $(PARALLEL_BUILD)
 
-optee: optee-$(APP_PLATFORM)
 optee_%:
-	$(MAKE) optee-$(APP_PLATFORM)$(@:optee%=%)
+	. $(BUILDDIR)/pyvenv/bin/activate && \
+	  $(optee_MAKE) $(PARALLEL_BUILD) $(@:optee_%=%)
 
 GENPYVENV+=pyelftools cryptography
 
@@ -108,44 +111,103 @@ GENPYVENV+=pyelftools cryptography
 #
 ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
 uboot_DIR=$(PKGDIR2)/u-boot-upstream
-uboot-bp-r5_BUILDDIR=$(BUILDDIR2)/uboot-bp-r5
-uboot-bp-r5_MAKE=$(MAKE) O=$(uboot-bp-r5_BUILDDIR) BINMAN_INDIRS=$(ti-linux-fw_DIR) \
-    CROSS_COMPILE=$(ARM_CROSS_COMPILE) -C $(uboot_DIR)
+uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(APP_PLATFORM)
 
-uboot-bp-r5_defconfig $(uboot-bp-r5_BUILDDIR)/.config: | $(uboot-bp-r5_BUILDDIR)
-	if [ -f uboot-bp-am62x_beagleplay_r5_defconfig ]; then \
-	  cp uboot-bp-am62x_beagleplay_r5_defconfig $(uboot-bp-r5_BUILDDIR)/.config && \
-	  yes "" | $(uboot-bp-r5_MAKE) oldconfig; \
-	else \
-	  $(uboot-bp-r5_MAKE) am62x_beagleplay_r5_defconfig; \
-	fi
-
-uboot-bp-r5 $(uboot-bp-r5_BUILDDIR)/spl/u-boot-spl.bin: | $(uboot-bp-r5_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot-bp-r5_MAKE) $(PARALLEL_BUILD)
-
-$(addprefix uboot-bp-r5_,menuconfig savedefconfig oldconfig): | $(uboot-bp-r5_BUILDDIR)/.config
-	$(uboot-bp-r5_MAKE) $(@:uboot-bp-r5_%=%)
-
-uboot-bp-a53_BUILDDIR=$(BUILDDIR2)/uboot-bp-a53
-uboot-bp-a53_MAKE=$(MAKE) O=$(uboot-bp-a53_BUILDDIR) \
-    BINMAN_INDIRS=$(ti-linux-fw_DIR) \
-    BL31=$(firstword $(wildcard $(atfa-bp_BUILDDIR)/k3/lite/release/bl31.bin $(atfa-bp_BUILDDIR)/k3/lite/debug/bl31.bin)) \
-    TEE=$(optee-bp_BUILDDIR)/core/tee-raw.bin \
-    CROSS_COMPILE=$(CROSS_COMPILE) \
+uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
     -C $(uboot_DIR)
 
-uboot-bp-a53_defconfig $(uboot-bp-a53_BUILDDIR)/.config: | $(uboot-bp-a53_BUILDDIR)
-	if [ -f uboot-bp-am62x_beagleplay_a53_defconfig ]; then \
-	  cp uboot-bp-am62x_beagleplay_a53_defconfig $(uboot-bp-a53_BUILDDIR)/.config && \
-	  yes "" | $(uboot-bp-a53_MAKE) oldconfig; \
+uboot_MAKEARGS-bp-r5+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
+    CROSS_COMPILE=$(ARM_CROSS_COMPILE)
+uboot_defconfig-bp-r5=am62x_beagleplay_r5_defconfig
+
+uboot_MAKEARGS-bp-a53+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
+    BL31=$(firstword $(wildcard $(atf_BUILDDIR)/k3/lite/release/bl31.bin \
+        $(atf_BUILDDIR)/k3/lite/debug/bl31.bin)) \
+    TEE=$(optee_BUILDDIR)/core/tee-raw.bin CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
+
+uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
+	if [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
+	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config && \
+	  yes "" | $(uboot_MAKE) oldconfig; \
 	else \
-	  $(uboot-bp-a53_MAKE) am62x_beagleplay_a53_defconfig; \
+	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
 	fi
 
-uboot-bp-a53 $(uboot-bp-a53_BUILDDIR)/spl/u-boot-spl.bin: | $(BUILDDIR)/pyvenv $(uboot-bp-a53_BUILDDIR)/.config
+$(addprefix uboot_phase2_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
+	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_phase2_%=%)
+
+uboot_phase2: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot-bp-a53_MAKE) $(PARALLEL_BUILD)
+	  $(uboot_MAKE) $(PARALLEL_BUILD)
+
+uboot_phase2_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
+	. $(BUILDDIR)/pyvenv/bin/activate && \
+	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_phase2_%=%)
+
+UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
+    mkenvimage mkimage proftool spl_size_limit
+
+ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
+uboot:
+	$(MAKE) APP_PLATFORM=bp-r5 uboot_phase2
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2
+
+$(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2_$(@:uboot_%=%)
+
+uboot_tools_install $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)): | $(PROJDIR)/tool/bin
+	$(MAKE) uboot_tools
+	for i in $(UBOOT_TOOLS); do \
+	  cp -v $(uboot-bp-a53_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
+	done
+
+$(addprefix uboot_,tools): | $(uboot-bp-a53_BUILDDIR)
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2_$(@:uboot_%=%)
+
+uboot_%:
+	$(MAKE) APP_PLATFORM=bp-r5 uboot_phase2_$(@:uboot_%=%)
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2_$(@:uboot_%=%)
+
+else
+uboot:
+	$(MAKE) uboot_phase2
+
+uboot_%:
+	$(MAKE) uboot_phase2_$(@:uboot_%=%)
+
+endif
+
+#uboot-bp-r5 $(uboot-bp-r5_BUILDDIR)/spl/u-boot-spl.bin: | $(uboot-bp-r5_BUILDDIR)/.config $(BUILDDIR)/pyvenv
+#	. $(BUILDDIR)/pyvenv/bin/activate && \
+#	  $(uboot-bp-r5_MAKE) $(PARALLEL_BUILD)
+
+#$(addprefix uboot-bp-r5_,menuconfig savedefconfig oldconfig): | $(uboot-bp-r5_BUILDDIR)/.config
+#	$(uboot-bp-r5_MAKE) $(@:uboot-bp-r5_%=%)
+
+#uboot-bp-a53_BUILDDIR=$(BUILDDIR2)/uboot-bp-a53
+#uboot-bp-a53_MAKE=$(MAKE) O=$(uboot-bp-a53_BUILDDIR) \
+#    BINMAN_INDIRS=$(ti-linux-fw_DIR) \
+#    BL31=$(firstword $(wildcard $(atfa-bp_BUILDDIR)/k3/lite/release/bl31.bin $(atfa-bp_BUILDDIR)/k3/lite/debug/bl31.bin)) \
+#    TEE=$(optee-bp_BUILDDIR)/core/tee-raw.bin \
+#    CROSS_COMPILE=$(CROSS_COMPILE) \
+#    -C $(uboot_DIR)
+
+#uboot-bp-a53_defconfig $(uboot-bp-a53_BUILDDIR)/.config: | $(uboot-bp-a53_BUILDDIR)
+#	if [ -f uboot-bp-am62x_beagleplay_a53_defconfig ]; then \
+#	  cp uboot-bp-am62x_beagleplay_a53_defconfig $(uboot-bp-a53_BUILDDIR)/.config && \
+#	  yes "" | $(uboot-bp-a53_MAKE) oldconfig; \
+#	else \
+#	  $(uboot-bp-a53_MAKE) am62x_beagleplay_a53_defconfig; \
+#	fi
+
+#uboot-bp-a53 $(uboot-bp-a53_BUILDDIR)/spl/u-boot-spl.bin: | $(BUILDDIR)/pyvenv $(uboot-bp-a53_BUILDDIR)/.config
+#	. $(BUILDDIR)/pyvenv/bin/activate && \
+#	  $(uboot-bp-a53_MAKE) $(PARALLEL_BUILD)
 
 $(addprefix uboot-bp-a53_,menuconfig savedefconfig oldconfig): | $(uboot-bp-a53_BUILDDIR)/.config
 	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
@@ -175,17 +237,17 @@ ubootenv-bp $(BUILDDIR)/uboot.env: ubootenv-bp.txt | $(PROJDIR)/tool/bin/mkenvim
 	$(PROJDIR)/tool/bin/mkenvimage -s $(or $(UENV_SIZE),0x1f000) \
 	  -o $(BUILDDIR)/uboot.env ubootenv-bp.txt
 
-ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
-uboot: uboot-bp-a53
-uboot_%:
-	$(MAKE) uboot-bp-a53$(@:uboot%=%)
-else
-uboot: uboot-$(APP_PLATFORM)
-uboot_%:
-	$(MAKE) uboot-$(APP_PLATFORM)$(@:uboot%=%)
-endif
+#ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
+#uboot: uboot-bp-a53
+#uboot_%:
+#	$(MAKE) uboot-bp-a53$(@:uboot%=%)
+#else
+#uboot: uboot-$(APP_PLATFORM)
+#uboot_%:
+#	$(MAKE) uboot-$(APP_PLATFORM)$(@:uboot%=%)
+#endif
 
-GENDIR+=$(uboot-bp-r5_BUILDDIR) $(uboot-bp-a53_BUILDDIR)
+GENDIR+=$(uboot_BUILDDIR) $(uboot-bp-r5_BUILDDIR) $(uboot-bp-a53_BUILDDIR)
 
 GENPYVENV+=yamllint jsonschema
 
