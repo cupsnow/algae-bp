@@ -111,7 +111,7 @@ GENPYVENV+=pyelftools cryptography
 #
 ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
 uboot_DIR=$(PKGDIR2)/u-boot-upstream
-uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(APP_PLATFORM)
+uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
     -C $(uboot_DIR)
@@ -134,51 +134,75 @@ uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
 	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
 	fi
 
-$(addprefix uboot_phase2_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
-	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_phase2_%=%)
-
-uboot_phase2: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot_MAKE) $(PARALLEL_BUILD)
-
-uboot_phase2_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_phase2_%=%)
-
 UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
     mkenvimage mkimage proftool spl_size_limit
 
+ifeq ("$(MAKELEVEL)","20")
+$(error Maybe endless loop, MAKELEVEL: $(MAKELEVEL))
+endif
+
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
-uboot:
-	$(MAKE) APP_PLATFORM=bp-r5 uboot_phase2
+# bp runs uboot for 2 different core, pass APP_PLATFORM for specified core to else
+#
+
+$(addprefix uboot_,menuconfig  htmldocs tools tools_install):
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
+
+uboot:
+	$(MAKE) APP_PLATFORM=bp-r5 uboot
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot
+
+uboot_%:
+	$(MAKE) APP_PLATFORM=bp-r5 uboot_$(@:uboot_%=%)
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
+
+ubootenv: UENV_SIZE?=$(shell $(call SED_KEYVAL1,CONFIG_ENV_SIZE) $(firstword $(wildcard \
+    $(call uboot_BUILDDIR,bp-a53)/.config uboot-$(uboot_defconfig-bp-a53))))
+ubootenv $(BUILDDIR)/uboot.env:
+	echo "UENV_SIZE: $(UENV_SIZE)"
+	$(MAKE) APP_PLATFORM=bp-a53 UENV_SIZE=$(UENV_SIZE) ubootenv
+
+else
+# normal case
 
 $(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
-	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2_$(@:uboot_%=%)
+	. $(BUILDDIR)/pyvenv/bin/activate && \
+	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 uboot_tools_install $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)): | $(PROJDIR)/tool/bin
 	$(MAKE) uboot_tools
 	for i in $(UBOOT_TOOLS); do \
-	  cp -v $(uboot-bp-a53_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
+	  cp -v $(uboot_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
 	done
 
-$(addprefix uboot_,tools): | $(uboot-bp-a53_BUILDDIR)
-	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2_$(@:uboot_%=%)
+$(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
+	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-uboot_%:
-	$(MAKE) APP_PLATFORM=bp-r5 uboot_phase2_$(@:uboot_%=%)
-	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_phase2_$(@:uboot_%=%)
+uboot: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
+	. $(BUILDDIR)/pyvenv/bin/activate && \
+	  $(uboot_MAKE) $(PARALLEL_BUILD)
 
-else
-uboot:
-	$(MAKE) uboot_phase2
+uboot_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
+	. $(BUILDDIR)/pyvenv/bin/activate && \
+	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-uboot_%:
-	$(MAKE) uboot_phase2_$(@:uboot_%=%)
+ubootenv: UENV_SIZE?=$(shell $(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config)
+ubootenv $(BUILDDIR)/uboot.env: ubootenv-$(APP_PLATFORM).txt | $(PROJDIR)/tool/bin/mkenvimage
+	$(PROJDIR)/tool/bin/mkenvimage -s $(UENV_SIZE) \
+	  -o $(BUILDDIR)/uboot.env ubootenv-$(APP_PLATFORM).txt
+
+GENPYVENV+=yamllint jsonschema
+
+# for tools_install
+GENDIR+=$(PROJDIR)/tool/bin
+
+GENDIR+=$(uboot_BUILDDIR)
+
+# for htmldocs
+GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 
 endif
 
@@ -209,50 +233,32 @@ endif
 #	. $(BUILDDIR)/pyvenv/bin/activate && \
 #	  $(uboot-bp-a53_MAKE) $(PARALLEL_BUILD)
 
-$(addprefix uboot-bp-a53_,menuconfig savedefconfig oldconfig): | $(uboot-bp-a53_BUILDDIR)/.config
-	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
+# $(addprefix uboot-bp-a53_,menuconfig savedefconfig oldconfig): | $(uboot-bp-a53_BUILDDIR)/.config
+# 	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
 
-$(addprefix uboot-bp-a53_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot-bp-a53_BUILDDIR)
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
+# $(addprefix uboot-bp-a53_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot-bp-a53_BUILDDIR)
+# 	. $(BUILDDIR)/pyvenv/bin/activate && \
+# 	  $(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
 
-$(addprefix uboot-bp-a53_,tools): | $(uboot-bp-a53_BUILDDIR)
-	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
+# $(addprefix uboot-bp-a53_,tools): | $(uboot-bp-a53_BUILDDIR)
+# 	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
 
-uboot-bp-a53_%:
-	  $(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
+# uboot-bp-a53_%:
+# 	  $(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
 
-UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
-    mkenvimage mkimage proftool spl_size_limit
-uboot-bp-a53_tools_install $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)): | $(PROJDIR)/tool/bin
-	$(MAKE) uboot-bp-a53_tools
-	for i in $(UBOOT_TOOLS); do \
-	  cp -v $(uboot-bp-a53_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
-	done
+# UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
+#     mkenvimage mkimage proftool spl_size_limit
+# uboot-bp-a53_tools_install $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)): | $(PROJDIR)/tool/bin
+# 	$(MAKE) uboot-bp-a53_tools
+# 	for i in $(UBOOT_TOOLS); do \
+# 	  cp -v $(uboot-bp-a53_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
+# 	done
 
-GENDIR+=$(PROJDIR)/tool/bin
+# ubootenv: UENV_SIZE?=$(shell $(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(firstword $(wildcard $(uboot_BUILDDIR)/.config)))
+# ubootenv $(BUILDDIR)/uboot.env: ubootenv-bp.txt | $(PROJDIR)/tool/bin/mkenvimage
+# 	$(PROJDIR)/tool/bin/mkenvimage -s $(or $(UENV_SIZE),0x1f000) \
+# 	  -o $(BUILDDIR)/uboot.env ubootenv-bp.txt
 
-ubootenv-bp: UENV_SIZE=$(shell $(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(firstword $(wildcard $(uboot-bp-a53_BUILDDIR)/.config uboot-am62x_beagleplay_a53_defconfig)))
-ubootenv-bp $(BUILDDIR)/uboot.env: ubootenv-bp.txt | $(PROJDIR)/tool/bin/mkenvimage
-	$(PROJDIR)/tool/bin/mkenvimage -s $(or $(UENV_SIZE),0x1f000) \
-	  -o $(BUILDDIR)/uboot.env ubootenv-bp.txt
-
-#ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
-#uboot: uboot-bp-a53
-#uboot_%:
-#	$(MAKE) uboot-bp-a53$(@:uboot%=%)
-#else
-#uboot: uboot-$(APP_PLATFORM)
-#uboot_%:
-#	$(MAKE) uboot-$(APP_PLATFORM)$(@:uboot%=%)
-#endif
-
-GENDIR+=$(uboot_BUILDDIR) $(uboot-bp-r5_BUILDDIR) $(uboot-bp-a53_BUILDDIR)
-
-GENPYVENV+=yamllint jsonschema
-
-# for htmldocs
-GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 
 #------------------------------------
 # for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH 
@@ -433,7 +439,7 @@ distclean:
 $(BUILDDIR)/pyvenv:
 	python3 -m venv $@
 	. $(BUILDDIR)/pyvenv/bin/activate && \
-	    pip3 install $(GENPYVENV)
+	    pip3 install $(sort $(GENPYVENV))
 
 #------------------------------------
 #
