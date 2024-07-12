@@ -1,0 +1,70 @@
+#!/bin/sh
+# shellcheck disable=SC2120
+
+. /etc/init.d/func
+
+_pri_tag="checksae"
+
+# wpa_cli scan && sleep 2 && wpa_cli scan_results | grep  '\[WPA2-SAE-CCMP\].*\s*DK_SWQA_Linksys_5G$'
+
+# log_d () {
+#   echo "[Debug]${_pri_tag:+[$_pri_tag]} $*"
+# }
+
+# log_e () {
+#   echo "[ERROR]${_pri_tag:+[$_pri_tag]} $*"
+# }
+
+log_d "$0 $*"
+
+_pri_ssid=
+
+ck_ssid () {
+  _lo_ssid=$1
+  wpa_scan_wait 10
+  _lo_val="$(wpa_cli scan_result \
+    | grep "\[WPA2-SAE-CCMP\].*\s*${_lo_ssid}\$")"
+  log_d "$_lo_val"
+  [ -n "$_lo_val" ] && return 0
+  return 1
+}
+
+show_help () {
+cat <<-ENDHELP
+USAGE
+  $(basename $0) [OPTIONS]
+
+[OPTIONS]
+  -s, --ssid=<SSID>
+  -h, --help
+
+ENDHELP
+}
+
+_pri_opts="$(getopt -l ssid:,help -- s:h "$@")" || exit 1
+eval set -- "$_pri_opts"
+while true; do
+  case "$1" in
+  -h|--help|"")
+    show_help
+    exit 1
+    ;;
+  -s|--ssid)
+    _pri_ssid=$2
+    shift 2
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    echo "Invalid argument $1"
+    exit 1
+    ;;
+  esac
+done
+
+if [ -n "$_pri_ssid" ]; then
+  ck_ssid "$_pri_ssid"
+  exit
+fi

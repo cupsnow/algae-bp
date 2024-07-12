@@ -1,0 +1,55 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="zcipwrapper"
+
+log_d "$0 $*"
+
+show_help () {
+cat <<-ENDHELP
+USAGE
+  $(basename $0) stop-all
+  $(basename $0) <ifce> <start | stop>
+
+ENDHELP
+}
+
+if [ $# -eq 1 ]; then
+  case $1 in
+  stop-all)
+    for _pri_ifce in `find /var/run/ -maxdepth 1 -iname zcip-*.pid  | \
+        sed -E -n -e "s/\/var\/run\/zcip-(.*)\.pid/\1/p" | xargs`; do
+      cmd_run $0 $_pri_ifce stop
+    done
+    exit
+    ;;
+  esac
+
+  show_help
+  exit 1
+fi
+
+[ $# -ne 2 ] && { show_help; exit 1; }
+
+_pri_ifce="$1"
+_pri_op="$2"
+_pri_pid="/var/run/zcip-${_pri_ifce}.pid"
+_pri_launch="start-stop-daemon -p $_pri_pid -x /sbin/zcip -o -q"
+
+case $_pri_op in
+start)
+  export LOGGING=syslog
+  cmd_run $_pri_launch -S -m -b -- -f $_pri_ifce /usr/share/zcip/default.script
+  exit
+  ;;
+stop)
+  cmd_run $_pri_launch -K && rm -rf $_pri_pid
+  exit
+  ;;
+*)
+  ;;
+esac
+
+show_help
+exit 1

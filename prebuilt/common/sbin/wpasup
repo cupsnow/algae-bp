@@ -1,0 +1,112 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="wpasup"
+
+_pri_ifce_start="wlan0"
+_pri_cfg="$wpasup_cfg"
+
+log_d "$0 $*"
+
+promisc_on () {
+  [ -f $promisc_cfg ] || return 0
+  local promisc="$(as_num $(get_inient1 $promisc_cfg promisc))"
+  [ "$promisc" -ge 1 ] &>/dev/null || return 0
+  local ifce=${1:-wlan0}
+  cmd_run ip link set $ifce promisc on
+}
+
+show_help () {
+cat <<-ENDHELP
+USAGE
+  $(basename $0) [OPTIONS] <start | stop>
+
+OPTIONS
+  -h, --help
+  -i, --ifce=<IFCE>  WiFi interface (default start: $_pri_ifce_start)
+  -c, --cfg=<CFG>    wpa supplicant config (default: $_pri_cfg)
+
+ENDHELP
+}
+
+_pri_opts=`getopt -l help,ifce:,cfg: -- hi:c: "$@"` || exit 1
+eval set -- "$_pri_opts"
+while true; do
+  case "$1" in
+  -h|--help)
+    show_help
+    # shift
+    exit 1
+    ;;
+  -i|--ifce)
+    _pri_ifce="$2"
+    shift 2
+    ;;
+  -c|--cfg)
+    _pri_cfg="$2"
+    shift 2
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    log_se "Invalid argument: $1"
+    exit 1
+    ;;
+  esac
+done
+
+case $1 in
+start)
+  [ -n "$_pri_ifce" ] || _pri_ifce=$_pri_ifce_start
+  _pri_pid="/var/run/wpasup-${_pri_ifce}.pid"
+  _pri_launch="start-stop-daemon -p $_pri_pid -x /sbin/wpa_supplicant -o -q"
+  promisc_on ${_pri_ifce}
+  cmd_run $_pri_launch -S -m -b -- -Dnl80211 -i${_pri_ifce} -c${_pri_cfg}
+  # check launch
+  _pri_ct=10
+  while [ $_pri_ct -gt 0 ]; do
+    if wpa_cli -i${_pri_ifce} status &>/dev/null; then
+      _pri_ct=-2
+      break
+    fi
+    log_d "Launching wpa_supplicant (countdown ${_pri_ct})"
+    sleep 0.2
+    _pri_ct="$(( $_pri_ct - 1 ))"
+  done
+  [ $_pri_ct -eq -2 ] || { log_se "Failed launch wpa_supplicant"; exit 1; }
+  exit
+  ;;
+manual)
+  [ -n "$_pri_ifce" ] || _pri_ifce=$_pri_ifce_start
+  _pri_pid="/var/run/wpasup-${_pri_ifce}.pid"
+  promisc_on ${_pri_ifce}
+  cmd_run eval "wpa_supplicant -Dnl80211 -i${_pri_ifce} -c${_pri_cfg} -td &>/dev/console &"
+  # check launch
+  _pri_ct=10
+  while [ $_pri_ct -gt 0 ]; do
+    if wpa_cli -i${_pri_ifce} status &>/dev/null; then
+      _pri_ct=-2
+      break
+    fi
+    log_d "Launching wpa_supplicant (countdown ${_pri_ct})"
+    sleep 0.2
+    _pri_ct="$(( $_pri_ct - 1 ))"
+  done
+  [ $_pri_ct -eq -2 ] || { log_se "Failed launch wpa_supplicant"; exit 1; }
+  exit
+  ;;
+stop)
+  cmd_run eval "wpa_cli ${_pri_ifce:+-i$_pri_ifce} terminate &>/dev/null"
+  rm -rf /var/run/wpasup-${_pri_ifce:-*}.pid
+  ;;
+started)          
+  cmd_run eval "wpa_cli status &>/dev/null"
+  ;;             
+*)
+  show_help
+  exit 1
+  ;;
+esac

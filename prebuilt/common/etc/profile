@@ -1,0 +1,2 @@
+export PS1='$(eval $(resize))\u@\h: \w \$ '
+[ -e /etc/TZ ] && export TZ=$(cat /etc/TZ)

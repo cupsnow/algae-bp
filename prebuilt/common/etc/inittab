@@ -1,0 +1,12 @@
+#
+::sysinit:/etc/init.d/rcS
+# ::askfirst:/bin/sh
+# ::respawn:/sbin/getty -n -l /bin/sh 0 console vt100
+::respawn:/sbin/getty 0 console linux
+
+::restart:/sbin/init
+
+# Stuff to do before rebooting
+::ctrlaltdel:/sbin/reboot
+::shutdown:/bin/umount -a -r
+::shutdown:/sbin/swapoff -a

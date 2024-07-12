@@ -1,0 +1,54 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_bn="$(basename $0)"
+_pri_tag="${_pri_bn}[$$]"
+
+on_exit () {
+  log_d "exit"
+}
+
+trap "on_exit" INT TERM EXIT
+
+log_d "$0 $*"
+
+_pri_mdnsd_exec="/sbin/mdnsd"
+_pri_mdns_lock="/var/run/mdnsd-initd.lock"
+
+case "$1" in
+start)
+  shift
+  cmd_run flock -n $_pri_mdns_lock $_pri_mdnsd_exec
+  # return true since might flock but already running
+  pgrep -x ".*$(basename $_pri_mdnsd_exec)" &>/dev/null
+  ;;
+manual)
+  shift
+  cmd_run flock -n $_pri_mdns_lock $_pri_mdnsd_exec -debug &>/dev/console &
+  # return true since might flock but already running
+  pgrep -x ".*$(basename $_pri_mdnsd_exec)" &>/dev/null
+  ;;
+stop)
+  shift
+  _pri_mdnsd_pid="$(pgrep -x ".*$(basename $_pri_mdnsd_exec)")"
+  [ -n "$_pri_mdnsd_pid" ] || exit 0
+  log_d "Kill mdnsd"
+  cmd_run eval "kill -9 $_pri_mdnsd_pid &>/dev/null"
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start|stop|restart]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

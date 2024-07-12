@@ -1,0 +1,65 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="refactory"
+
+log_d "$0 $*"
+
+_pri_simp=
+
+do_refactory () {
+  if [ -n "$_pri_simp" ]; then
+    cmd_run led standby 5
+  else
+    cmd_run led refactory
+  fi
+  
+  # # prevent wdt action
+  # cmd_run killall -sigint adk
+  # sleep 1
+
+  cmd_run /etc/init.d/main stop
+
+  cmd_run rm -rf $accname_cfg $spkcal_cfg $promisc_cfg $ledban_cfg \
+      $wpasup_cfg_plugged_eth $eth_cfg $wlan_cfg
+  cmd_run cp /etc/hostname-template $hostname_cfg && \
+    cmd_run admin --hostname -f $hostname_cfg
+  cmd_run cp /etc/wpa_supplicant-template.conf $wpasup_cfg
+
+  /etc/init.d/adk-initd refactory
+
+  # cmd_run rm -rf /root/.airplaydemo
+
+  # echo "refactory=2" > $oob_cfg
+  sync; sync
+  cmd_run led refactory 0
+}
+
+case "$1" in
+-f)
+  shift
+  _pri_simp=1
+  do_refactory
+  ;;
+start)
+  shift
+  do_refactory
+  ;;
+enforce)
+  shift
+  $0 start $*
+  sync; sync; reboot
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start | enforce]
+
+OPTIONS
+    start    Start service
+    enforce  Reboot after refactory
+
+EOHERE
+  ;;
+esac

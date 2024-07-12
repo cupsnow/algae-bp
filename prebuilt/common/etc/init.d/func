@@ -1,0 +1,3 @@
+#!/bin/sh
+
+[ -n "$func_involved" ] || source /etc/init.d/func_involved

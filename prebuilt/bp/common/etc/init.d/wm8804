@@ -1,0 +1,144 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="wm8804-initd"
+
+log_d "$0 $*"
+
+wm8804_addr=0x3b
+wm8804_i2c=0
+
+# TP11<->PD26
+wm8804_gpo0=$(( 32 * 3 + 26))
+
+# TP14<->PD28
+wm8804_sdout=$(( 32 * 3 + 28))
+
+# WM8804_RST<->RESTB<->PA13
+wm8804_reset=13
+
+hex() {
+  printf "%x" "$1"
+}
+
+wm8804_write () {
+  _lo_reg=$(hex "$1")
+  _lo_val=$2
+  cmd_run i2cset -fy ${wm8804_i2c} ${wm8804_addr} "$_lo_reg" "$_lo_val" || return 1;
+}
+
+# wm8804_read 0 -> 0x05
+wm8804_read () {
+  _lo_reg=$(hex "$1")
+  _lo_val=$(cmd_run i2cget -fy "${wm8804_i2c}" "${wm8804_addr}" "$_lo_reg") || return 1
+  [ -n "$_lo_val" ] || return 1
+  echo "${_lo_val}"
+}
+
+wm8804_normal () {
+  _lo_val=$(( $(i2cget -f -y ${wm8804_i2c} ${wm8804_addr} 0x00) ))
+  [ $_lo_val -eq $(( 0x5 )) ] || { log_e "Invalid set normal mode"; return 1; }
+  log_d "Set normal mode"
+}
+
+wm8804_up () {
+  # gio pa13 sout 1
+  cmd_run i2cset -f -y ${wm8804_i2c} ${wm8804_addr} 0x00 0x00 || return
+  cmd_run i2cset -f -y ${wm8804_i2c} ${wm8804_addr} 0x1e 0x0b || return
+  cmd_run i2cset -f -y ${wm8804_i2c} ${wm8804_addr} 0x1b 0x02 || return
+  cmd_run i2cset -f -y ${wm8804_i2c} ${wm8804_addr} 0x1d 0x80 || return
+  # cmd_run sleep 0.1
+  # cmd_run wm8804_normal || return
+}
+
+# RESET active low
+wm8804_pw () {
+  if [ "$1" = "0" ] || [ "$1" = "off" ] || [ "$1" = "down" ]; then
+    cmd_run gpioset 0 ${wm8804_reset}=0
+  else
+    cmd_run gpioset 0 ${wm8804_reset}=1
+  fi
+}
+
+# Digital Audio Interface Control in Hardware Control Mode
+# AIF_CONF[2] = [SDOUT, GPO0]
+# GPO0 | SDOUT | Desc
+# --- | ---   | ---
+# 0   | 0     | 16bits I2S (i2s16)
+# 0   | 1     | 24bits I2S (i2s24) (default)
+# 1   | 0     | 24bits left justified (lj24)
+# 1   | 1     | 16bits right justified (rj16)
+#
+# shellcheck disable=2120
+wm8804_aif_conf () {
+  case "$1" in
+  i2s16)
+    cmd_run gpioset 0 ${wm8804_gpo0}=0
+    cmd_run gpioset 0 ${wm8804_sdout}=0
+    ;;
+  lj24)
+    cmd_run gpioset 0 ${wm8804_gpo0}=1
+    cmd_run gpioset 0 ${wm8804_sdout}=0
+    ;;
+  rj16)
+    cmd_run gpioset 0 ${wm8804_gpo0}=1
+    cmd_run gpioset 0 ${wm8804_sdout}=1
+    ;;
+  *)
+    cmd_run gpioset 0 ${wm8804_gpo0}=0
+    cmd_run gpioset 0 ${wm8804_sdout}=1
+    ;;
+  esac
+}
+
+show_help () {
+  cat <<-EOHERE
+USAGE
+    $(basename "$0") [OPTIONS]
+
+OPTIONS
+    start  Startup
+    reg <REG> [VAL] Read/write register value.
+    i2s24
+    i2s16
+
+EOHERE
+}
+
+# Hardware Control Mode Status Flag Configuration
+# PIN   | Status Flag
+# ---   | ---
+# SCLK  | trans_err
+# SDOUT | non_audio
+# CSB   | unlock
+# GPO0  | gen_flag
+
+case "$1" in
+start|restart)
+  # $0 i2s24
+  wm8804_read 0 >/dev/null 2>&1 || { log_d "assume wm8804 hardware control mode"; exit 0; }
+  wm8804_up
+  exit
+  ;;
+stop)
+  ;;
+reg)
+  [ "$#" -ge 2 ] || { show_help; exit 1; }
+  if [ -n "$3" ]; then
+    wm8804_write "$2" "$3" || { log_e "Failed write reg[0x$(hex "$2")] $3"; exit 1; }
+    log_d "Write reg[0x$(hex "$2")] $3"
+  else
+    wm8804_read "$2" || { log_e "Failed read reg[0x$(hex "$2")]"; exit 1; }
+  fi
+  ;;
+i2s24|i2s16)
+  wm8804_pw 0
+  wm8804_aif_conf "$1"
+  wm8804_pw 1
+  ;;
+*)
+  show_help
+  exit 1
+  ;;
+esac

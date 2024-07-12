@@ -22,7 +22,7 @@ else
 APP_BUILD=$(APP_PLATFORM)
 endif
 
-ifeq (1,1)
+ifeq (1,0)
 # built with crosstool-NG
 ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/toolchain-arm-none-eabi
 ARM_CROSS_COMPILE?=arm-none-eabi-
@@ -30,21 +30,31 @@ AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/toolchain-aarch64-unknown-linux-gnu
 AARCH64_CROSS_COMPILE?=aarch64-unknown-linux-gnu-
 else ifeq (1,1)
 # from arm
-ARM_TOOLCHAIN_PATH?=$(abspath $(PROJDIR)/../arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-linux-gnueabihf)
+ARM_TOOLCHAIN_PATH?=$(abspath $(PROJDIR)/../arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-linux-gnueabihf)
 ARM_CROSS_COMPILE?=arm-none-linux-gnueabihf-
-AARCH64_TOOLCHAIN_PATH?=$(abspath $(PROJDIR)/../arm-gnu-toolchain-13.2.Rel1-x86_64-aarch64-none-linux-gnu)
+AARCH64_TOOLCHAIN_PATH?=$(abspath $(PROJDIR)/../arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu)
 AARCH64_CROSS_COMPILE?=aarch64-none-linux-gnu-
+endif
+
+ifneq ($(strip $(ARM_TOOLCHAIN_PATH)),)
+PATH_PUSH+=$(ARM_TOOLCHAIN_PATH)/bin
+endif
+
+ifneq ($(strip $(AARCH64_TOOLCHAIN_PATH)),)
+PATH_PUSH+=$(AARCH64_TOOLCHAIN_PATH)/bin
 endif
 
 ifneq ($(strip $(filter bp bpim64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
+TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
 else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
+TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
+else
+TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
-
-PATH_PUSH+=$(AARCH64_TOOLCHAIN_PATH)/bin $(ARM_TOOLCHAIN_PATH)/bin
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
@@ -65,6 +75,7 @@ help:
 	@echo "APP_ATTR: $(APP_ATTR)"
 	@echo "AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
+	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
 
 #------------------------------------
 #
@@ -172,10 +183,12 @@ $(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-uboot_tools_install $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)): | $(PROJDIR)/tool/bin
+uboot_tools_install: DESTDIR?=$(PROJDIR)/tool
+uboot_tools_install:
+	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
 	$(MAKE) uboot_tools
 	for i in $(UBOOT_TOOLS); do \
-	  cp -v $(uboot_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
+	  cp -v $(uboot_BUILDDIR)/tools/$$i $(DESTDIR)/bin/; \
 	done
 
 $(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
@@ -204,7 +217,11 @@ GENDIR+=$(uboot_BUILDDIR)
 # for htmldocs
 GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 
+# end of uboot APP_PLATFORM
 endif
+
+$(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
+	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
 
 #uboot-bp-r5 $(uboot-bp-r5_BUILDDIR)/spl/u-boot-spl.bin: | $(uboot-bp-r5_BUILDDIR)/.config $(BUILDDIR)/pyvenv
 #	. $(BUILDDIR)/pyvenv/bin/activate && \
@@ -314,7 +331,7 @@ GENDIR+=$(linux-bp_BUILDDIR)
 #------------------------------------
 # for install: make with variable CONFIG_PREFIX
 #
-bb_DIR=$(PKGDIR2)/busybox-upstream
+bb_DIR=$(HOME)/02_dev/busybox-upstream
 bb_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
 bb_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
     O=$(bb_BUILDDIR) -C $(bb_DIR)
@@ -333,7 +350,7 @@ $(addprefix bb_,help doc html): | $(BUILDDIR)/pyvenv
 
 bb_destpkg $(bb_BUILDDIR)-destpkg.tar.xz:
 	$(RMTREE) $(bb_BUILDDIR)-destpkg
-	$(MAKE) CONFIG_PREFIX=$(bb_BUILDDIR)-destpkg bb_install
+	$(MAKE) DESTDIR=$(bb_BUILDDIR)-destpkg bb_install
 	tar -Jcvf $(bb_BUILDDIR)-destpkg.tar.xz \
 	    -C $(dir $(bb_BUILDDIR)-destpkg) \
 		$(notdir $(bb_BUILDDIR)-destpkg)
@@ -353,6 +370,10 @@ bb_distclean:
 
 bb: | $(bb_BUILDDIR)/.config
 	$(bb_MAKE) $(PARALLEL_BUILD)
+
+bb_install: DESTDIR?=$(BUILD_SYSROOT)
+bb_install: $(bb_BUILDDIR)/.config
+	$(bb_MAKE) CONFIG_PREFIX=$(DESTDIR) $(PARALLEL_BUILD) $(@:bb_%=%)
 
 bb_%: $(bb_BUILDDIR)/.config
 	$(bb_MAKE) $(PARALLEL_BUILD) $(@:bb_%=%)
@@ -387,6 +408,26 @@ dist_phase2-bp:
 dist-bp:
 	$(MAKE) dist1-bp
 
+dist_lfs:
+	$(MAKE) DESTDIR=$(dist_DIR)/lfs bb_install
+	cd $(TOOLCHAIN_SYSROOT) && \
+	  rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+	      $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
+		    *.a *.o *.la,--exclude="${i}") \
+	      lib lib64 usr/lib usr/lib64 \
+	      $(dist_DIR)/lfs/
+	cd $(TOOLCHAIN_SYSROOT) && \
+	  rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+	      $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
+	      sbin usr/bin usr/sbin \
+	      $(dist_DIR)/lfs/
+	# $(MAKE) dist_strip_DIR=$(dist_DIR)/lfs/ \
+	#     dist_strip_log=$(BUILDDIR)/lfs_strip.log dist_strip
+	rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(PROJDIR)/prebuilt/common/*) \
+	    $(dist_DIR)/lfs/
+	rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*) \
+	    $(dist_DIR)/lfs/
+
 SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
 
 dist-bp_sd: | $(SD_BOOT)/boot/dtb
@@ -408,6 +449,110 @@ dist-bp_sd2: SD_ROOT=$(firstword $(wildcard /media/$(USER)/rootfs))
 dist-bp_sd2:
 	$(MAKE) CONFIG_PREFIX=$(SD_ROOT) bb_install
 	$(MAKE) INSTALL_MOD_PATH=$(SD_ROOT) linux_modules_install
+
+#------------------------------------
+#
+dist_strip_known_sh_pattern=\.sh \.pl \.py c_rehash ncursesw6-config alsaconf \
+    $(addprefix usr/bin/,xtrace tzselect ldd sotruss catchsegv mtrace) \.la
+dist_strip_known_sh_pattern2=$(subst $(SPACE),|,$(sort $(subst $(COMMA),$(SPACE), \
+    $(dist_strip_known_sh_pattern))))
+dist_strip:
+	@echo -e "$(ANSI_GREEN)Strip executable$(if $($(@)_log),$(COMMA) log to $($(@)_log))$(ANSI_NORMAL)"
+	@$(if $($(@)_log),echo "" >> $($(@)_log); date >> $($(@)_log))
+	@$(if $($(@)_log),echo "Start strip; path: $($(@)_DIR) $($(@)_EXTRA)" >> $($(@)_log))
+	@for i in $(addprefix $($(@)_DIR), \
+	  usr/lib/libgcc_s.so.1 usr/lib64/libgcc_s.so.1 \
+	  bin sbin lib lib64 usr/bin usr/sbin usr/lib usr/lib64) $($(@)_EXTRA); do \
+	  if [ ! -e "$$i" ]; then \
+	    $(if $($(@)_log),echo "Strip skipping missing explicite $$i" >> $($(@)_log);) \
+	    continue; \
+	  fi; \
+	  [ -f "$$i" ] && { \
+	    $(if $($(@)_log),echo "Strip explicite $$i" >> $($(@)_log);) \
+	    $(STRIP) -g $$i; \
+	    continue; \
+	  }; \
+	  [ -d "$$i" ] && { \
+	    $(if $($(@)_log),echo "Strip recurse dir $$i" >> $($(@)_log);) \
+	    for j in `find $$i`; do \
+	      [[ "$$j" =~ .+($(dist_strip_known_sh_pattern2)) ]] && { \
+	        $(if $($(@)_log),echo "Skip known script/file $$j" >> $($(@)_log);) \
+	        continue; \
+		  }; \
+	      [[ "$$j" =~ .*/lib/modules/.+\.ko ]] && { \
+	        $(if $($(@)_log),echo "Strip implicite kernel module $$j" >> $($(@)_log);) \
+	        $(STRIP) -g $$j; \
+	        continue; \
+	      }; \
+	      [ ! -x "$$j" ] && { \
+	        $(if $($(@)_log),echo "Strip skipping non-executable $$j" >> $($(@)_log);) \
+	        continue; \
+	      }; \
+	      [ -L "$$j" ] && { \
+	        $(if $($(@)_log),echo "Strip skipping symbolic $$j -> `readlink $$j`" >> $($(@)_log);) \
+	        continue; \
+	      }; \
+	      [ -d "$$j" ] && { \
+	        $(if $($(@)_log),echo "Strip skipping dirname $$j" >> $($(@)_log);) \
+	        continue; \
+	      }; \
+	      $(if $($(@)_log),echo "Strip implicite file $$j" >> $($(@)_log);) \
+	      $(STRIP) -g $$j; \
+	    done; \
+	  }; \
+	done
+
+# ~/07_sw/arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-readelf -d destdir/sdcard/rootfs/lib/libavcodec.so.58.134.100 | sed -nE "s/.*\(NEEDED\)\s+Shared library:\s*\[(.*)\]/\1/p"
+# ~/07_sw/arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-objdump -p destdir/rootfs_least/bin/busybox | sed -nE "s/^\s*NEEDED\s+(.*)/\1/p"
+dist_elfdep: elfdep_log=$(BUILDDIR)/elfdep_log-$(APP_PLATFORM).txt
+dist_elfdep:
+	@echo -e "$(ANSI_GREEN)ELF dep dump$(ANSI_NORMAL)"
+	@echo "# `date`" $(if $(elfdep_log),&>> $(elfdep_log))
+	for i in $(addprefix $(dist_DIR)/rootfs/, \
+	    usr/lib/libgcc_s.so.1 usr/lib64/libgcc_s.so.1 \
+	    bin sbin lib lib64 usr/bin usr/sbin usr/lib usr/lib64); do \
+	  if [ ! -e "$$i" ]; then \
+	    echo "# Skipping missing explicite $$i" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	    continue; \
+	  fi; \
+	  [ -f "$$i" ] && { \
+	    echo "# ELF explicite $$i" $(if $(elfdep_log),&>> $(elfdep_log)); \
+		$(call ELFDEP,"$$i") $(if $(elfdep_log),&>> $(elfdep_log)); \
+	    continue; \
+	  }; \
+	  [ -d "$$i" ] && { \
+	    echo "# Recurse dir $$i" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	    for j in `find $$i`; do \
+	      [[ "$$j" =~ .+(\.sh|\.pl|\.py|c_rehash|ncursesw6-config|alsaconf) ]] && { \
+	        echo "# Skip known script/file $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	        continue; \
+	      }; \
+	      [[ "$$j" =~ .*/lib/modules/.+\.ko ]] && { \
+	        echo "# ELF implicite kernel module $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	        $(call ELFDEP,"$$j") $(if $(elfdep_log),&>> $(elfdep_log)); \
+	        continue; \
+	      }; \
+	      [ ! -x "$$j" ] && { \
+	        echo "# Skipping non-executable $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	        continue; \
+	      }; \
+	      [ -L "$$j" ] && { \
+	        echo "# Skipping symbolic $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	        continue; \
+	      }; \
+	      [ -d "$$j" ] && { \
+	        echo "# Skipping dirname $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	        continue; \
+	      }; \
+	      echo "# ELF implicite file $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
+	      $(call ELFDEP,"$$j") $(if $(elfdep_log),&>> $(elfdep_log)); \
+	    done; \
+	  }; \
+	done
+	echo "" $(if $(elfdep_log),&>> $(elfdep_log))
+	echo "# Sorted result" $(if $(elfdep_log),&>> $(elfdep_log))
+	$(if $(elfdep_log), cat "$(elfdep_log)" | "grep" -v -e "^\s*#" -e "^\s*$$" \
+	  | sort | uniq &>> $(elfdep_log))
 
 #------------------------------------
 #

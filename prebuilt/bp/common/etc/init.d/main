@@ -1,0 +1,78 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="main-initd"
+
+log_d "$0 $*"
+
+_pri_kill_prog=".*adk|.*WACServer|.*airplaydemo|.*wpa_supplicant|.*hostapd|.*mdnsd|.*udhcpd|.*udhcpc|.*zcip"
+
+on_exit_rm_list=
+on_exit () {
+  log_d "housekeep $on_exit_rm_list"
+  [ -z "$on_exit_rm_list" ] || rm -rf $on_exit_rm_list
+}
+
+trap "on_exit" INT TERM EXIT
+
+main_stop () {
+  local skip_mdns=
+  for i in $*; do
+    [ "$i" = "skip_mdns" ] && skip_mdns=1
+  done
+
+  /etc/init.d/adk-initd stop
+  [ -n "$skip_mdns" ] || /etc/init.d/mdnsd-initd stop
+  cmd_run zcipwrapper stop-all
+  cmd_run wpasup stop
+  for _pri_ifce in `ifce_list "MULTICAST"`; do
+    cmd_run ip_del_ifce $_pri_ifce
+    cmd_run route_del_ifce $_pri_ifce
+  done
+  kill_prog $_pri_kill_prog
+}
+
+provisioning () {
+  log_d "Provisioning"
+  cmd_run wphy_wait 20 &>/dev/null || { log_e "Provisioning failed, miss wifi interface"; exit 1; }
+  main_stop
+  /etc/init.d/adk-initd start
+}
+
+case $1 in
+stop)
+  shift
+  main_stop "$@"
+  ;;
+provisioning)
+  shift
+  provisioning "$@"
+  exit
+  ;;
+pairing_done)
+  log_d "pairing done"
+  ;;
+restart)
+  shift
+  skip_mdns=1 $0 stop && $0 start "$@"
+  ;;
+manual)
+  cmd_run eval "echo -n | aplay -c 1 -t raw -f S16_LE &>/dev/null"
+  [ -f $wpasup_cfg ] || cmd_run cp /etc/wpa_supplicant-template.conf $wpasup_cfg
+
+  cmd_run eval "wpa_supplicant -Dnl80211 -iwlan0 -c${wpasup_cfg} -B -d &>/dev/console"
+  
+  /etc/init.d/adk-initd manual
+  ;;
+*)
+  cmd_run eval "echo -n | aplay -c 1 -t raw -f S16_LE &>/dev/null"
+  [ -f $wpasup_cfg ] || cmd_run cp /etc/wpa_supplicant-template.conf $wpasup_cfg
+
+  func_rel || _lo_verbose=-sd
+  cmd_run eval "wpa_supplicant -Dnl80211 -iwlan0 -c${wpasup_cfg} -B ${_lo_verbose}"
+  
+  /etc/init.d/adk-initd start
+
+  ;;
+esac

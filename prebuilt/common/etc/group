@@ -1,0 +1,4 @@
+root:x:0:root
+wheel:x:10:root,sys
+netdev:x:119:sys
+nogroup:x:1000:nobody

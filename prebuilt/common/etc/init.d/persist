@@ -1,0 +1,82 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="persist-initd"
+
+log_d "$0 $*"
+
+_pri_mtd="$(find_mtd persist)"
+
+persist_detach () {
+  [ -n "$_pri_mtd" ] || { log_e "no persist mtd"; return 1; }
+  _pri_ubi=$(find_ubi "$_pri_mtd") || { log_d "detached"; return 0; }
+  if grep -qs "/dev/ubi${_pri_ubi}_0 ${persist_cfg}" /proc/mounts; then
+    cmd_run umount "${persist_cfg}" || { log_e "umount ${persist_cfg}"; return 1; }
+    log_d "umounted ${persist_cfg}"
+  fi
+  cmd_run ubidetach -m "${_pri_mtd}" || { log_e "ubidetach mtd${_pri_mtd}"; return 1; }
+  log_d "ubidetach mtd${_pri_mtd}"
+}
+
+persist_format () {
+  [ -n "$_pri_mtd" ] || { log_e "no persist mtd"; return 1; }
+  cmd_run ubiformat "/dev/mtd${_pri_mtd}" -y || { log_e "ubiformat mtd${_pri_mtd}"; return 1; }
+  cmd_run ubiattach -m "$_pri_mtd" >/dev/null 2>&1 || { log_e "ubiattach mtd${_pri_mtd}"; return 1; }
+  _pri_ubi=$(find_ubi "$_pri_mtd") || { log_e "no ubi for persist"; return 1; }
+  _pri_ubins="persist"
+  cmd_run ubimkvol "/dev/ubi${_pri_ubi}" --maxavsize -N "${_pri_ubins}"
+  # mount -t ubifs "ubi${_pri_ubi}:${_pri_ubins}" "${persist_cfg}" || { log_e "mount persist ubi"; return 1; }  
+  cmd_run ubidetach -m "${_pri_mtd}" || { log_e "ubidetach mtd${_pri_mtd}"; return 1; }
+  return 0
+}
+
+persist_mount () {
+  [ -n "$_pri_mtd" ] || { log_e "no persist mtd"; return 1; }
+  _pri_ubi=$(find_ubi "$_pri_mtd")
+  if [ -z "$_pri_ubi" ]; then
+    cmd_run ubiattach -m "$_pri_mtd" >/dev/null 2>&1 || { log_e "attach persist ubi"; return 1; }
+    _pri_ubi=$(find_ubi "$_pri_mtd") || { log_e "no ubi for persist"; return 1; }
+    log_d "attached mtd${_pri_mtd} to ubi${_pri_ubi}"
+  else
+    log_d "found mtd${_pri_mtd} to ubi${_pri_ubi}"
+  fi
+  if ! cmd_run grep -qs "/dev/ubi${_pri_ubi}_0 ${persist_cfg}" /proc/mounts; then
+    [ -d "${persist_cfg}" ] || mkdir -p "${persist_cfg}"
+    cmd_run mount -t ubifs "/dev/ubi${_pri_ubi}_0" "${persist_cfg}" || { log_e "mount persist ubi"; return 1; }
+    log_d "mounted /dev/ubi${_pri_ubi}_0 to ${persist_cfg}"
+  else
+    log_d "found persist mounted"
+  fi
+  return 0
+}
+
+case "$1" in
+"start")
+  persist_mount && exit 0
+  # log_d "Failed mount, try format"
+  # $0 format
+  exit
+  ;;
+"stop")
+  persist_detach
+  exit
+  ;;
+"format")
+  persist_detach || exit 1
+  persist_format || exit 1
+  persist_mount
+  exit
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

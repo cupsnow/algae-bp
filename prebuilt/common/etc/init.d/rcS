@@ -1,0 +1,56 @@
+#!/bin/sh
+
+[ -d /proc ] || mkdir -p /proc
+mount /proc
+
+[ -d /sys ] || mkdir -p /sys
+mount /sys
+
+# devtmpfs may automount
+[ -d /dev ] || mkdir -p /dev
+grep -e "^devtmpfs\s*/dev\s*devtmpfs\s*" /proc/mounts ||
+  mount /dev
+
+[ -d /dev/pts ] || mkdir -p /dev/pts
+mount /dev/pts
+
+[ -d /dev/mqueue ] || mkdir -p /dev/mqueue
+mount -t mqueue none /dev/mqueue
+
+for i in /var/run /var/lock; do
+  [ -d "${i}" ] || mkdir -p "${i}"
+  mount -t tmpfs -osize=10m none "${i}"
+done
+
+for i in /media; do
+  [ -d "${i}" ] || mkdir -p "${i}"
+  mount -t tmpfs -osize=40m none "${i}"
+done
+
+mount -t debugfs none /sys/kernel/debug &> /dev/null
+
+[ -e /etc/ld.so.cache ] || ldconfig -C /var/run/ld.so.cache
+
+[ -e /etc/TZ ] && export TZ=$(cat /etc/TZ)
+
+syslogd -C800 -s 200 -b 1 # && klogd
+
+fw_fallback_ignore_knob=/proc/sys/kernel/firmware_config/ignore_sysfs_fallback
+[ -e $fw_fallback_ignore_knob ] && echo "1" > $fw_fallback_ignore_knob
+
+# echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
+
+# echo N > /sys/module/printk/parameters/console_suspend
+
+bufsz=852000
+sysctl -w "net.core.rmem_default=${bufsz}" &>/dev/null
+sysctl -w "net.core.wmem_default=${bufsz}" &>/dev/null
+sysctl -w "net.core.rmem_max=${bufsz}" &>/dev/null
+sysctl -w "net.core.wmem_max=${bufsz}" &>/dev/null
+
+gpioset 0 71=0
+echo -n | aplay -t raw -f S16_LE &>/dev/null
+
+[ -d /tmp ] && rm -rf /tmp/*
+
+source /etc/init.d/start

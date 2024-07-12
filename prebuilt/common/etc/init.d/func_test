@@ -1,0 +1,32 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+help () {
+cat <<-EOHELP
+USAGE
+  $(basename 0) [OPTIONS|COMMAND]
+
+OPTIONS
+  -h, --help  Show this hellp
+
+COMMAND
+  kill_prog <PAT>  kill by pid which found by pgrep -x <PAT>
+      ex: kill_prog "wpa_supplicant|udhcpc"
+  as_num <STR>     Output the number state in STR or empty string
+      ex: as_num 0x20
+  log_f <FILE> [STR]
+      Append STR or header to FILE
+  route_del_ifce <IFCE>   Del route about dev <IFCE>
+
+EOHELP
+}
+
+case "$1" in
+""|-h|--help)
+  help
+  exit 1
+  ;;
+esac
+
+"$@"

@@ -1,0 +1,90 @@
+#!/bin/sh
+
+if [ -n "$hostdebug" ]; then
+. builder/mock_func.sh
+else
+. /etc/init.d/func
+fi
+
+_pri_bn="$(basename $0)"
+_pri_tag="${_pri_bn}[$$]"
+
+_pri_freq=1000
+_pri_dur=1
+_pri_vol=
+_pri_rate=
+_pri_bit=
+
+show_help () {
+cat <<-EOHELP
+USAGE
+  ${1:-$(basename "$0")} [OPTIONS]
+
+DESCRIPTION
+  Generate sine tone (default amplitude 1/8)
+
+OPTIONS
+  -a, --amp=<AMP>       Volume [$_pri_vol]
+  -b, --bit             Sampling bit in 16, 24, 32 [$_pri_bit]
+  -d, --dur=<DUR>       Duration [$_pri_dur]
+  -f, --freq=<FREQ>     Frequency [$_pri_freq]
+  -h, --help            Show this help
+  -o, --outwav=<OUTWAV> Output wave file
+  -r, --rate            Sampling rate [$_pri_rate]
+EOHELP
+}
+
+_pri_opts="$(getopt -l amp:,bit:,dur:,freq:,help,outwav:,rate: -- a:b:d:f:ho:r: "$@")" || exit 1
+eval set -- "$_pri_opts"
+while true; do
+  case "$1" in
+  -a|--amp)
+    _pri_vol=$(( $2 ))
+    shift 2
+    ;;
+  -b|--bit)
+    _pri_bit=$(( $2 ))
+    shift 2
+    ;;
+  -d|--dur)
+    _pri_dur=$(( $2 ))
+    shift 2
+    ;;
+  -f|--freq)
+    _pri_freq=$(( $2 ))
+    shift 2
+    ;;
+  -o|--outwav)
+    _pri_outwav="$2"
+    shift 2
+    ;;
+  -r|--rate)
+    _pri_rate=$2
+    shift 2
+    ;;
+  -h|--help)
+    show_help
+    # shift
+    exit 1
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    echo "Invalid argument $1"
+    exit 1
+    ;;
+  esac
+done
+
+_pri_ff="ffmpeg -f lavfi -i sine=frequency=${_pri_freq}:duration=${_pri_dur}"
+_pri_ff="$_pri_ff ${_pri_vol:+-filter:a volume=$_pri_vol}"
+_pri_ff="$_pri_ff ${_pri_rate:+-ar $_pri_rate}"
+_pri_ff="$_pri_ff ${_pri_bit:+-c:a pcm_s${_pri_bit}le}"
+
+if [ -n "$_pri_outwav" ]; then
+  cmd_run eval "$_pri_ff -f wav $_pri_outwav"
+else
+  cmd_run eval "$_pri_ff -f wav - | aplay"
+fi

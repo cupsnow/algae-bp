@@ -1,0 +1,85 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="ax88772"
+
+log_d "$0 $*"
+
+_pri_regdom=TW
+
+_pri_asix_oui="00:0e:c6"
+
+ax88772_stop () {
+  for i in asix; do
+    [ ! -e "/sys/module/$i" ] || rmmod $i
+  done
+  # for i in usbnet mii; do
+  #   [ ! -e "/sys/module/$i" ] || rmmod $i
+  # done
+}
+
+ax88772_start () {
+  # local cfg80211_args="${_pri_regdom:+ieee80211_regdom=$_pri_regdom}"
+  local ko_root="/lib/modules/`uname -r`"
+  local asix_root="${ko_root}/extra"
+  local asix_ko="`find ${asix_root} -iname asix.ko`"
+  [ -e ${asix_ko} ] || { log_e "missing asix.ko"; return 1; }
+
+  local mii_ko="`find ${ko_root}/kernel -iname mii.ko`"
+  [ -e ${mii_ko} ] || { log_e "missing mii.ko"; return 1; }
+
+  local usbnet_ko="`find ${ko_root}/kernel -iname usbnet.ko`"
+  [ -e ${usbnet_ko} ] || { log_e "missing usbnet.ko"; return 1; }
+
+  # local cfg80211=`find ${ko_root}/kernel -iname cfg80211.ko`
+  # [ -e "${cfg80211}" ] || { log_e "missing cfg80211.ko"; return 1; }
+
+  # local compat="`find ${ko_root}/kernel -iname compat.ko`"
+
+  # if [ -e "${compat}" ]; then
+  #   do_insmod ${compat} || return 1
+  # else
+  #   log_d "module ignore: compat.ko"
+  # fi
+
+  # do_insmod ${cfg80211} ${cfg80211_args} || return 1
+  do_insmod ${mii_ko} || return 1
+  do_insmod ${usbnet_ko} || return 1
+  do_insmod ${asix_ko} || return 1
+
+  local macaddr="$(norm_macaddr "$(get_inient1 "$macaddr_cfg" macaddr)" ":")"
+  if [ -z "$macaddr" ]; then
+    macaddr="${_pri_asix_oui}:$(hex_gen 3)"
+    echo "macaddr=$macaddr" > $macaddr_cfg
+    log_sd "generate $(cat $macaddr_cfg)"
+  fi
+  sleep 0.5
+  ip l set eth0 up address $macaddr
+}
+
+case "$1" in
+start)
+  shift
+  ax88772_start || { log_se "Failed load ax88772"; exit 1; }
+  ;;
+stop)
+  shift
+  ax88772_stop
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

@@ -1,0 +1,36 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="zcip-default"
+
+[ -n "$interface" ] || exit 1
+
+# _pri_zcip_log="/var/run/zcip-default.log"
+# [ -f "$_pri_zcip_log" ] && rm $_pri_zcip_log
+
+_pri_zcip_log=${_pri_zcip_log:-/dev/null}
+log_f "$_pri_zcip_log"
+log_f "$_pri_zcip_log" "$0 $*"
+# env >> $_pri_zcip_log
+
+log_d "$0 $*"
+
+case "$1" in
+config)
+  [ -n "$ip" ] || exit 1
+  route_del_ifce $interface
+  ip_del_ifce $interface
+  cmd_run exec ip address add dev $interface \
+    scope link local "$ip/16" broadcast +
+  ;;
+deconfig)
+  [ -n "$ip" ] || exit 1
+  # cmd_run exec ip address del dev $interface local $ip
+  route_del_ifce $interface
+  ip_del_ifce $interface
+  ;;
+*)
+  ;;
+esac
+

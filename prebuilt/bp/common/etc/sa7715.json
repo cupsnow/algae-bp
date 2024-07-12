@@ -1,0 +1,1 @@
+{"device_name": "Eve Play", "manufacturer": "Eve Systems", "model": "Eve Play 20EBR8701", "serial_number": "TV", "version_code": [1, 1, 43], "build_number": 88, "hw_version": "1.0", "led": [{"color": "white", "pin": 38}, {"color": "red", "pin": 39}], "board_type": 102, "version": "1.1.43", "hap_product_data": "2077577376AF6313", "downgradable": true}

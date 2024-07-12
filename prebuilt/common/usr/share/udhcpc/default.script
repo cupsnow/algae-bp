@@ -1,0 +1,61 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="udhcpc-default[$$]"
+
+log_d "$0 $*"
+
+# _pri_udhcpc_log="/var/run/udhcpc-default.log"
+# [ -f "$_pri_udhcpc_log" ] && rm $_pri_udhcpc_log
+
+_pri_udhcpc_log=${_pri_udhcpc_log:-/dev/null}
+log_f "$_pri_udhcpc_log"
+log_f "$_pri_udhcpc_log" "$0 $*"
+# env >> $_pri_udhcpc_log
+
+[ -n "$broadcast" ] && BROADCAST="broadcast $broadcast"
+[ -n "$subnet" ] && NETMASK="netmask $subnet"
+
+case "$1" in
+"deconfig")
+  route_del_ifce $interface
+  ip_del_ifce $interface
+  ;;
+"bound"|"renew")
+  ifconfig $interface $ip $BROADCAST $NETMASK
+
+  if [ -n "$router" ]; then
+    log_d "deleting routers"
+    while route del default gw 0.0.0.0 dev $interface; do
+      :
+    done
+
+    metric=0
+    for i in $router; do
+      if [ "$subnet" = "255.255.255.255" ]; then
+        # special case for /32 subnets:
+        # /32 instructs kernel to always use routing for all outgoing packets
+        # (they can never be sent to local subnet - there is no local subnet   for /32).
+        # Used in datacenters, avoids the need for private ip-addresses   between two hops.
+        cmd_run ip route add $i dev $interface
+      fi
+      cmd_run route add default gw $i dev $interface metric $((metric++))
+    done
+  fi
+
+  # Only replace resolv.conf if we have at least one DNS server
+  if [ -n "$dns" ]; then
+    [ -d `dirname $resolv_cfg` ] || mkdir -p `dirname $resolv_cfg`
+    echo -n > $resolv_cfg
+    [ -n "$domain" ] && echo domain $domain >> $resolv_cfg
+    for i in $dns; do
+      log_d "adding dns $i"
+      echo nameserver $i >> $resolv_cfg
+    done
+  fi
+  ;;
+*)
+  ;;
+esac
+

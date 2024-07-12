@@ -1,0 +1,50 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="testhostapd"
+
+log_d () {
+  echo "[debug]$*"
+}
+
+cmd_run () {
+  log_d "[cmd_run]$*"
+  "$@"
+}
+
+_pri_ifce=wlan0
+
+_pri_netaddr=192.168.1
+_pri_ipaddr=${_pri_netaddr}.1
+
+_pri_udhcpdcfg=udhcpd.conf
+_pri_udhcpdlease=/var/run/udhcpd.lease
+
+echo -n '' > $_pri_udhcpdlease
+cat <<-EOFCFG >$_pri_udhcpdcfg
+start ${_pri_netaddr}.100
+end ${_pri_netaddr}.150
+interface ${_pri_ifce}
+lease_file $_pri_udhcpdlease
+max_leases 50
+EOFCFG
+
+_pri_hostapdcfg=/var/run/hostapd.conf
+
+cat <<-EOFCFG >$_pri_hostapdcfg
+interface=wlan0
+driver=nl80211
+ssid=Eve Play-CE62
+country_code=TW
+hw_mode=g
+channel=6
+vendor_elements=DD4600A04000000340034C010845766520506C6179020B4576652053797374656D73031245766520506C6179203230454252383730310706541CE882BAA4080222000904D082F788
+EOFCFG
+
+cmd_run ifconfig ${_pri_ifce} $_pri_ipaddr netmask 255.255.255.0 \
+  broadcast 255.255.255.255 || { log_e "Failed set ${_pri_ifce} $_pri_ipaddr"; exit 1; }
+
+cmd_run udhcpd -I $_pri_ipaddr $_pri_udhcpdcfg || { log_e "Failed start udhcpd"; exit 1; }
+
+cmd_run hostapd -B $_pri_hostapdcfg
