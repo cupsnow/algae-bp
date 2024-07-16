@@ -2,7 +2,7 @@
 #
 include builder/proj.mk
 
-PARALLEL_BUILD?=-j10
+PARALLEL_BUILD?=$(or $(1),-j)10
 
 PKGDIR=$(PROJDIR)/package
 PKGDIR2=$(abspath $(PROJDIR)/..)
@@ -11,12 +11,13 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
 APP_ATTR_bp?=bp
+APP_ATTR_qemuarm64?=qemuarm64
 
 APP_PLATFORM?=bp
 
 export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
 
-ifneq ($(strip $(filter bp bpim64,$(APP_PLATFORM))),)
+ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
 else
 APP_BUILD=$(APP_PLATFORM)
@@ -44,7 +45,7 @@ ifneq ($(strip $(AARCH64_TOOLCHAIN_PATH)),)
 PATH_PUSH+=$(AARCH64_TOOLCHAIN_PATH)/bin
 endif
 
-ifneq ($(strip $(filter bp bpim64,$(APP_PLATFORM))),)
+ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
@@ -116,11 +117,18 @@ optee_%:
 GENPYVENV+=pyelftools cryptography
 
 #------------------------------------
+# git clong -b ti-linux-firmware git://git.ti.com/processor-firmware/ti-linux-firmware.git
+# 
+ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware-upstream
+
+#------------------------------------
 # apt install libssl-dev device-tree-compiler swig python3-distutils
 # apt install python3-dev python3-setuptools
 # for build doc: pip install yamllint jsonschema
 #
-ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
+# qemu-system-aarch64 -machine virt,virtualization=on,secure=off -cpu max \
+#   -bios ../build/uboot-qemuarm64/u-boot.bin -nographic
+#
 uboot_DIR=$(PKGDIR2)/u-boot-upstream
 uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 
@@ -136,6 +144,9 @@ uboot_MAKEARGS-bp-a53+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
         $(atf_BUILDDIR)/k3/lite/debug/bl31.bin)) \
     TEE=$(optee_BUILDDIR)/core/tee-raw.bin CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
+
+uboot_MAKEARGS-qemuarm64+=CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+uboot_defconfig-qemuarm64=qemu_arm64_defconfig
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
 	if [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
@@ -178,6 +189,9 @@ ubootenv $(BUILDDIR)/uboot.env:
 
 else
 # normal case
+
+$(addprefix uboot_,help):
+	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 $(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
 	. $(BUILDDIR)/pyvenv/bin/activate && \
@@ -223,110 +237,56 @@ endif
 $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
 
-#uboot-bp-r5 $(uboot-bp-r5_BUILDDIR)/spl/u-boot-spl.bin: | $(uboot-bp-r5_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-#	. $(BUILDDIR)/pyvenv/bin/activate && \
-#	  $(uboot-bp-r5_MAKE) $(PARALLEL_BUILD)
-
-#$(addprefix uboot-bp-r5_,menuconfig savedefconfig oldconfig): | $(uboot-bp-r5_BUILDDIR)/.config
-#	$(uboot-bp-r5_MAKE) $(@:uboot-bp-r5_%=%)
-
-#uboot-bp-a53_BUILDDIR=$(BUILDDIR2)/uboot-bp-a53
-#uboot-bp-a53_MAKE=$(MAKE) O=$(uboot-bp-a53_BUILDDIR) \
-#    BINMAN_INDIRS=$(ti-linux-fw_DIR) \
-#    BL31=$(firstword $(wildcard $(atfa-bp_BUILDDIR)/k3/lite/release/bl31.bin $(atfa-bp_BUILDDIR)/k3/lite/debug/bl31.bin)) \
-#    TEE=$(optee-bp_BUILDDIR)/core/tee-raw.bin \
-#    CROSS_COMPILE=$(CROSS_COMPILE) \
-#    -C $(uboot_DIR)
-
-#uboot-bp-a53_defconfig $(uboot-bp-a53_BUILDDIR)/.config: | $(uboot-bp-a53_BUILDDIR)
-#	if [ -f uboot-bp-am62x_beagleplay_a53_defconfig ]; then \
-#	  cp uboot-bp-am62x_beagleplay_a53_defconfig $(uboot-bp-a53_BUILDDIR)/.config && \
-#	  yes "" | $(uboot-bp-a53_MAKE) oldconfig; \
-#	else \
-#	  $(uboot-bp-a53_MAKE) am62x_beagleplay_a53_defconfig; \
-#	fi
-
-#uboot-bp-a53 $(uboot-bp-a53_BUILDDIR)/spl/u-boot-spl.bin: | $(BUILDDIR)/pyvenv $(uboot-bp-a53_BUILDDIR)/.config
-#	. $(BUILDDIR)/pyvenv/bin/activate && \
-#	  $(uboot-bp-a53_MAKE) $(PARALLEL_BUILD)
-
-# $(addprefix uboot-bp-a53_,menuconfig savedefconfig oldconfig): | $(uboot-bp-a53_BUILDDIR)/.config
-# 	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
-
-# $(addprefix uboot-bp-a53_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot-bp-a53_BUILDDIR)
-# 	. $(BUILDDIR)/pyvenv/bin/activate && \
-# 	  $(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
-
-# $(addprefix uboot-bp-a53_,tools): | $(uboot-bp-a53_BUILDDIR)
-# 	$(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
-
-# uboot-bp-a53_%:
-# 	  $(uboot-bp-a53_MAKE) $(@:uboot-bp-a53_%=%)
-
-# UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
-#     mkenvimage mkimage proftool spl_size_limit
-# uboot-bp-a53_tools_install $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)): | $(PROJDIR)/tool/bin
-# 	$(MAKE) uboot-bp-a53_tools
-# 	for i in $(UBOOT_TOOLS); do \
-# 	  cp -v $(uboot-bp-a53_BUILDDIR)/tools/$$i $(PROJDIR)/tool/bin/; \
-# 	done
-
-# ubootenv: UENV_SIZE?=$(shell $(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(firstword $(wildcard $(uboot_BUILDDIR)/.config)))
-# ubootenv $(BUILDDIR)/uboot.env: ubootenv-bp.txt | $(PROJDIR)/tool/bin/mkenvimage
-# 	$(PROJDIR)/tool/bin/mkenvimage -s $(or $(UENV_SIZE),0x1f000) \
-# 	  -o $(BUILDDIR)/uboot.env ubootenv-bp.txt
-
-
 #------------------------------------
 # for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH 
 #
 
 # linux_DIR=$(PKGDIR2)/linux-6.9.1
 linux_DIR=$(PKGDIR2)/linux-upstream
-linux-bp_BUILDDIR?=$(BUILDDIR2)/linux-bp
-linux-bp_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
-    O=$(linux-bp_BUILDDIR) -C $(linux_DIR)
+linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
+linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
+    -C $(linux_DIR)
 
-linux-bp_defconfig $(linux-bp_BUILDDIR)/.config: | $(linux-bp_BUILDDIR)
-	if [ -f "$(PROJDIR)/linux-bp.config" ]; then \
-	  cp -v $(PROJDIR)/linux-bp.config $(linux-bp_BUILDDIR)/.config && \
-	  yes "" | $(linux-bp_MAKE) oldconfig; \
+linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+
+linux_defconfig-bp=defconfig
+
+linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
+	if [ -f "$(PROJDIR)/linux-$(APP_PLATFORM).config" ]; then \
+	  cp -v $(PROJDIR)/linux-$(APP_PLATFORM).config $(linux_BUILDDIR)/.config && \
+	  yes "" | $(linux_MAKE) oldconfig; \
 	else \
-	  $(linux-bp_MAKE) defconfig; \
+	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
 
-linux-bp: | $(linux-bp_BUILDDIR)/.config
-	$(linux-bp_MAKE) $(PARALLEL_BUILD)
+$(addprefix linux_,help):
+	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
-linux-bp_%: | $(linux-bp_BUILDDIR)/.config
-	$(linux-bp_MAKE) $(PARALLEL_BUILD) $(@:linux-bp_%=%)
+# dep: apt install dvipng imagemagick
+#      pip install sphinx_rtd_theme six
+$(addprefix linux_,htmldocs): | $(BUILDDIR)/pyvenv $(linux_BUILDDIR)
+	. $(BUILDDIR)/pyvenv/bin/activate && \
+	  $(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
-# linux: $(linux_BUILDDIR)/.config
-# 	$(linux_MAKE) $(BUILDPARALLEL:%=-j%)
+$(addprefix linux_,menuconfig savedefconfig oldconfig): | $(linux_BUILDDIR)/.config
+	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
-# linux_%: $(linux_BUILDDIR)/.config
-# 	$(linux_MAKE) $(BUILDPARALLEL:%=-j%) $(@:linux_%=%)
+linux: | $(linux_BUILDDIR)/.config
+	$(linux_MAKE) $(PARALLEL_BUILD)
+
+linux_%: | $(linux_BUILDDIR)/.config
+	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
 kernelrelease=$(BUILDDIR)/kernelrelease-$(APP_PLATFORM)
 kernelrelease $(kernelrelease): | $(dir $(kernelrelease))
-	$(linux-bp_MAKE) -s --no-print-directory kernelrelease > $(kernelrelease)
+	$(linux_MAKE) -s --no-print-directory kernelrelease > $(kernelrelease)
 	@cat "$(kernelrelease)"
 
 GENDIR+=$(dir $(kernelrelease))
 
-# dep: apt install dvipng imagemagick
-#      pip install sphinx_rtd_theme six
-$(addprefix linux-bp_,help htmldocs): | $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(linux-bp_MAKE) $(@:linux-bp_%=%)
-
-linux: linux-$(APP_PLATFORM)
-linux_%:
-	$(MAKE) linux-$(APP_PLATFORM)$(@:linux%=%)
-
 GENPYVENV+=sphinx_rtd_theme six
 
-GENDIR+=$(linux-bp_BUILDDIR)
+GENDIR+=$(linux_BUILDDIR)
 
 #------------------------------------
 # for install: make with variable CONFIG_PREFIX
@@ -391,6 +351,36 @@ dummy1:
 #
 dist_DIR=$(PROJDIR)/destdir
 
+
+# qemu esc: ctrl-a x
+#   qemu-system-aarch64 -machine virt,virtualization=on,secure=off \
+#       -cpu cortex-a57 -m 512 -smp 1 \
+#       -M virt,dumpdtb=cortex-a57.dtb \
+#       -bios ../build/uboot-qemuarm64/u-boot.bin \
+#       -drive file=fat:rw:./destdir/qemuarm64,format=raw,media=disk \
+#       -nographic
+#
+#   qemu-system-aarch64 -machine virt,virtualization=on,secure=off \
+#       -cpu cortex-a57 -m 512 -smp 1 \
+#       -kernel ./destdir/qemuarm64/boot/Image \
+#       -append "noinitrd root=/dev/vda rw console=ttyAMA0"
+#       -nographic \
+# host
+#   dtc -I dtb -O dts cortex-a57.dtb -o cortex-a57.dts
+# ub
+#   virtio info
+#   fatls virtio 0:1 boot
+#   fatload virtio 0:1 ${kernel_addr_r} boot/Image
+#   fatload virtio 0:1 ${fdt_addr} boot/cortex-a57.dtb
+#   booti ${kernel_addr_r} - ${fdt_addr}
+#   
+dist-qemuarm64:
+	[ -d "$(dist_DIR)/qemuarm64/boot" ] || $(MKDIR) $(dist_DIR)/qemuarm64/boot
+	cp -v $(dir $(linux_BUILDDIR))/linux-bp/arch/arm64/boot/Image.gz \
+	    $(dir $(linux_BUILDDIR))/linux-bp/arch/arm64/boot/Image \
+		$(dir $(linux_BUILDDIR))/linux-bp/vmlinux \
+	    $(dist_DIR)/qemuarm64/boot/
+
 linuxdtb-bp:
 	$(MAKE) linux-bp_dtbs
 	
@@ -449,6 +439,21 @@ dist-bp_sd2: SD_ROOT=$(firstword $(wildcard /media/$(USER)/rootfs))
 dist-bp_sd2:
 	$(MAKE) CONFIG_PREFIX=$(SD_ROOT) bb_install
 	$(MAKE) INSTALL_MOD_PATH=$(SD_ROOT) linux_modules_install
+
+
+#------------------------------------
+# 
+# qemu-system-aarch64 \
+#   -machine virt,virtualization=true,gic-version=3 \
+#   -nographic -m size=1024M -cpu cortex-a57 -smp 2 \
+#   -kernel ../build/linux-bp/arch/arm64/boot/Image \
+#   --append "console=ttyAMA0"
+
+# qemu-system-aarch64 -m 2048 -cpu cortex-a57 -smp 2 -M virt \
+#   -kernel $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
+#   -bios QEMU_EFI.fd -nographic \
+#   -device virtio-scsi-device -drive if=none,file=ubuntuimg.img,format=raw,index=0,id=hd0 \
+#   -device virtio-blk-device,drive=hd0
 
 #------------------------------------
 #
