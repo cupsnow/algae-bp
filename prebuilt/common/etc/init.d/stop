@@ -2,8 +2,8 @@
 
 . /etc/init.d/func
 
-for script in `find /etc/init.d -iname "K[0-9]*" | tac`; do
-  [ -x $script ] || continue;
+for script in $(find /etc/init.d -iname "K[0-9]*" | tac); do
+  [ -x "$script" ] || continue;
   echo "Stop ... $script"
   $script stop
 done

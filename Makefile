@@ -385,26 +385,28 @@ dist_phase2-bp:
 dist-bp:
 	$(MAKE) dist1-bp
 
+CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
+  cd $(TOOLCHAIN_SYSROOT) \
+  && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+      $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
+	      *.a *.o *.la,--exclude="${i}") \
+      lib lib64 usr/lib usr/lib64 \
+      $(1) \
+  && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+      $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
+      sbin usr/bin usr/sbin \
+      $(1)
+
+CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
+	$(if $(strip $(wildcard $(2))), \
+	    rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(2)) $(1))
+
 dist_lfs:
 	$(MAKE) DESTDIR=$(dist_DIR)/lfs bb_destdep_install
-	cd $(TOOLCHAIN_SYSROOT) && \
-	  rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
-	      $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
-		    *.a *.o *.la,--exclude="${i}") \
-	      lib lib64 usr/lib usr/lib64 \
-	      $(dist_DIR)/lfs/
-	cd $(TOOLCHAIN_SYSROOT) && \
-	  rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
-	      $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
-	      sbin usr/bin usr/sbin \
-	      $(dist_DIR)/lfs/
-	# $(MAKE) dist_strip_DIR=$(dist_DIR)/lfs/ \
-	#     dist_strip_log=$(BUILDDIR)/lfs_strip.log dist_strip
-	rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(PROJDIR)/prebuilt/common/*) \
-	    $(dist_DIR)/lfs/
-	rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*) \
-	    $(dist_DIR)/lfs/
-	rm -rf $(dist_DIR)/lfs.bin
+	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(dist_DIR)/lfs/)
+	$(call CMD_RSYNC_PREBUILT,$(dist_DIR)/lfs/,$(PROJDIR)/prebuilt/common/*)
+	$(call CMD_RSYNC_PREBUILT,$(dist_DIR)/lfs/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
+	$(RMTREE) $(dist_DIR)/lfs.bin
 	truncate -s 512M $(dist_DIR)/lfs.bin
 	mkfs.ext4 -d $(dist_DIR)/lfs $(dist_DIR)/lfs.bin
 

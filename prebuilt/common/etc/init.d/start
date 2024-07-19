@@ -48,25 +48,26 @@ check_promisc () {
 
 /etc/init.d/mdev-initd start
 
-cmd_run dmesg -n 4
+# cmd_run dmesg -n 4
 cmd_run ifconfig lo up 127.0.0.1
 
-cmd_run /etc/init.d/persist start ||
-  cmd_run /etc/init.d/persist stop
+# cmd_run /etc/init.d/persist start ||
+#   cmd_run /etc/init.d/persist stop
 
-check_macaddr
-check_serialnum
+# check_macaddr
+# check_serialnum
 
-[ -f "$hostname_cfg" ] || cmd_run cp /etc/hostname-template "$hostname_cfg"
-cmd_run admin --hostname -f "$hostname_cfg"
+# [ -f "$hostname_cfg" ] || cmd_run cp /etc/hostname-template "$hostname_cfg"
+# cmd_run admin --hostname -f "$hostname_cfg"
+hostname -F /etc/hostname-template
 
-[ -f $wpasup_cfg ] || cmd_run cp /etc/wpa_supplicant-template.conf $wpasup_cfg
+# [ -f $wpasup_cfg ] || cmd_run cp /etc/wpa_supplicant-template.conf $wpasup_cfg
 
-check_refactory
-check_promisc
+# check_refactory
+# check_promisc
 
-for script in `find /etc/init.d -iname "S[0-9]*" | sort`; do
-  [ -x $script ] || continue;
+for script in $(find /etc/init.d -iname "S[0-9]*" | sort); do
+  [ -x "$script" ] || continue;
   log_sd "Starting ... $script"
   $script start
 done
