@@ -13,7 +13,7 @@ APP_ATTR_ub20?=ub20
 APP_ATTR_bp?=bp
 APP_ATTR_qemuarm64?=qemuarm64
 
-APP_PLATFORM?=bp
+APP_PLATFORM?=qemuarm64
 
 export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
 
@@ -137,15 +137,18 @@ uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
 
 uboot_MAKEARGS-bp-r5+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     CROSS_COMPILE=$(ARM_CROSS_COMPILE)
+
 uboot_defconfig-bp-r5=am62x_beagleplay_r5_defconfig
 
 uboot_MAKEARGS-bp-a53+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     BL31=$(firstword $(wildcard $(atf_BUILDDIR)/k3/lite/release/bl31.bin \
         $(atf_BUILDDIR)/k3/lite/debug/bl31.bin)) \
     TEE=$(optee_BUILDDIR)/core/tee-raw.bin CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+
 uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
 
 uboot_MAKEARGS-qemuarm64+=CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+
 uboot_defconfig-qemuarm64=qemu_arm64_defconfig
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
@@ -216,7 +219,7 @@ uboot_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-ubootenv: UENV_SIZE?=$(shell $(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config)
+ubootenv: UENV_SIZE?=$(shell $(call SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config)
 ubootenv $(BUILDDIR)/uboot.env: ubootenv-$(APP_PLATFORM).txt | $(PROJDIR)/tool/bin/mkenvimage
 	$(PROJDIR)/tool/bin/mkenvimage -s $(UENV_SIZE) \
 	  -o $(BUILDDIR)/uboot.env ubootenv-$(APP_PLATFORM).txt
@@ -247,9 +250,13 @@ linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
 linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
 
-linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 linux_defconfig-bp=defconfig
+
+linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+
+linux_defconfig-qemuarm64=defconfig
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	if [ -f "$(PROJDIR)/linux-$(APP_PLATFORM).config" ]; then \
@@ -351,35 +358,15 @@ dummy1:
 #
 dist_DIR=$(PROJDIR)/destdir
 
-
-# qemu esc: ctrl-a x
-#   qemu-system-aarch64 -machine virt,virtualization=on,secure=off \
-#       -cpu cortex-a57 -m 512 -smp 1 \
-#       -M virt,dumpdtb=cortex-a57.dtb \
-#       -bios ../build/uboot-qemuarm64/u-boot.bin \
-#       -drive file=fat:rw:./destdir/qemuarm64,format=raw,media=disk \
-#       -nographic
-#
-#   qemu-system-aarch64 -machine virt,virtualization=on,secure=off \
-#       -cpu cortex-a57 -m 512 -smp 1 \
-#       -kernel ./destdir/qemuarm64/boot/Image \
-#       -append "noinitrd root=/dev/vda rw console=ttyAMA0"
-#       -nographic \
-# host
-#   dtc -I dtb -O dts cortex-a57.dtb -o cortex-a57.dts
-# ub
-#   virtio info
-#   fatls virtio 0:1 boot
-#   fatload virtio 0:1 ${kernel_addr_r} boot/Image
-#   fatload virtio 0:1 ${fdt_addr} boot/cortex-a57.dtb
-#   booti ${kernel_addr_r} - ${fdt_addr}
-#   
 dist-qemuarm64:
-	[ -d "$(dist_DIR)/qemuarm64/boot" ] || $(MKDIR) $(dist_DIR)/qemuarm64/boot
-	cp -v $(dir $(linux_BUILDDIR))/linux-bp/arch/arm64/boot/Image.gz \
-	    $(dir $(linux_BUILDDIR))/linux-bp/arch/arm64/boot/Image \
-		$(dir $(linux_BUILDDIR))/linux-bp/vmlinux \
-	    $(dist_DIR)/qemuarm64/boot/
+	[ -d "$(dist_DIR)/$(APP_PLATFORM)/boot" ] || $(MKDIR) $(dist_DIR)/$(APP_PLATFORM)/boot
+	$(MAKE) ubootenv
+	cp -v $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
+	cp -v $(uboot_BUILDDIR)/u-boot.bin \
+	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
+	    $(linux_BUILDDIR)/arch/arm64/boot/Image \
+	    $(linux_BUILDDIR)/vmlinux \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 
 linuxdtb-bp:
 	$(MAKE) linux-bp_dtbs
@@ -399,7 +386,7 @@ dist-bp:
 	$(MAKE) dist1-bp
 
 dist_lfs:
-	$(MAKE) DESTDIR=$(dist_DIR)/lfs bb_install
+	$(MAKE) DESTDIR=$(dist_DIR)/lfs bb_destdep_install
 	cd $(TOOLCHAIN_SYSROOT) && \
 	  rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
 	      $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
@@ -417,6 +404,9 @@ dist_lfs:
 	    $(dist_DIR)/lfs/
 	rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*) \
 	    $(dist_DIR)/lfs/
+	rm -rf $(dist_DIR)/lfs.bin
+	truncate -s 512M $(dist_DIR)/lfs.bin
+	mkfs.ext4 -d $(dist_DIR)/lfs $(dist_DIR)/lfs.bin
 
 SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
 
