@@ -13,7 +13,7 @@ APP_ATTR_ub20?=ub20
 APP_ATTR_bp?=bp
 APP_ATTR_qemuarm64?=qemuarm64
 
-APP_PLATFORM?=qemuarm64
+APP_PLATFORM?=bp
 
 export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
 
@@ -23,27 +23,13 @@ else
 APP_BUILD=$(APP_PLATFORM)
 endif
 
-ifeq (1,0)
-# built with crosstool-NG
-ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/toolchain-arm-none-eabi
-ARM_CROSS_COMPILE?=arm-none-eabi-
-AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/toolchain-aarch64-unknown-linux-gnu
-AARCH64_CROSS_COMPILE?=aarch64-unknown-linux-gnu-
-else ifeq (1,1)
-# from arm
-ARM_TOOLCHAIN_PATH?=$(abspath $(PROJDIR)/../arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-linux-gnueabihf)
-ARM_CROSS_COMPILE?=arm-none-linux-gnueabihf-
-AARCH64_TOOLCHAIN_PATH?=$(abspath $(PROJDIR)/../arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu)
-AARCH64_CROSS_COMPILE?=aarch64-none-linux-gnu-
-endif
-
-ifneq ($(strip $(ARM_TOOLCHAIN_PATH)),)
+ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-arm
+ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
 PATH_PUSH+=$(ARM_TOOLCHAIN_PATH)/bin
-endif
 
-ifneq ($(strip $(AARCH64_TOOLCHAIN_PATH)),)
+AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
+AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
 PATH_PUSH+=$(AARCH64_TOOLCHAIN_PATH)/bin
-endif
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
@@ -80,7 +66,7 @@ help:
 
 #------------------------------------
 #
-atf_DIR=$(PKGDIR2)/arm-trusted-firmware-upstream
+atf_DIR=$(PKGDIR2)/arm-trusted-firmware
 atf_BUILDDIR=$(BUILDDIR2)/atf-$(APP_PLATFORM)
 atf_MAKE=$(MAKE) BUILD_BASE=$(atf_BUILDDIR) $(atf_MAKEARGS-$(APP_PLATFORM)) \
     -C $(atf_DIR)
@@ -97,7 +83,7 @@ atf_%:
 #------------------------------------
 # for build doc: pip install pyelftools cryptography
 #
-optee_DIR=$(PKGDIR2)/optee_os-upstream
+optee_DIR=$(PKGDIR2)/optee_os
 optee_BUILDDIR=$(BUILDDIR2)/optee-$(APP_PLATFORM)
 optee_MAKE=$(MAKE) O=$(optee_BUILDDIR) $(optee_MAKEARGS-$(APP_PLATFORM)) \
     -C $(optee_DIR)
@@ -119,7 +105,7 @@ GENPYVENV+=pyelftools cryptography
 #------------------------------------
 # git clong -b ti-linux-firmware git://git.ti.com/processor-firmware/ti-linux-firmware.git
 # 
-ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware-upstream
+ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
 
 #------------------------------------
 # apt install libssl-dev device-tree-compiler swig python3-distutils
@@ -129,7 +115,7 @@ ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware-upstream
 # qemu-system-aarch64 -machine virt,virtualization=on,secure=off -cpu max \
 #   -bios ../build/uboot-qemuarm64/u-boot.bin -nographic
 #
-uboot_DIR=$(PKGDIR2)/u-boot-upstream
+uboot_DIR=$(PKGDIR2)/u-boot
 uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
@@ -151,14 +137,6 @@ uboot_MAKEARGS-qemuarm64+=CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 uboot_defconfig-qemuarm64=qemu_arm64_defconfig
 
-uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
-	if [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
-	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config && \
-	  yes "" | $(uboot_MAKE) oldconfig; \
-	else \
-	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
-	fi
-
 UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
     mkenvimage mkimage proftool spl_size_limit
 
@@ -170,9 +148,12 @@ ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 # bp runs uboot for 2 different core, pass APP_PLATFORM for specified core to else
 #
 
-$(addprefix uboot_,menuconfig  htmldocs tools tools_install):
+$(addprefix uboot_,menuconfig htmldocs tools tools_install):
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
+
+ubootenv:
+	$(MAKE) APP_PLATFORM=bp-a53 $@
 
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
@@ -184,14 +165,16 @@ uboot_%:
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
 
-ubootenv: UENV_SIZE?=$(shell $(call SED_KEYVAL1,CONFIG_ENV_SIZE) $(firstword $(wildcard \
-    $(call uboot_BUILDDIR,bp-a53)/.config uboot-$(uboot_defconfig-bp-a53))))
-ubootenv $(BUILDDIR)/uboot.env:
-	echo "UENV_SIZE: $(UENV_SIZE)"
-	$(MAKE) APP_PLATFORM=bp-a53 UENV_SIZE=$(UENV_SIZE) ubootenv
-
 else
 # normal case
+
+uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
+	if [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
+	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config && \
+	  yes "" | $(uboot_MAKE) oldconfig; \
+	else \
+	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
+	fi
 
 $(addprefix uboot_,help):
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
@@ -211,6 +194,10 @@ uboot_tools_install:
 $(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
+ubootenv: DESTDIR=$(BUILDDIR)
+ubootenv:
+	$(call CMD_UENV)
+
 uboot: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(uboot_MAKE) $(PARALLEL_BUILD)
@@ -218,11 +205,6 @@ uboot: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
 uboot_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
-
-ubootenv: UENV_SIZE?=$(shell $(call SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config)
-ubootenv $(BUILDDIR)/uboot.env: ubootenv-$(APP_PLATFORM).txt | $(PROJDIR)/tool/bin/mkenvimage
-	$(PROJDIR)/tool/bin/mkenvimage -s $(UENV_SIZE) \
-	  -o $(BUILDDIR)/uboot.env ubootenv-$(APP_PLATFORM).txt
 
 GENPYVENV+=yamllint jsonschema
 
@@ -237,6 +219,11 @@ GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 # end of uboot APP_PLATFORM
 endif
 
+# CMD_UENV=$(if $(3),,$(error "CMD_UENV invalid argument"))
+CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
+    -s $(or $(3),$$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config)) \
+    -o $(or $(2),$(DESTDIR)/uboot.env) $(or $(1),ubootenv-$(APP_PLATFORM).txt)
+
 $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
 
@@ -245,7 +232,7 @@ $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 #
 
 # linux_DIR=$(PKGDIR2)/linux-6.9.1
-linux_DIR=$(PKGDIR2)/linux-upstream
+linux_DIR=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
 linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
@@ -298,54 +285,155 @@ GENDIR+=$(linux_BUILDDIR)
 #------------------------------------
 # for install: make with variable CONFIG_PREFIX
 #
-bb_DIR=$(HOME)/02_dev/busybox-upstream
-bb_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
-bb_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
-    O=$(bb_BUILDDIR) -C $(bb_DIR)
+busybox_DIR=$(PKGDIR2)/busybox
+busybox_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
+busybox_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
+    O=$(busybox_BUILDDIR) -C $(busybox_DIR)
 
-bb_defconfig $(bb_BUILDDIR)/.config: | $(bb_BUILDDIR)
+busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
 	if [ -f "$(PROJDIR)/busybox.config" ]; then \
-	  cp -v $(PROJDIR)/busybox.config $(bb_BUILDDIR)/.config && \
-	  yes "" | $(bb_MAKE) oldconfig; \
+	  cp -v $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
+	  yes "" | $(busybox_MAKE) oldconfig; \
 	else \
-	  $(bb_MAKE) defconfig; \
+	  $(busybox_MAKE) defconfig; \
 	fi
 
-$(addprefix bb_,help doc html): | $(BUILDDIR)/pyvenv
+$(addprefix busybox_,help doc html): | $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(bb_MAKE) $(@:bb_%=%)
+	  $(busybox_MAKE) $(@:busybox_%=%)
 
-bb_destpkg $(bb_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(bb_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(bb_BUILDDIR)-destpkg bb_install
-	tar -Jcvf $(bb_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(bb_BUILDDIR)-destpkg) \
-		$(notdir $(bb_BUILDDIR)-destpkg)
-	$(RMTREE) $(bb_BUILDDIR)-destpkg
+busybox_destpkg $(busybox_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(busybox_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(busybox_BUILDDIR)-destpkg busybox_install
+	tar -Jcvf $(busybox_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(busybox_BUILDDIR)-destpkg) \
+		$(notdir $(busybox_BUILDDIR)-destpkg)
+	$(RMTREE) $(busybox_BUILDDIR)-destpkg
 
-bb_destpkg_install: DESTDIR?=$(BUILD_SYSROOT)
-bb_destpkg_install: | $(bb_BUILDDIR)-destpkg.tar.xz
+busybox_destpkg_install: DESTDIR?=$(BUILD_SYSROOT)
+busybox_destpkg_install: | $(busybox_BUILDDIR)-destpkg.tar.xz
 	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(bb_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	tar -Jxvf $(busybox_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
 	    -C $(DESTDIR)
 
-bb_destdep_install: $(foreach iter,$(bb_DEP),$(iter)_destdep_install)
-	$(MAKE) bb_destpkg_install
+busybox_destdep_install: $(foreach iter,$(busybox_DEP),$(iter)_destdep_install)
+	$(MAKE) busybox_destpkg_install
 
-bb_distclean:
-	$(RMTREE) $(bb_BUILDDIR) 
+busybox_distclean:
+	$(RMTREE) $(busybox_BUILDDIR) 
 
-bb: | $(bb_BUILDDIR)/.config
-	$(bb_MAKE) $(PARALLEL_BUILD)
+busybox: | $(busybox_BUILDDIR)/.config
+	$(busybox_MAKE) $(PARALLEL_BUILD)
 
-bb_install: DESTDIR?=$(BUILD_SYSROOT)
-bb_install: $(bb_BUILDDIR)/.config
-	$(bb_MAKE) CONFIG_PREFIX=$(DESTDIR) $(PARALLEL_BUILD) $(@:bb_%=%)
+busybox_install: DESTDIR?=$(BUILD_SYSROOT)
+busybox_install: $(busybox_BUILDDIR)/.config
+	$(busybox_MAKE) CONFIG_PREFIX=$(DESTDIR) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
-bb_%: $(bb_BUILDDIR)/.config
-	$(bb_MAKE) $(PARALLEL_BUILD) $(@:bb_%=%)
+busybox_%: $(busybox_BUILDDIR)/.config
+	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
-GENDIR+=$(bb_BUILDDIR)
+GENDIR+=$(busybox_BUILDDIR)
+
+#------------------------------------
+#
+ncursesw_DIR=$(PKGDIR2)/ncurses
+ncursesw_BUILDDIR?=$(BUILDDIR2)/ncursesw-$(APP_BUILD)
+ncursesw_TINFODIR=/usr/share/terminfo
+
+# refine to comma saperated list when use in tic
+ncursesw_TINFO=ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
+  vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen
+
+ncursesw_CFLAGS+=$(BUILD_CFLAGS2_$(APP_PLATFORM)) -fPIC
+ifneq ($(strip $(filter release1,$(APP_ATTR))),)
+ncursesw_CFLAGS+=-O3
+else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
+ncursesw_CFLAGS+=-g
+endif
+
+# ncursesw_CFGPARAM_$(APP_PLATFORM)+=--without-debug
+ncursesw_CFGPARAM_ub20+=--with-pkg-config=/lib
+ncursesw_CFGPARAM_sa7715+=--disable-db-install --without-tests \
+    --without-manpages
+
+ncursesw_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(ncursesw_BUILDDIR)
+ncursesw_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
+    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) $(PROJDIR)/tool/bin/tic
+
+ncursesw_host: DESTDIR=$(PROJDIR)/tool
+ncursesw_host:
+	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
+
+ncursesw_host%: DESTDIR=$(PROJDIR)/tool 
+ncursesw_host%:
+	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
+
+# no strip to prevent not recoginize crosscompiled executable
+ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile:
+	[ -d $(ncursesw_BUILDDIR) ] || $(MKDIR) $(ncursesw_BUILDDIR)
+	cd $(ncursesw_BUILDDIR) && \
+	  $(BUILD_ENV) $(ncursesw_DIR)/configure --host=`$(CC) -dumpmachine` \
+	    --prefix= --with-termlib --with-ticlib --enable-widec --enable-pc-files \
+	    --with-default-terminfo-dir=$(ncursesw_TINFODIR) --disable-stripping \
+	    CFLAGS="$(ncursesw_CFLAGS)" $(ncursesw_CFGPARAM_$(APP_PLATFORM))
+
+# remove wrong pc file for the crosscompiled lib
+ncursesw_install: DESTDIR=$(BUILD_SYSROOT)
+ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
+	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%)
+	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%) install
+	echo "INPUT(-lncursesw)" > $(DESTDIR)/lib/libcurses.so;
+	for i in ncurses form panel menu tinfo; do \
+	  if [ -e $(DESTDIR)/lib/lib$${i}w.so ]; then \
+	    echo "INPUT(-l$${i}w)" > $(DESTDIR)/lib/lib$${i}.so; \
+	  fi; \
+	  if [ -e $(DESTDIR)/lib/lib$${i}w.a ]; then \
+	    ln -sf lib$${i}w.a $(DESTDIR)/lib/lib$${i}.a; \
+	  fi; \
+	done
+
+ncursesw_dist_install: DESTDIR=$(BUILD_SYSROOT)
+ncursesw_dist_install:
+	$(MKDIR) $(dir $(ncursesw_BUILDDIR)_footprint)
+	echo "$(ncursesw_CFGPARAM_$(APP_PLATFORM))" > $(ncursesw_BUILDDIR)_footprint
+	$(call RUN_DIST_INSTALL1,ncursesw,$(ncursesw_BUILDDIR)/Makefile)
+
+
+# Create small terminfo refer to https://invisible-island.net/ncurses/ncurses.faq.html#big_terminfo
+# opt dep: [ -x $(PROJDIR)/tool/bin/tic ] || $(MAKE) ncursesw_host_install
+ncursesw_terminfo_install: DESTDIR=$(BUILD_SYSROOT)
+ncursesw_terminfo_install: ncursesw_TINFO2=$(subst $(SPACE),$(COMMA),$(sort \
+  $(subst $(COMMA),$(SPACE),$(ncursesw_TINFO))))
+ncursesw_terminfo_install:
+	[ -d $(DESTDIR)/$(ncursesw_TINFODIR) ] || $(MKDIR) $(DESTDIR)/$(ncursesw_TINFODIR)
+	$(ncursesw_TIC) -s -1 -I -e'$(ncursesw_TINFO2)' \
+	    $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src
+	$(ncursesw_TIC) -s -o $(DESTDIR)/$(ncursesw_TINFODIR) \
+	    $(BUILDDIR)/terminfo.src
+
+ncursesw_terminfo_dist_install: DESTDIR=$(BUILD_SYSROOT)
+ncursesw_terminfo_dist_install: terminfo_BUILDDIR=$(BUILDDIR2)/ncursesw_terminfo-$(APP_BUILD)
+ncursesw_terminfo_dist_install:
+	echo "tic -s -1 -I" > $(terminfo_BUILDDIR)_footprint
+	echo "$(ncursesw_DEF_CFG)" >> $(terminfo_BUILDDIR)_footprint
+	echo "$(ncursesw_TINFO)" >> $(terminfo_BUILDDIR)_footprint
+	if ! md5sum -c "$(terminfo_BUILDDIR).md5sum"; then \
+	  $(MAKE) DESTDIR=$(terminfo_BUILDDIR)_destdir \
+	      ncursesw_terminfo_install && \
+	  tar -cvf $(terminfo_BUILDDIR).tar -C $(dir $(terminfo_BUILDDIR)_destdir) \
+	      $(notdir $(terminfo_BUILDDIR)_destdir) && \
+	  md5sum $(terminfo_BUILDDIR).tar $(wildcard $(terminfo_BUILDDIR)_footprint) $(ncursesw_BUILDDIR)/Makefile \
+	      > $(terminfo_BUILDDIR).md5sum && \
+	  $(RM) $(terminfo_BUILDDIR)_destdir; \
+	fi
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -xvf $(terminfo_BUILDDIR).tar --strip-components=1 -C $(DESTDIR)
+
+ncursesw: | $(ncursesw_BUILDDIR)/Makefile
+	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%)
+
+ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
+	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%) $(@:ncursesw_%=%)
 
 #------------------------------------
 #
@@ -358,8 +446,11 @@ dummy1:
 #
 dist_DIR=$(PROJDIR)/destdir
 
-dist-qemuarm64:
-	[ -d "$(dist_DIR)/$(APP_PLATFORM)/boot" ] || $(MKDIR) $(dist_DIR)/$(APP_PLATFORM)/boot
+dist-qemuarm64-phase1:
+	$(MAKE) uboot linux busybox
+
+dist-qemuarm64-phase2: GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
+dist-qemuarm64-phase2:
 	$(MAKE) ubootenv
 	cp -v $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
 	cp -v $(uboot_BUILDDIR)/u-boot.bin \
@@ -368,22 +459,39 @@ dist-qemuarm64:
 	    $(linux_BUILDDIR)/vmlinux \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 
+dist-qemuarm64:
+	$(MAKE) dist-qemuarm64-phase1
+	$(MAKE) dist-qemuarm64-phase2
+
 linuxdtb-bp:
 	$(MAKE) linux-bp_dtbs
 	
-dist_phase1-bp:
-	$(MAKE) uboot-bp-r5 atfa-bp optee-bp
-	$(MAKE) uboot-bp-a53 linux-bp_Image.gz linux-bp_modules
-	$(MAKE) ubootenv-bp linuxdtb-bp
-	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+dist-bp-phase1:
+	$(MAKE) atf optee linux
+	$(MAKE) uboot linux_modules
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
-	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 
-dist_phase2-bp:
-	$(MAKE) 
+$(dist_DIR)/$(APP_PLATFORM)/boot/dtb:
+	$(MKDIR) $@
+
+dist-bp-phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
+	cp -L $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
+	cp -L $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/tispl.bin
+	cp -L $(call uboot_BUILDDIR,bp-a53)/u-boot.img_unsigned \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/u-boot.img
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
+	cp -L $(linux_BUILDDIR)/arch/arm64/boot/Image \
+	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
+		$(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 
 dist-bp:
-	$(MAKE) dist1-bp
+	$(MAKE) dist-bp-phase1
+	$(MAKE) dist-bp-phase2
 
 CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
   cd $(TOOLCHAIN_SYSROOT) \
@@ -402,7 +510,7 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 	    rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(2)) $(1))
 
 dist_lfs:
-	$(MAKE) DESTDIR=$(dist_DIR)/lfs bb_destdep_install
+	$(MAKE) DESTDIR=$(dist_DIR)/lfs busybox_destdep_install
 	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(dist_DIR)/lfs/)
 	$(call CMD_RSYNC_PREBUILT,$(dist_DIR)/lfs/,$(PROJDIR)/prebuilt/common/*)
 	$(call CMD_RSYNC_PREBUILT,$(dist_DIR)/lfs/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
@@ -429,7 +537,7 @@ GENDIR+=$(SD_BOOT)/boot/dtb
 
 dist-bp_sd2: SD_ROOT=$(firstword $(wildcard /media/$(USER)/rootfs))
 dist-bp_sd2:
-	$(MAKE) CONFIG_PREFIX=$(SD_ROOT) bb_install
+	$(MAKE) CONFIG_PREFIX=$(SD_ROOT) busybox_install
 	$(MAKE) INSTALL_MOD_PATH=$(SD_ROOT) linux_modules_install
 
 
@@ -561,7 +669,7 @@ dist_%:
 
 memo_git:
 	@for i in $(linux_DIR) $(ti-linux-fw_DIR) $(uboot_DIR) $(optee_DIR) \
-	    $(atfa_DIR) $(bb_DIR) \
+	    $(atfa_DIR) $(busybox_DIR) \
 	    ; do \
 	  if [ -d "$${i}/.git" ]; then \
 	    echo -n "$$(basename $$i): " && \

@@ -50,8 +50,8 @@ DEPFLAGS=-MMD -MT $(@) -MF $(@).d -MP
 
 #------------------------------------
 #
-SED_DEFNUM=sed -n "s/\\s*\#define\\s*$(1)\\s*\\(\\d*\\)/\\1/p"
-SED_KEYVAL1=sed -n "s/\\s*$(1)\\s*=\\s*\\(.*\\)/\\1/p"
+CMD_SED_DEFNUM=sed -n "s/\\s*\#define\\s*$(1)\\s*\\(\\d*\\)/\\1/p"
+CMD_SED_KEYVAL1=sed -n "s/\\s*$(1)\\s*=\\s*\\(.*\\)/\\1/p"
 
 #------------------------------------
 # $(call UNIQ,b b a a) # -> b a
