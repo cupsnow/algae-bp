@@ -19,44 +19,13 @@ fi
 case $ifce in
 eth*)
   if ifce_link_up $ifce; then
-    log_d "Expect siterole for $ifce"
-    if siterole -e $eth_cfg -i $ifce; then
-      # zcip may working
-      log_d "$ifce connected, start airplay"
-      /etc/init.d/adk-initd stop
-      /etc/init.d/airplay-initd stop
-      cmd_run wpasup stop
-      kill_prog ".*adk|.*WACServer|.*airplaydemo|.*wpa_supplicant|.*hostapd|.*udhcpd|.*udhcpc"
-      cmd_run ip_del_ifce wlan0
-      cmd_run route_del_ifce wlan0
-      if [ -f $wpasup_cfg ]; then
-        mv $wpasup_cfg $wpasup_cfg_plugged_eth
-        sync; sync;
-      fi
-      /etc/init.d/main start
-      exit 0
-    fi
-      log_d "$ifce failed connect"
+    log_d "Expect ifup for $ifce"
   elif [ "$act" == "up" ]; then
     log_e "$ifce link state actually down"
   fi
   if [ "$act" == "down" ]; then
-    zcipwrapper $ifce stop
-    route_del_ifce $ifce
-    ip_del_ifce $ifce
-    # if [ -f "${unpaired_cfg}" ] && pgrep -x ".*adk" &>/dev/null; then
-      if [ -f $wpasup_cfg_plugged_eth ]; then
-        cmd_run mv $wpasup_cfg_plugged_eth $wpasup_cfg
-        sync; sync;
-      fi
-
-      if [ ! "$found_mainguard" = "1" ]; then
-        /etc/init.d/main restart
-      fi
-    # fi
+    log_d "Expect ifdown for $ifce"
   fi
-  # log_d "Start main manage script"
-  # /etc/init.d/main &
   exit
   ;;
 wlan*)

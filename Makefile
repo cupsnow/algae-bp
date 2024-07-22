@@ -43,9 +43,9 @@ else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
-export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
-
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(APP_PLATFORM)
+
+export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
 CPPFLAGS+=
 CFLAGS+=
@@ -93,12 +93,12 @@ optee_MAKEARGS-bp+=CFG_ARM64_core=y PLATFORM=k3-am62x CFG_TEE_CORE_LOG_LEVEL=2 \
     CROSS_COMPILE=$(ARM_CROSS_COMPILE) CROSS_COMPILE64=$(AARCH64_CROSS_COMPILE)
 
 optee: | $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(optee_MAKE) $(PARALLEL_BUILD)
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && $(optee_MAKE) $(PARALLEL_BUILD)
 
 optee_%:
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(optee_MAKE) $(PARALLEL_BUILD) $(@:optee_%=%)
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && $(optee_MAKE) $(PARALLEL_BUILD) $(@:optee_%=%)
 
 GENPYVENV+=pyelftools cryptography
 
@@ -180,8 +180,8 @@ $(addprefix uboot_,help):
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 $(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 uboot_tools_install: DESTDIR?=$(PROJDIR)/tool
 uboot_tools_install:
@@ -199,12 +199,12 @@ ubootenv:
 	$(call CMD_UENV)
 
 uboot: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot_MAKE) $(PARALLEL_BUILD)
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && $(uboot_MAKE) $(PARALLEL_BUILD)
 
 uboot_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 GENPYVENV+=yamllint jsonschema
 
@@ -247,8 +247,8 @@ linux_defconfig-qemuarm64=defconfig
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	if [ -f "$(PROJDIR)/linux-$(APP_PLATFORM).config" ]; then \
-	  cp -v $(PROJDIR)/linux-$(APP_PLATFORM).config $(linux_BUILDDIR)/.config && \
-	  yes "" | $(linux_MAKE) oldconfig; \
+	  cp -v $(PROJDIR)/linux-$(APP_PLATFORM).config $(linux_BUILDDIR)/.config \
+	    && yes "" | $(linux_MAKE) oldconfig; \
 	else \
 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
@@ -259,8 +259,8 @@ $(addprefix linux_,help):
 # dep: apt install dvipng imagemagick
 #      pip install sphinx_rtd_theme six
 $(addprefix linux_,htmldocs): | $(BUILDDIR)/pyvenv $(linux_BUILDDIR)
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	  $(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && $(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
 $(addprefix linux_,menuconfig savedefconfig oldconfig): | $(linux_BUILDDIR)/.config
 	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
@@ -302,13 +302,13 @@ $(addprefix busybox_,help doc html): | $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(busybox_MAKE) $(@:busybox_%=%)
 
-busybox_destpkg $(busybox_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(busybox_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(busybox_BUILDDIR)-destpkg busybox_install
-	tar -Jcvf $(busybox_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(busybox_BUILDDIR)-destpkg) \
-		$(notdir $(busybox_BUILDDIR)-destpkg)
-	$(RMTREE) $(busybox_BUILDDIR)-destpkg
+bb_destpkg $(bb_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(bb_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(bb_BUILDDIR)-destpkg bb_install
+	tar -Jcvf $(bb_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(bb_BUILDDIR)-destpkg) \
+		$(notdir $(bb_BUILDDIR)-destpkg)
+	$(RMTREE) $(bb_BUILDDIR)-destpkg
 
 busybox_destpkg_install: DESTDIR?=$(BUILD_SYSROOT)
 busybox_destpkg_install: | $(busybox_BUILDDIR)-destpkg.tar.xz
@@ -342,37 +342,28 @@ ncursesw_TINFODIR=/usr/share/terminfo
 
 # refine to comma saperated list when use in tic
 ncursesw_TINFO=ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
-  vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen
-
-ncursesw_CFLAGS+=$(BUILD_CFLAGS2_$(APP_PLATFORM)) -fPIC
-ifneq ($(strip $(filter release1,$(APP_ATTR))),)
-ncursesw_CFLAGS+=-O3
-else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
-ncursesw_CFLAGS+=-g
-endif
+    vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen
 
 # ncursesw_CFGPARAM_$(APP_PLATFORM)+=--without-debug
-ncursesw_CFGPARAM_ub20+=--with-pkg-config=/lib
-ncursesw_CFGPARAM_sa7715+=--disable-db-install --without-tests \
-    --without-manpages
+ncursesw_ACARGS_ub20+=--with-pkg-config=/lib
+ncursesw_ACARGS_sa7715+=--disable-db-install --without-tests --without-manpages
 
-ncursesw_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(ncursesw_BUILDDIR)
+ncursesw_MAKE=$(MAKE) -C $(ncursesw_BUILDDIR)
 ncursesw_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
     TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) $(PROJDIR)/tool/bin/tic
 
-ncursesw_host: DESTDIR=$(PROJDIR)/tool
-ncursesw_host:
-	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
+# ncursesw_host: DESTDIR=$(PROJDIR)/tool
+# ncursesw_host:
+# 	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
 
-ncursesw_host%: DESTDIR=$(PROJDIR)/tool 
-ncursesw_host%:
-	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
+# ncursesw_host%: DESTDIR=$(PROJDIR)/tool 
+# ncursesw_host%:
+# 	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
 
 # no strip to prevent not recoginize crosscompiled executable
-ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile:
-	[ -d $(ncursesw_BUILDDIR) ] || $(MKDIR) $(ncursesw_BUILDDIR)
-	cd $(ncursesw_BUILDDIR) && \
-	  $(BUILD_ENV) $(ncursesw_DIR)/configure --host=`$(CC) -dumpmachine` \
+ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
+	cd $(ncursesw_BUILDDIR) \
+	  && $(BUILD_ENV) $(ncursesw_DIR)/configure --host=`$(CC) -dumpmachine` \
 	    --prefix= --with-termlib --with-ticlib --enable-widec --enable-pc-files \
 	    --with-default-terminfo-dir=$(ncursesw_TINFODIR) --disable-stripping \
 	    CFLAGS="$(ncursesw_CFLAGS)" $(ncursesw_CFGPARAM_$(APP_PLATFORM))
@@ -435,6 +426,8 @@ ncursesw: | $(ncursesw_BUILDDIR)/Makefile
 ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
 	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%) $(@:ncursesw_%=%)
 
+GENDIR += $(ncursesw_BUILDDIR)
+
 #------------------------------------
 #
 dummy_DIR=$(PROJDIR)/package/dummy1
@@ -495,19 +488,19 @@ dist-bp:
 
 CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
   cd $(TOOLCHAIN_SYSROOT) \
-  && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
-      $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
-	      *.a *.o *.la,--exclude="${i}") \
-      lib lib64 usr/lib usr/lib64 \
-      $(1) \
-  && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
-      $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
-      sbin usr/bin usr/sbin \
-      $(1)
+    && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+        $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
+	        *.a *.o *.la,--exclude="${i}") \
+        lib lib64 usr/lib usr/lib64 \
+        $(1) \
+    && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+        $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
+        sbin usr/bin usr/sbin \
+        $(1)
 
 CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
-	$(if $(strip $(wildcard $(2))), \
-	    rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(2)) $(1))
+    $(if $(strip $(wildcard $(2))), \
+      rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(2)) $(1))
 
 dist_lfs:
 	$(MAKE) DESTDIR=$(dist_DIR)/lfs busybox_destdep_install
@@ -688,8 +681,8 @@ distclean:
 #
 $(BUILDDIR)/pyvenv:
 	python3 -m venv $@
-	. $(BUILDDIR)/pyvenv/bin/activate && \
-	    pip3 install $(sort $(GENPYVENV))
+	. $(BUILDDIR)/pyvenv/bin/activate \
+	  && pip3 install $(sort $(GENPYVENV))
 
 #------------------------------------
 #
