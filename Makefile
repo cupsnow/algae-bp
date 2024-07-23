@@ -44,6 +44,8 @@ TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(APP_PLATFORM)
+BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig" \
+    PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
@@ -340,39 +342,28 @@ ncursesw_DIR=$(PKGDIR2)/ncurses
 ncursesw_BUILDDIR?=$(BUILDDIR2)/ncursesw-$(APP_BUILD)
 ncursesw_TINFODIR=/usr/share/terminfo
 
-# refine to comma saperated list when use in tic
-ncursesw_TINFO=ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
-    vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen
-
-# ncursesw_CFGPARAM_$(APP_PLATFORM)+=--without-debug
+# ncursesw_ACARGS_$(APP_PLATFORM)+=--without-debug
 ncursesw_ACARGS_ub20+=--with-pkg-config=/lib
-ncursesw_ACARGS_sa7715+=--disable-db-install --without-tests --without-manpages
+ncursesw_ACARGS_bp+=--disable-db-install --without-tests --without-manpages
 
 ncursesw_MAKE=$(MAKE) -C $(ncursesw_BUILDDIR)
-ncursesw_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
-    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) $(PROJDIR)/tool/bin/tic
-
-# ncursesw_host: DESTDIR=$(PROJDIR)/tool
-# ncursesw_host:
-# 	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
-
-# ncursesw_host%: DESTDIR=$(PROJDIR)/tool 
-# ncursesw_host%:
-# 	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) $(@:ncursesw_host%=ncursesw%)
 
 # no strip to prevent not recoginize crosscompiled executable
 ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
 	cd $(ncursesw_BUILDDIR) \
-	  && $(BUILD_ENV) $(ncursesw_DIR)/configure --host=`$(CC) -dumpmachine` \
-	    --prefix= --with-termlib --with-ticlib --enable-widec --enable-pc-files \
-	    --with-default-terminfo-dir=$(ncursesw_TINFODIR) --disable-stripping \
-	    CFLAGS="$(ncursesw_CFLAGS)" $(ncursesw_CFGPARAM_$(APP_PLATFORM))
+	  && $(BUILD_PKGCFG_ENV) $(ncursesw_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --with-termlib --with-ticlib \
+	      --enable-widec --disable-stripping \
+	      --with-default-terminfo-dir=$(ncursesw_TINFODIR) \
+	      CFLAGS="-fPIC $(ncursesw_CFLAGS_$(APP_PLATFORM))" \
+	      $(ncursesw_ACARGS_$(APP_PLATFORM))
 
 # remove wrong pc file for the crosscompiled lib
 ncursesw_install: DESTDIR=$(BUILD_SYSROOT)
 ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
-	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%)
-	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%) install
+	$(ncursesw_MAKE) $(PARALLEL_BUILD)
+	$(ncursesw_MAKE) $(PARALLEL_BUILD) install
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
 	echo "INPUT(-lncursesw)" > $(DESTDIR)/lib/libcurses.so;
 	for i in ncurses form panel menu tinfo; do \
 	  if [ -e $(DESTDIR)/lib/lib$${i}w.so ]; then \
@@ -383,50 +374,71 @@ ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
 	  fi; \
 	done
 
-ncursesw_dist_install: DESTDIR=$(BUILD_SYSROOT)
-ncursesw_dist_install:
-	$(MKDIR) $(dir $(ncursesw_BUILDDIR)_footprint)
-	echo "$(ncursesw_CFGPARAM_$(APP_PLATFORM))" > $(ncursesw_BUILDDIR)_footprint
-	$(call RUN_DIST_INSTALL1,ncursesw,$(ncursesw_BUILDDIR)/Makefile)
+ncursesw_destpkg $(ncursesw_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(ncursesw_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(ncursesw_BUILDDIR)-destpkg ncursesw_install
+	tar -Jcvf $(ncursesw_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(ncursesw_BUILDDIR)-destpkg) \
+	    $(notdir $(ncursesw_BUILDDIR)-destpkg)
+	$(RMTREE) $(ncursesw_BUILDDIR)-destpkg
 
-
-# Create small terminfo refer to https://invisible-island.net/ncurses/ncurses.faq.html#big_terminfo
-# opt dep: [ -x $(PROJDIR)/tool/bin/tic ] || $(MAKE) ncursesw_host_install
-ncursesw_terminfo_install: DESTDIR=$(BUILD_SYSROOT)
-ncursesw_terminfo_install: ncursesw_TINFO2=$(subst $(SPACE),$(COMMA),$(sort \
-  $(subst $(COMMA),$(SPACE),$(ncursesw_TINFO))))
-ncursesw_terminfo_install:
-	[ -d $(DESTDIR)/$(ncursesw_TINFODIR) ] || $(MKDIR) $(DESTDIR)/$(ncursesw_TINFODIR)
-	$(ncursesw_TIC) -s -1 -I -e'$(ncursesw_TINFO2)' \
-	    $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src
-	$(ncursesw_TIC) -s -o $(DESTDIR)/$(ncursesw_TINFODIR) \
-	    $(BUILDDIR)/terminfo.src
-
-ncursesw_terminfo_dist_install: DESTDIR=$(BUILD_SYSROOT)
-ncursesw_terminfo_dist_install: terminfo_BUILDDIR=$(BUILDDIR2)/ncursesw_terminfo-$(APP_BUILD)
-ncursesw_terminfo_dist_install:
-	echo "tic -s -1 -I" > $(terminfo_BUILDDIR)_footprint
-	echo "$(ncursesw_DEF_CFG)" >> $(terminfo_BUILDDIR)_footprint
-	echo "$(ncursesw_TINFO)" >> $(terminfo_BUILDDIR)_footprint
-	if ! md5sum -c "$(terminfo_BUILDDIR).md5sum"; then \
-	  $(MAKE) DESTDIR=$(terminfo_BUILDDIR)_destdir \
-	      ncursesw_terminfo_install && \
-	  tar -cvf $(terminfo_BUILDDIR).tar -C $(dir $(terminfo_BUILDDIR)_destdir) \
-	      $(notdir $(terminfo_BUILDDIR)_destdir) && \
-	  md5sum $(terminfo_BUILDDIR).tar $(wildcard $(terminfo_BUILDDIR)_footprint) $(ncursesw_BUILDDIR)/Makefile \
-	      > $(terminfo_BUILDDIR).md5sum && \
-	  $(RM) $(terminfo_BUILDDIR)_destdir; \
-	fi
+ncursesw_destpkg_install: DESTDIR?=$(BUILD_SYSROOT)
+ncursesw_destpkg_install: | $(ncursesw_BUILDDIR)-destpkg.tar.xz
 	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -xvf $(terminfo_BUILDDIR).tar --strip-components=1 -C $(DESTDIR)
+	tar -Jxvf $(ncursesw_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+ncursesw_destdep_install: $(foreach iter,$(ncursesw_DEP),$(iter)_destdep_install)
+	$(MAKE) ncursesw_destpkg_install
 
 ncursesw: | $(ncursesw_BUILDDIR)/Makefile
-	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%)
+	$(ncursesw_MAKE) $(PARALLEL_BUILD)
 
 ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
-	$(ncursesw_MAKE) $(BUILDPARALLEL:%=-j%) $(@:ncursesw_%=%)
+	$(ncursesw_MAKE) $(PARALLEL_BUILD) $(@:ncursesw_%=%)
 
 GENDIR += $(ncursesw_BUILDDIR)
+
+terminfo: DESTDIR=$(BUILD_SYSROOT)
+terminfo: | $(PROJDIR)/tool/bin/tic
+	$(call CMD_TERMINFO)
+
+terminfo_BUILDDIR=$(BUILDDIR2)/terminfo
+terminfo_destpkg $(terminfo_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(terminfo_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(terminfo_BUILDDIR)-destpkg terminfo
+	tar -Jcvf $(terminfo_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(terminfo_BUILDDIR)-destpkg) \
+	    $(notdir $(terminfo_BUILDDIR)-destpkg)
+	$(RMTREE) $(terminfo_BUILDDIR)-destpkg
+
+terminfo_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+terminfo_destpkg_install: | $(terminfo_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(terminfo_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+terminfo_destdep_install: $(foreach iter,$(terminfo_DEP),$(iter)_destdep_install)
+	$(MAKE) terminfo_destpkg_install
+
+# Create small terminfo refer to https://invisible-island.net/ncurses/ncurses.faq.html#big_terminfo
+# refine to comma saperated list when use in tic
+TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
+    ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
+    vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen)))
+TERMINFO_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
+    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) \
+	$(PROJDIR)/tool/bin/tic
+CMD_TERMINFO= \
+  { [ -d "$(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR)" ] || \
+    $(MKDIR) $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR); } \
+  && $(TERMINFO_TIC) -s -1 -I -x -e"$(TERMINFO_NAMES)" \
+      $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src \
+  && $(TERMINFO_TIC) -s -o $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR) \
+      $(BUILDDIR)/terminfo.src
+
+$(addprefix $(PROJDIR)/tool/bin/,tic):
+	$(MAKE) DESTDIR=$(PROJDIR)/tool APP_PLATFORM=ub20 ncursesw_destdep_install
 
 #------------------------------------
 #
