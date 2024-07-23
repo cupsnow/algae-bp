@@ -1,6 +1,7 @@
 #------------------------------------
 #
 include builder/proj.mk
+-include site.mk
 
 PARALLEL_BUILD?=$(or $(1),-j)10
 
@@ -68,7 +69,7 @@ help:
 
 #------------------------------------
 #
-atf_DIR=$(PKGDIR2)/arm-trusted-firmware
+atf_DIR?=$(PKGDIR2)/arm-trusted-firmware
 atf_BUILDDIR=$(BUILDDIR2)/atf-$(APP_PLATFORM)
 atf_MAKE=$(MAKE) BUILD_BASE=$(atf_BUILDDIR) $(atf_MAKEARGS-$(APP_PLATFORM)) \
     -C $(atf_DIR)
@@ -85,7 +86,7 @@ atf_%:
 #------------------------------------
 # for build doc: pip install pyelftools cryptography
 #
-optee_DIR=$(PKGDIR2)/optee_os
+optee_DIR?=$(PKGDIR2)/optee_os
 optee_BUILDDIR=$(BUILDDIR2)/optee-$(APP_PLATFORM)
 optee_MAKE=$(MAKE) O=$(optee_BUILDDIR) $(optee_MAKEARGS-$(APP_PLATFORM)) \
     -C $(optee_DIR)
@@ -107,7 +108,7 @@ GENPYVENV+=pyelftools cryptography
 #------------------------------------
 # git clong -b ti-linux-firmware git://git.ti.com/processor-firmware/ti-linux-firmware.git
 # 
-ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
+ti-linux-fw_DIR?=$(PKGDIR2)/ti-linux-firmware
 
 #------------------------------------
 # apt install libssl-dev device-tree-compiler swig python3-distutils
@@ -117,7 +118,7 @@ ti-linux-fw_DIR=$(PKGDIR2)/ti-linux-firmware
 # qemu-system-aarch64 -machine virt,virtualization=on,secure=off -cpu max \
 #   -bios ../build/uboot-qemuarm64/u-boot.bin -nographic
 #
-uboot_DIR=$(PKGDIR2)/u-boot
+uboot_DIR?=$(PKGDIR2)/u-boot
 uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
@@ -232,9 +233,7 @@ $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 #------------------------------------
 # for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH 
 #
-
-# linux_DIR=$(PKGDIR2)/linux-6.9.1
-linux_DIR=$(PKGDIR2)/linux
+linux_DIR?=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
 linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
@@ -287,7 +286,7 @@ GENDIR+=$(linux_BUILDDIR)
 #------------------------------------
 # for install: make with variable CONFIG_PREFIX
 #
-busybox_DIR=$(PKGDIR2)/busybox
+busybox_DIR?=$(PKGDIR2)/busybox
 busybox_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
 busybox_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
     O=$(busybox_BUILDDIR) -C $(busybox_DIR)
@@ -338,7 +337,7 @@ GENDIR+=$(busybox_BUILDDIR)
 
 #------------------------------------
 #
-ncursesw_DIR=$(PKGDIR2)/ncurses
+ncursesw_DIR?=$(PKGDIR2)/ncurses
 ncursesw_BUILDDIR?=$(BUILDDIR2)/ncursesw-$(APP_BUILD)
 ncursesw_TINFODIR=/usr/share/terminfo
 
@@ -362,7 +361,7 @@ ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
 ncursesw_install: DESTDIR=$(BUILD_SYSROOT)
 ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
 	$(ncursesw_MAKE) $(PARALLEL_BUILD)
-	$(ncursesw_MAKE) $(PARALLEL_BUILD) install
+	$(ncursesw_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) install
 	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
 	echo "INPUT(-lncursesw)" > $(DESTDIR)/lib/libcurses.so;
 	for i in ncurses form panel menu tinfo; do \
@@ -439,6 +438,73 @@ CMD_TERMINFO= \
 
 $(addprefix $(PROJDIR)/tool/bin/,tic):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool APP_PLATFORM=ub20 ncursesw_destdep_install
+
+#------------------------------------
+#
+libevent_DIR?=$(PKGDIR2)/libevent
+libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_BUILD)
+
+# libevent_CFGPARAM_CPPFLAGS_$(APP_PLATFORM)+=-I$(BUILD_SYSROOT)/include \
+#     -I$(BUILD_SYSROOT)/include/ncursesw
+# libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=$(BUILD_CFLAGS2_$(APP_PLATFORM))
+# #libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC
+# ifneq ($(strip $(filter release1,$(APP_ATTR))),)
+# libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=-O3
+# else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
+# libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=-g
+# endif
+# libevent_CFGPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib \
+#     -L$(BUILD_SYSROOT)/lib64
+# libevent_CFGPARAM_$(APP_PLATFORM)+=--enable-shared=no --with-pic
+# libevent_CFGPARAM_$(APP_PLATFORM)+=$(foreach i,CPPFLAGS CFLAGS LDFLAGS, \
+#     $(if $(libevent_CFGPARAM_$(i)_$(APP_PLATFORM)),$(i)="$(libevent_CFGPARAM_$(i)_$(APP_PLATFORM))")) \
+
+libevent_MAKE=$(MAKE) -C $(libevent_BUILDDIR)
+
+libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_BUILDDIR)
+	cd $(libevent_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libevent_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
+		  --disable-mbedtls --with-pic \
+	      $(libevent_ACARGS_$(APP_PLATFORM))
+
+libevent_install: DESTDIR=$(BUILD_SYSROOT)
+libevent_install: | $(libevent_BUILDDIR)/Makefile
+	$(libevent_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:libevent_%=%)
+	for i in libevent_core libevent_extra libevent libevent_pthreads; do \
+	  if [ -f "$(DESTDIR)/lib/$${i}.la" ]; then \
+	    rm -f $(DESTDIR)/lib/$${i}.la; \
+	  fi && \
+	  if [ -f "$(DESTDIR)/lib/pkgconfig/$${i}.pc" ]; then \
+	    rm -f $(DESTDIR)/lib/pkgconfig/$${i}.pc; \
+	  fi; \
+	done
+	rmdir $(DESTDIR)/lib/pkgconfig
+
+libevent_destpkg $(libevent_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(libevent_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(libevent_BUILDDIR)-destpkg libevent_install
+	tar -Jcvf $(libevent_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(libevent_BUILDDIR)-destpkg) \
+	    $(notdir $(libevent_BUILDDIR)-destpkg)
+	$(RMTREE) $(libevent_BUILDDIR)-destpkg
+
+libevent_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+libevent_destpkg_install: | $(libevent_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(libevent_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+libevent_destdep_install: $(foreach iter,$(libevent_DEP),$(iter)_destdep_install)
+	$(MAKE) libevent_destpkg_install
+
+libevent: | $(libevent_BUILDDIR)/Makefile
+	$(libevent_MAKE) $(PARALLEL_BUILD)
+
+libevent_%: | $(libevent_BUILDDIR)/Makefile
+	$(libevent_MAKE) $(PARALLEL_BUILD) $(@:libevent_%=%)
+
+GENDIR+=$(libevent_BUILDDIR)
 
 #------------------------------------
 #
