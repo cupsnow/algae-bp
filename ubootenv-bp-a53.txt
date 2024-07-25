@@ -1,12 +1,12 @@
 bootargs_console=console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
-bootargs_root=root=/dev/mmcblk1p2 rootfstype=ext2 rootwait
+bootargs_root=root=/dev/mmcblk1p2 rw rootwait rootfstype=ext4
 bootargs=${bootargs_root} ${bootargs_console} ${bootargs_extra}
 fdtaddr=0x88000000
 loadaddr=0x82000000
 kernel_comp_addr_r=0x85000000
 kernel_comp_size=0x2000000
 mmcdev=1:1
-bootdir=/boot
+bootdir=
 envfile=uenv.txt
 envimport=fatload mmc ${mmcdev} ${loadaddr} ${envfile} && env import -t ${loadaddr} ${filesize}
 envexport=env export -t ${loadaddr} && fatwrite mmc ${mmcdev} ${loadaddr} ${envfile} ${filesize}

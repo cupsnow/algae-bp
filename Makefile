@@ -58,6 +58,9 @@ LDFLAGS+=
 GENDIR:=
 GENPYVENV:=
 
+CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
+CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
+
 #------------------------------------
 #
 .DEFAULT_GOAL=help
@@ -186,7 +189,7 @@ $(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
 	. $(BUILDDIR)/pyvenv/bin/activate \
 	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-uboot_tools_install: DESTDIR?=$(PROJDIR)/tool
+uboot_tools_install: DESTDIR=$(PROJDIR)/tool
 uboot_tools_install:
 	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
 	$(MAKE) uboot_tools
@@ -222,10 +225,11 @@ GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 # end of uboot APP_PLATFORM
 endif
 
-# CMD_UENV=$(if $(3),,$(error "CMD_UENV invalid argument"))
 CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
-    -s $(or $(3),$$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config)) \
-    -o $(or $(2),$(DESTDIR)/uboot.env) $(or $(1),ubootenv-$(APP_PLATFORM).txt)
+    $$([ x"$$($(call CMD_SED_KEYVAL1,CONFIG_SYS_REDUNDAND_ENVIRONMENT) $(uboot_BUILDDIR)/.config)"=x"y" ] && echo -r) \
+    -s $$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config) \
+    -o $(or $(2),$(DESTDIR)/uboot.env) \
+	$(or $(1),ubootenv-$(APP_PLATFORM).txt)
 
 $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
@@ -311,7 +315,7 @@ bb_destpkg $(bb_BUILDDIR)-destpkg.tar.xz:
 		$(notdir $(bb_BUILDDIR)-destpkg)
 	$(RMTREE) $(bb_BUILDDIR)-destpkg
 
-busybox_destpkg_install: DESTDIR?=$(BUILD_SYSROOT)
+busybox_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
 busybox_destpkg_install: | $(busybox_BUILDDIR)-destpkg.tar.xz
 	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
 	tar -Jxvf $(busybox_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
@@ -326,7 +330,7 @@ busybox_distclean:
 busybox: | $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD)
 
-busybox_install: DESTDIR?=$(BUILD_SYSROOT)
+busybox_install: DESTDIR=$(BUILD_SYSROOT)
 busybox_install: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) CONFIG_PREFIX=$(DESTDIR) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
@@ -381,7 +385,7 @@ ncursesw_destpkg $(ncursesw_BUILDDIR)-destpkg.tar.xz:
 	    $(notdir $(ncursesw_BUILDDIR)-destpkg)
 	$(RMTREE) $(ncursesw_BUILDDIR)-destpkg
 
-ncursesw_destpkg_install: DESTDIR?=$(BUILD_SYSROOT)
+ncursesw_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
 ncursesw_destpkg_install: | $(ncursesw_BUILDDIR)-destpkg.tar.xz
 	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
 	tar -Jxvf $(ncursesw_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
@@ -444,24 +448,13 @@ $(addprefix $(PROJDIR)/tool/bin/,tic):
 libevent_DIR?=$(PKGDIR2)/libevent
 libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_BUILD)
 
-# libevent_CFGPARAM_CPPFLAGS_$(APP_PLATFORM)+=-I$(BUILD_SYSROOT)/include \
-#     -I$(BUILD_SYSROOT)/include/ncursesw
-# libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=$(BUILD_CFLAGS2_$(APP_PLATFORM))
-# #libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC
-# ifneq ($(strip $(filter release1,$(APP_ATTR))),)
-# libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=-O3
-# else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
-# libevent_CFGPARAM_CFLAGS_$(APP_PLATFORM)+=-g
-# endif
-# libevent_CFGPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib \
-#     -L$(BUILD_SYSROOT)/lib64
-# libevent_CFGPARAM_$(APP_PLATFORM)+=--enable-shared=no --with-pic
-# libevent_CFGPARAM_$(APP_PLATFORM)+=$(foreach i,CPPFLAGS CFLAGS LDFLAGS, \
-#     $(if $(libevent_CFGPARAM_$(i)_$(APP_PLATFORM)),$(i)="$(libevent_CFGPARAM_$(i)_$(APP_PLATFORM))")) \
-
 libevent_MAKE=$(MAKE) -C $(libevent_BUILDDIR)
 
-libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_BUILDDIR)
+$(libevent_DIR)/configure: $(libevent_DIR)/autogen.sh
+	cd $(libevent_DIR) \
+	  && ./autogen.sh
+
+libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_DIR)/configure $(libevent_BUILDDIR)
 	cd $(libevent_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(libevent_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
@@ -516,69 +509,116 @@ dummy1:
 #------------------------------------
 #
 dist_DIR=$(PROJDIR)/destdir
+SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
+SD_ROOTFS=$(firstword $(wildcard /media/$(USER)/rootfs))
 
-dist-qemuarm64-phase1:
+dist-qemuarm64_phase1:
 	$(MAKE) uboot linux busybox
 
-dist-qemuarm64-phase2: GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
-dist-qemuarm64-phase2:
+dist-qemuarm64_phase2: GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
+dist-qemuarm64_phase2:
 	$(MAKE) ubootenv
-	cp -v $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
-	cp -v $(uboot_BUILDDIR)/u-boot.bin \
+	rsync -L $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
+	rsync -L $(uboot_BUILDDIR)/u-boot.bin \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/vmlinux \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 
 dist-qemuarm64:
-	$(MAKE) dist-qemuarm64-phase1
-	$(MAKE) dist-qemuarm64-phase2
+	$(MAKE) dist-qemuarm64_phase1
+	$(MAKE) dist-qemuarm64_phase2
 
-linuxdtb-bp:
-	$(MAKE) linux-bp_dtbs
-	
-dist-bp-phase1:
+dist_DTINCDIR+=$(linux_DIR)/scripts/dtc/include-prefixes
+ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
+dist_DTINCDIR+=$(linux_DIR)/arch/arm64/boot/dts/ti
+endif
+
+dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+dist-bp_dtb: DTBFILE=k3-am625-beagleplay.dtb
+dist-bp_dtb:
+	if [ -f "linux-$(APP_PLATFORM).dts" ]; then \
+	  $(call CMD_CPPDTS) $(addprefix -I,$(dist_DTINCDIR)) \
+	      -o $(BUILDDIR)/linux-$(APP_PLATFORM).dts linux-$(APP_PLATFORM).dts \
+	  && $(call CMD_DTC2) $(addprefix -i,$(dist_DTINCDIR)) \
+	      -o $(DESTDIR)/$(DTBFILE) $(BUILDDIR)/linux-$(APP_PLATFORM).dts; \
+	else \
+	  $(MAKE) linux_dtbs \
+	    && rsync -L $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
+		    $(DESTDIR)/$(DTBFILE); \
+	fi
+	dtc -I dtb -O dts $(DTC_LINUX_WNO) $(DESTDIR)/$(DTBFILE) \
+	    > $(BUILDDIR)/$(DTBFILE:%.dtb=%).dts
+
+dist-bp_phase1:
 	$(MAKE) atf optee linux
-	$(MAKE) uboot linux_modules
+	$(MAKE) uboot linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
+	$(MAKE) ncursesw_destdep_install terminfo_destpkg libevent_destpkg
 
-$(dist_DIR)/$(APP_PLATFORM)/boot/dtb:
-	$(MKDIR) $@
+RSYNC_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
 
-dist-bp-phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
-	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
-	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
-	cp -L $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
-	cp -L $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tispl.bin
-	cp -L $(call uboot_BUILDDIR,bp-a53)/u-boot.img_unsigned \
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/u-boot.img_unsigned \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/u-boot.img
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
-	cp -L $(linux_BUILDDIR)/arch/arm64/boot/Image \
+	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
-		$(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
+	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
+	#     $(dist_DIR)/$(APP_PLATFORM)/boot/dtb/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb dist-bp_dtb
+
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+
+dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
+	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+	echo ignored *** $(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
+
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
 dist-bp:
-	$(MAKE) dist-bp-phase1
-	$(MAKE) dist-bp-phase2
+	$(MAKE) dist-bp_phase1
+	$(MAKE) dist-bp_phase2
+	$(MAKE) dist-bp_phase3
+
+dist-bp_sd_phase1: | $(SD_BOOT)/dtb
+	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/* $(SD_BOOT)/
+
+GENDIR+=$(SD_BOOT)/dtb
+
+dist-bp_sd_phase2: | $(SD_ROOTFS)
+	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/lfs/* $(SD_ROOTFS)/
+	# for i in bin lib tmp dev root var/run; do \
+	#   $(MKDIR) $(SD_ROOTFS)/$${i}; \
+	# done
+	# if [ -d "$(SD_ROOTFS)/lib64" ]; then \
+	#   mv $(SD_ROOTFS)/lib64/* $(SD_ROOTFS)/lib/; \
+	# fi
+
+dist-bp_sd:
+	$(MAKE) dist-bp_sd_phase1
+	$(MAKE) dist-bp_sd_phase2
 
 CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
   cd $(TOOLCHAIN_SYSROOT) \
-    && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
         $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
 	        *.a *.o *.la,--exclude="${i}") \
         lib lib64 usr/lib usr/lib64 \
         $(1) \
-    && rsync -aR --ignore-missing-args $(VERBOSE_RSYNC) \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
         $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
         sbin usr/bin usr/sbin \
         $(1)
 
 CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
     $(if $(strip $(wildcard $(2))), \
-      rsync -a $(VERBOSE_RSYNC) -I $(wildcard $(2)) $(1))
+      rsync -a $(RSYNC_VERBOSE) -I $(wildcard $(2)) $(1))
 
 dist_lfs:
 	$(MAKE) DESTDIR=$(dist_DIR)/lfs busybox_destdep_install
@@ -588,43 +628,6 @@ dist_lfs:
 	$(RMTREE) $(dist_DIR)/lfs.bin
 	truncate -s 512M $(dist_DIR)/lfs.bin
 	mkfs.ext4 -d $(dist_DIR)/lfs $(dist_DIR)/lfs.bin
-
-SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
-
-dist-bp_sd: | $(SD_BOOT)/boot/dtb
-	cp -L $(uboot-bp-r5_BUILDDIR)/tiboot3-am62x-gp-evm.bin $(SD_BOOT)/tiboot3.bin
-	cp -L $(uboot-bp-a53_BUILDDIR)/tispl.bin_unsigned $(SD_BOOT)/tispl.bin
-	cp -L $(uboot-bp-a53_BUILDDIR)/u-boot.img_unsigned $(SD_BOOT)/u-boot.img
-	cp -L $(BUILDDIR)/uboot.env \
-		$(SD_BOOT)/
-	cp -L $(PROJDIR)/uEnv-bp.txt $(SD_BOOT)/uEnv.txt
-	cp -L $(linux-bp_BUILDDIR)/arch/arm64/boot/Image \
-	    $(linux-bp_BUILDDIR)/arch/arm64/boot/Image.gz \
-	    $(SD_BOOT)/boot/
-	cp -L $(linux-bp_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
-	    $(SD_BOOT)/boot/dtb/
-
-GENDIR+=$(SD_BOOT)/boot/dtb
-
-dist-bp_sd2: SD_ROOT=$(firstword $(wildcard /media/$(USER)/rootfs))
-dist-bp_sd2:
-	$(MAKE) CONFIG_PREFIX=$(SD_ROOT) busybox_install
-	$(MAKE) INSTALL_MOD_PATH=$(SD_ROOT) linux_modules_install
-
-
-#------------------------------------
-# 
-# qemu-system-aarch64 \
-#   -machine virt,virtualization=true,gic-version=3 \
-#   -nographic -m size=1024M -cpu cortex-a57 -smp 2 \
-#   -kernel ../build/linux-bp/arch/arm64/boot/Image \
-#   --append "console=ttyAMA0"
-
-# qemu-system-aarch64 -m 2048 -cpu cortex-a57 -smp 2 -M virt \
-#   -kernel $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
-#   -bios QEMU_EFI.fd -nographic \
-#   -device virtio-scsi-device -drive if=none,file=ubuntuimg.img,format=raw,index=0,id=hd0 \
-#   -device virtio-blk-device,drive=hd0
 
 #------------------------------------
 #

@@ -108,12 +108,13 @@ endef
 # cat at91-sama5d27_som1_ek.dtb.d1 at91-sama5d27_som1_ek.dtb.d2 \
 #   > at91-sama5d27_som1_ek.dtb.d
 #
-CPPDTS=gcc -E $(1:%=-Wp,-MMD,%) -nostdinc -undef -D__DTS__ \
+CMD_CPPDTS=gcc -E $(1:%=-Wp,-MMD,%) -nostdinc -undef -D__DTS__ \
   -x assembler-with-cpp
-DTC2=dtc -O dtb -I dts -b 0 -@ -Wno-interrupt_provider -Wno-unit_address_vs_reg \
+DTC_LINUX_WNO=-Wno-interrupt_provider -Wno-unit_address_vs_reg \
   -Wno-unit_address_format -Wno-avoid_unnecessary_addr_size -Wno-alias_paths \
   -Wno-graph_child_address -Wno-simple_bus_reg -Wno-unique_unit_address \
-  -Wno-pci_device_reg $(1:%=-d %)
+  -Wno-pci_device_reg
+CMD_DTC2=dtc -O dtb -I dts -b 0 -@ $(DTC_LINUX_WNO) $(1:%=-d %)
 
 #------------------------------------
 # $(eval $(call DECL_TOOLCHAIN_GCC,$(HOME)/07_sw/gcc-aarch64-none-linux-gnu))

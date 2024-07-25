@@ -39,21 +39,7 @@ setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 
 - u-boot comand collection
 
-   ```sh
-   => fatls mmc 1:1
-      265925   tiboot3.bin
-      822383   tispl.bin
-   1011075   u-boot.img
-   14148875   Image.gz
-      55032   k3-am625-beagleplay.dtb
-
-   5 file(s), 0 dir(s)
-
-   fdt_addr_r=0x88000000
-   fdtaddr=0x88000000
-   kernel_addr_r=0x82000000
-   loadaddr=0x82000000
-
+   fatls mmc 1:1
    fatload mmc ${mmcdev} ${loadaddr} ${bootenvfile} && env import -t ${loadaddr} ${filesize}
    run loadbootenv && run importbootenv
 
@@ -68,6 +54,9 @@ setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 
    setenv bootargs_console "root=/dev/mmcblk1p2 rootwait earlycon=ns16550a,mmio32,0x02800000"
 
-   setenv bootargs_root root=/dev/mmcblk1p2 rootfstype=ext2 rootwait
+   setenv bootargs_root root=/dev/mmcblk1p2 rw rootwait rootfstype=ext4
+
+   # emmc
+   setenv bootargs_root root=/dev/mmcblk0p2 rootfstype=ext4 rootwait
 
    ```
