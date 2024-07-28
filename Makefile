@@ -445,6 +445,57 @@ $(addprefix $(PROJDIR)/tool/bin/,tic):
 
 #------------------------------------
 #
+CMD_LOCALE_BASE=I18NPATH=$(TOOLCHAIN_SYSROOT)/usr/share/i18n localedef
+CMD_LOCALE_COMPILE=$(if $(2),,$(error "CMD_LOCALE_COMPILE invalid argument")) \
+    $(CMD_LOCALE_BASE) -i $1 -f $2 $(or $(3),$(1).$(2))
+CMD_LOCALE_AR=$(if $(2),,$(error "CMD_LOCALE_AR invalid argument")) \
+    $(CMD_LOCALE_BASE) --add-to-archive --replace --prefix=$(1) $(2)
+CMD_LOCALE_LIST=$(if $(1),,$(error "CMD_LOCALE_LIST invalid argument")) \
+    $(CMD_LOCALE_BASE) --list-archive --prefix=$(1)
+
+# loc1: COMPILEDPATH=$(BUILDDIR)/locale
+# loc1: DESTDIR=$(BUILDDIR)/locale-destdir
+# loc1:
+# 	[ -d "$(COMPILEDPATH)" ] || $(MKDIR) $(COMPILEDPATH)
+# 	[ -d "$(DESTDIR)/usr/lib/locale" ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
+# 	$(call CMD_LOCALE_COMPILE,C,UTF-8,$(COMPILEDPATH)/C.UTF-8) || [ $$? -eq 1 ]
+# 	$(call CMD_LOCALE_AR,$(DESTDIR),$(COMPILEDPATH)/C.UTF-8)
+# 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(COMPILEDPATH)/POSIX.UTF-8) || [ $$? -eq 1 ]
+# 	$(call CMD_LOCALE_AR,$(DESTDIR),$(COMPILEDPATH)/POSIX.UTF-8)
+# 	@echo "Locale archived:"
+# 	@$(call CMD_LOCALE_LIST,$(DESTDIR))
+
+# GENDIR+=$(DESTDIR)/locale
+
+
+
+
+locale_BUILDDIR?=$(BUILDDIR2)/locale-$(APP_BUILD)
+locale_DEF_localedef=I18NPATH=$(TOOLCHAIN_SYSROOT)/usr/share/i18n localedef
+locale_localedef=$(locale_DEF_localedef) -i $1 -f $2 $(or $(3),$(1).$(2))
+locale_localenames=C.UTF-8
+
+$(locale_BUILDDIR)/C.UTF-8: | $(locale_BUILDDIR)
+	$(call locale_localedef,POSIX,UTF-8,$@) || true "force successful"
+
+$(locale_BUILDDIR)/%: | $(locale_BUILDDIR)
+	$(call locale_localedef, \
+	    $(word 1,$(subst .,$(SPACE),$(@:$(locale_BUILDDIR)/%=%))), \
+		$(word 2,$(subst .,$(SPACE),$(@:$(locale_BUILDDIR)/%=%))), \
+		$@)
+
+$(locale_BUILDDIR):
+	$(MKDIR) $@
+
+locale_install: DESTDIR=$(BUILD_SYSROOT)
+locale_install: $(addprefix $(locale_BUILDDIR)/,$(locale_localenames))
+	[ -d $(DESTDIR)/usr/lib/locale ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
+	cd $(locale_BUILDDIR) && \
+	  $(locale_DEF_localedef) --add-to-archive --replace --prefix=$(DESTDIR) \
+	  $(subst $(locale_BUILDDIR)/,,$^)
+
+#------------------------------------
+#
 libevent_DIR?=$(PKGDIR2)/libevent
 libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_BUILD)
 

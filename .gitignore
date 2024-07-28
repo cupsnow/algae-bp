@@ -1,6 +1,7 @@
 #
 /build/
 /destdir/
+/site.mk
 
 
 # eclipse
