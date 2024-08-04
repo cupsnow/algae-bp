@@ -16,7 +16,8 @@ APP_ATTR_qemuarm64?=qemuarm64
 
 APP_PLATFORM?=bp
 
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
+# locale_posix2c
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) locale_posix2c
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -453,46 +454,44 @@ CMD_LOCALE_AR=$(if $(2),,$(error "CMD_LOCALE_AR invalid argument")) \
 CMD_LOCALE_LIST=$(if $(1),,$(error "CMD_LOCALE_LIST invalid argument")) \
     $(CMD_LOCALE_BASE) --list-archive --prefix=$(1)
 
-# loc1: COMPILEDPATH=$(BUILDDIR)/locale
-# loc1: DESTDIR=$(BUILDDIR)/locale-destdir
-# loc1:
-# 	[ -d "$(COMPILEDPATH)" ] || $(MKDIR) $(COMPILEDPATH)
-# 	[ -d "$(DESTDIR)/usr/lib/locale" ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
-# 	$(call CMD_LOCALE_COMPILE,C,UTF-8,$(COMPILEDPATH)/C.UTF-8) || [ $$? -eq 1 ]
-# 	$(call CMD_LOCALE_AR,$(DESTDIR),$(COMPILEDPATH)/C.UTF-8)
-# 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(COMPILEDPATH)/POSIX.UTF-8) || [ $$? -eq 1 ]
-# 	$(call CMD_LOCALE_AR,$(DESTDIR),$(COMPILEDPATH)/POSIX.UTF-8)
-# 	@echo "Locale archived:"
-# 	@$(call CMD_LOCALE_LIST,$(DESTDIR))
+locale_BUILDDIR=$(BUILDDIR)/locale-$(APP_BUILD)
 
-# GENDIR+=$(DESTDIR)/locale
+locale_install: | $(locale_BUILDDIR)
+locale_install: DESTDIR=$(BUILDDIR)/locale-destdir
+locale_install:
+	[ -d "$(DESTDIR)/usr/lib/locale" ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
+ifneq ($(strip $(filter locale_posix2c,$(APP_ATTR))),)
+	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/C.UTF-8) || [ $$? -eq 1 ]
+	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/C.UTF-8)
+else
+	$(call CMD_LOCALE_COMPILE,C,UTF-8,$(locale_BUILDDIR)/C.UTF-8) || [ $$? -eq 1 ]
+	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/C.UTF-8)
+	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/POSIX.UTF-8) || [ $$? -eq 1 ]
+	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/POSIX.UTF-8)
+endif
+	# @echo "Locale:"
+	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
 
+GENDIR+=$(locale_BUILDDIR)
 
+locale_destpkg $(locale_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(locale_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(locale_BUILDDIR)-destpkg locale_install
+	tar -Jcvf $(locale_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(locale_BUILDDIR)-destpkg) \
+	    $(notdir $(locale_BUILDDIR)-destpkg)
+	$(RMTREE) $(locale_BUILDDIR)-destpkg
 
+locale_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+locale_destpkg_install: | $(locale_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(locale_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+	# @echo "Locale:"
+	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
 
-locale_BUILDDIR?=$(BUILDDIR2)/locale-$(APP_BUILD)
-locale_DEF_localedef=I18NPATH=$(TOOLCHAIN_SYSROOT)/usr/share/i18n localedef
-locale_localedef=$(locale_DEF_localedef) -i $1 -f $2 $(or $(3),$(1).$(2))
-locale_localenames=C.UTF-8
-
-$(locale_BUILDDIR)/C.UTF-8: | $(locale_BUILDDIR)
-	$(call locale_localedef,POSIX,UTF-8,$@) || true "force successful"
-
-$(locale_BUILDDIR)/%: | $(locale_BUILDDIR)
-	$(call locale_localedef, \
-	    $(word 1,$(subst .,$(SPACE),$(@:$(locale_BUILDDIR)/%=%))), \
-		$(word 2,$(subst .,$(SPACE),$(@:$(locale_BUILDDIR)/%=%))), \
-		$@)
-
-$(locale_BUILDDIR):
-	$(MKDIR) $@
-
-locale_install: DESTDIR=$(BUILD_SYSROOT)
-locale_install: $(addprefix $(locale_BUILDDIR)/,$(locale_localenames))
-	[ -d $(DESTDIR)/usr/lib/locale ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
-	cd $(locale_BUILDDIR) && \
-	  $(locale_DEF_localedef) --add-to-archive --replace --prefix=$(DESTDIR) \
-	  $(subst $(locale_BUILDDIR)/,,$^)
+locale_destdep_install: $(foreach iter,$(locale_DEP),$(iter)_destdep_install)
+	$(MAKE) locale_destpkg_install
 
 #------------------------------------
 #
@@ -551,6 +550,72 @@ libevent_%: | $(libevent_BUILDDIR)/Makefile
 GENDIR+=$(libevent_BUILDDIR)
 
 #------------------------------------
+# dep ncursesw libevent locale terminfo
+#
+tmux_DEP=ncursesw libevent locale terminfo
+tmux_DIR=$(PKGDIR2)/tmux
+tmux_BUILDDIR?=$(BUILDDIR2)/tmux-$(APP_BUILD)
+
+# tmux_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(tmux_BUILDDIR)
+tmux_MAKE=$(MAKE) -C $(tmux_BUILDDIR)
+
+tmux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+tmux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+
+# tmux_CFLAGS+=$(BUILD_CFLAGS2_$(APP_PLATFORM)) -fPIC
+# ifneq ($(strip $(filter release1,$(APP_ATTR))),)
+# tmux_CFLAGS+=-O3
+# else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
+# tmux_CFLAGS+=-g
+# endif
+# tmux_CFGPARAM_$(APP_PLATFORM)+=CFLAGS="$(tmux_CFLAGS)"
+
+$(tmux_DIR)/configure: $(tmux_DIR)/autogen.sh
+	cd $(tmux_DIR) \
+	  && ./autogen.sh
+
+tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDIR)
+	cd $(tmux_BUILDDIR) \
+	  && $(BUILD_ENV) $(tmux_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      ac_cv_func_strtonum_working=no \
+	      CPPFLAGS="$(addprefix -I,$(tmux_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(tmux_LIBDIR))" \
+	      $(tmux_ACARGS_$(APP_PLATFORM))
+
+tmux_install: DESTDIR=$(BUILD_SYSROOT)
+
+tmux_destpkg $(tmux_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(tmux_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(tmux_BUILDDIR)-destpkg tmux_install
+	tar -Jcvf $(tmux_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(tmux_BUILDDIR)-destpkg) \
+	    $(notdir $(tmux_BUILDDIR)-destpkg)
+	$(RMTREE) $(tmux_BUILDDIR)-destpkg
+
+tmux_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+tmux_destpkg_install: | $(tmux_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(tmux_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+tmux_destdep_install: $(foreach iter,$(tmux_DEP),$(iter)_destdep_install)
+	$(MAKE) tmux_destpkg_install
+
+# tmux_dist_install: DESTDIR=$(BUILD_SYSROOT)
+# tmux_dist_install:
+# 	$(RM) $(tmux_BUILDDIR)_footprint
+# 	$(call RUN_DIST_INSTALL1,tmux,$(tmux_BUILDDIR)/Makefile)
+
+tmux: | $(tmux_BUILDDIR)/Makefile
+	$(tmux_MAKE) $(PARALLEL_BUILD)
+
+tmux_%: | $(tmux_BUILDDIR)/Makefile
+	$(tmux_MAKE) $(PARALLEL_BUILD) $(@:tmux_%=%)
+
+GENDIR+=$(tmux_BUILDDIR)
+
+#------------------------------------
 #
 dummy_DIR=$(PROJDIR)/package/dummy1
 
@@ -560,21 +625,56 @@ dummy1:
 #------------------------------------
 #
 dist_DIR=$(PROJDIR)/destdir
+
+RSYNC_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
+
 SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
 SD_ROOTFS=$(firstword $(wildcard /media/$(USER)/rootfs))
 
+CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
+  cd $(TOOLCHAIN_SYSROOT) \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
+        $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
+	        *.a *.o *.la,--exclude="${i}") \
+        lib lib64 usr/lib usr/lib64 \
+        $(1) \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
+        $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
+        sbin usr/bin usr/sbin \
+        $(1)
+
+CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
+    $(if $(strip $(wildcard $(2))), \
+      rsync -a $(RSYNC_VERBOSE) -I $(wildcard $(2)) $(1))
+
+dist_rootfs_phase3: DESTDIR=$(dist_DIR)/rootfs
+dist_rootfs_phase3:
+	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(DESTDIR)/)
+	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/common/*)
+	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
+	[ -d "$(DESTDIR)/root" ] || $(MKDIR) "$(DESTDIR)/root"
+	rsync -L $(RSYNC_VERBOSE) \
+	    $$(find $(DESTDIR)/etc/skel/ -maxdepth 1 -type f) \
+		$(DESTDIR)/root/
+	[ -f $(DESTDIR)/root/.exrc ] \
+	  && chmod 0700 $(DESTDIR)/root/.exrc
+	ln -sf /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
+	ln -sf /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
+
 dist-qemuarm64_phase1:
 	$(MAKE) uboot linux busybox
+	$(MAKE) tmux_destdep_install
 
 dist-qemuarm64_phase2: GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase2:
 	$(MAKE) ubootenv
-	rsync -L $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
-	rsync -L $(uboot_BUILDDIR)/u-boot.bin \
+	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
+	rsync -L $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/u-boot.bin \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/vmlinux \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
+	$(MAKE) dist_lfs
 
 dist-qemuarm64:
 	$(MAKE) dist-qemuarm64_phase1
@@ -606,8 +706,6 @@ dist-bp_phase1:
 	$(MAKE) uboot linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(MAKE) ncursesw_destdep_install terminfo_destpkg libevent_destpkg
-
-RSYNC_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
 
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
@@ -655,30 +753,23 @@ dist-bp_sd:
 	$(MAKE) dist-bp_sd_phase1
 	$(MAKE) dist-bp_sd_phase2
 
-CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
-  cd $(TOOLCHAIN_SYSROOT) \
-    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
-        $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
-	        *.a *.o *.la,--exclude="${i}") \
-        lib lib64 usr/lib usr/lib64 \
-        $(1) \
-    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
-        $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
-        sbin usr/bin usr/sbin \
-        $(1)
+dist_lfs_phase1:
+	echo "Do nothing"
 
-CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
-    $(if $(strip $(wildcard $(2))), \
-      rsync -a $(RSYNC_VERBOSE) -I $(wildcard $(2)) $(1))
-
-dist_lfs:
-	$(MAKE) DESTDIR=$(dist_DIR)/lfs busybox_destdep_install
-	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(dist_DIR)/lfs/)
-	$(call CMD_RSYNC_PREBUILT,$(dist_DIR)/lfs/,$(PROJDIR)/prebuilt/common/*)
-	$(call CMD_RSYNC_PREBUILT,$(dist_DIR)/lfs/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
+dist_lfs_phase2:
+	$(MAKE) DESTDIR=$(dist_DIR)/lfs busybox_destdep_install \
+	    tmux_destdep_install
+	$(MAKE) DESTDIR=$(dist_DIR)/lfs dist_rootfs_phase3
+	for i in dev media proc root sys tmp var/run; do \
+	  [ -d "$(dist_DIR)/lfs/$${i}" ] || $(MKDIR) "$(dist_DIR)/lfs/$${i}"; \
+	done
 	$(RMTREE) $(dist_DIR)/lfs.bin
 	truncate -s 512M $(dist_DIR)/lfs.bin
 	mkfs.ext4 -d $(dist_DIR)/lfs $(dist_DIR)/lfs.bin
+
+dist_lfs:
+	$(MAKE) dist_lfs_phase1
+	$(MAKE) dist_lfs_phase2
 
 #------------------------------------
 #
