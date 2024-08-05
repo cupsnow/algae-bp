@@ -17,8 +17,9 @@ cmd_run () {
 
 _pri_destdir="destdir/qemuarm64"
 
-cmd_qemu_virtio1="-drive id=boot,file=fat:rw:${_pri_destdir},format=raw,media=disk"
-cmd_qemu_virtio2="-drive id=lfs,file=destdir/lfs.bin,format=raw,media=disk,if=none -device virtio-blk-device,drive=lfs"
+cmd_qemu_virtio1="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,media=disk"
+# cmd_qemu_virtio2="-drive id=rootfs,file=destdir/lfs.bin,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
+cmd_qemu_virtio2="-drive id=rootfs,file=${_pri_destdir}/rootfs.bin,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
 
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"

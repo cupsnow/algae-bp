@@ -308,13 +308,13 @@ $(addprefix busybox_,help doc html): | $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(busybox_MAKE) $(@:busybox_%=%)
 
-bb_destpkg $(bb_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(bb_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(bb_BUILDDIR)-destpkg bb_install
-	tar -Jcvf $(bb_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(bb_BUILDDIR)-destpkg) \
-		$(notdir $(bb_BUILDDIR)-destpkg)
-	$(RMTREE) $(bb_BUILDDIR)-destpkg
+busybox_destpkg $(busybox_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(busybox_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(busybox_BUILDDIR)-destpkg busybox_install
+	tar -Jcvf $(busybox_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(busybox_BUILDDIR)-destpkg) \
+		$(notdir $(busybox_BUILDDIR)-destpkg)
+	$(RMTREE) $(busybox_BUILDDIR)-destpkg
 
 busybox_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
 busybox_destpkg_install: | $(busybox_BUILDDIR)-destpkg.tar.xz
@@ -599,7 +599,10 @@ tmux_destpkg_install: | $(tmux_BUILDDIR)-destpkg.tar.xz
 	tar -Jxvf $(tmux_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
 	    -C $(DESTDIR)
 
-tmux_destdep_install: $(foreach iter,$(tmux_DEP),$(iter)_destdep_install)
+tmux_destdep: $(foreach iter,$(tmux_DEP),$(iter)_destdep_install)
+	$(MAKE) tmux
+
+tmux_destdep_install: tmux_destdep
 	$(MAKE) tmux_destpkg_install
 
 # tmux_dist_install: DESTDIR=$(BUILD_SYSROOT)
@@ -649,10 +652,12 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 
 dist_rootfs_phase3: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase3:
+	for i in dev media proc root sys tmp var/run; do \
+	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
+	done
 	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(DESTDIR)/)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/common/*)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
-	[ -d "$(DESTDIR)/root" ] || $(MKDIR) "$(DESTDIR)/root"
 	rsync -L $(RSYNC_VERBOSE) \
 	    $$(find $(DESTDIR)/etc/skel/ -maxdepth 1 -type f) \
 		$(DESTDIR)/root/
@@ -661,20 +666,45 @@ dist_rootfs_phase3:
 	ln -sf /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
 	ln -sf /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
 
-dist-qemuarm64_phase1:
-	$(MAKE) uboot linux busybox
-	$(MAKE) tmux_destdep_install
+dist_lfs_phase1: DESTDIR=$(dist_DIR)/lfs
+dist_lfs_phase1:
+	$(MAKE) DESTDIR=$(DESTDIR) busybox_destdep_install \
+	    tmux_destdep_install
 
-dist-qemuarm64_phase2: GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
-dist-qemuarm64_phase2:
-	$(MAKE) ubootenv
-	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot.env $(dist_DIR)/$(APP_PLATFORM)/
+dist_lfs_phase2: DESTDIR=$(dist_DIR)/lfs
+dist_lfs_phase2:
+	$(MAKE) DESTDIR=$(DESTDIR) dist_rootfs_phase3
+	$(RMTREE) $(dist_DIR)/lfs.bin
+	truncate -s 512M $(dist_DIR)/lfs.bin
+	mkfs.ext4 -d $(DESTDIR) $(dist_DIR)/lfs.bin
+
+dist_lfs: DESTDIR=$(dist_DIR)/lfs
+dist_lfs:
+	$(MAKE) DESTDIR=$(DESTDIR) dist_lfs_phase1
+	$(MAKE) DESTDIR=$(DESTDIR) dist_lfs_phase2
+
+dist-qemuarm64_phase1:
+	$(MAKE) uboot linux busybox_destdep_install \
+	    tmux_destdep_install
+
+dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
+dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/u-boot.bin \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/vmlinux \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
-	$(MAKE) dist_lfs
+	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase3
+	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin
+	truncate -s 512M $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin
+	mkfs.ext4 -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin
+
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
 dist-qemuarm64:
 	$(MAKE) dist-qemuarm64_phase1
@@ -705,7 +735,7 @@ dist-bp_phase1:
 	$(MAKE) atf optee linux
 	$(MAKE) uboot linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
-	$(MAKE) ncursesw_destdep_install terminfo_destpkg libevent_destpkg
+	$(MAKE) busybox_destdep_install tmux_destdep_install
 
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
@@ -727,6 +757,9 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	echo ignored *** $(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
+	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase3
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
@@ -741,35 +774,11 @@ dist-bp_sd_phase1: | $(SD_BOOT)/dtb
 GENDIR+=$(SD_BOOT)/dtb
 
 dist-bp_sd_phase2: | $(SD_ROOTFS)
-	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/lfs/* $(SD_ROOTFS)/
-	# for i in bin lib tmp dev root var/run; do \
-	#   $(MKDIR) $(SD_ROOTFS)/$${i}; \
-	# done
-	# if [ -d "$(SD_ROOTFS)/lib64" ]; then \
-	#   mv $(SD_ROOTFS)/lib64/* $(SD_ROOTFS)/lib/; \
-	# fi
+	rsync -a $(dist_DIR)/$(APP_PLATFORM)/rootfs/* $(SD_ROOTFS)/
 
 dist-bp_sd:
 	$(MAKE) dist-bp_sd_phase1
 	$(MAKE) dist-bp_sd_phase2
-
-dist_lfs_phase1:
-	echo "Do nothing"
-
-dist_lfs_phase2:
-	$(MAKE) DESTDIR=$(dist_DIR)/lfs busybox_destdep_install \
-	    tmux_destdep_install
-	$(MAKE) DESTDIR=$(dist_DIR)/lfs dist_rootfs_phase3
-	for i in dev media proc root sys tmp var/run; do \
-	  [ -d "$(dist_DIR)/lfs/$${i}" ] || $(MKDIR) "$(dist_DIR)/lfs/$${i}"; \
-	done
-	$(RMTREE) $(dist_DIR)/lfs.bin
-	truncate -s 512M $(dist_DIR)/lfs.bin
-	mkfs.ext4 -d $(dist_DIR)/lfs $(dist_DIR)/lfs.bin
-
-dist_lfs:
-	$(MAKE) dist_lfs_phase1
-	$(MAKE) dist_lfs_phase2
 
 #------------------------------------
 #

@@ -835,6 +835,8 @@
 	disable-wp;
 	cd-gpios = <&main_gpio1 48 GPIO_ACTIVE_LOW>;
 	cd-debounce-delay-ms = <100>;
+	/* non-removable; */
+	/* broken-cd; */
 	ti,fails-without-test-cd;
 	status = "okay";
 };
