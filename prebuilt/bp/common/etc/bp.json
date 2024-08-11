@@ -1,0 +1,25 @@
+{
+    "device_name": "algae",
+    "manufacturer": "algae",
+    "model": "algae-bp",
+    "serial_number": "abp000001",
+    "version_code": [
+        0,
+        0,
+        1
+    ],
+    "build_number": 1,
+    "hw_version": "1.0",
+    "led": [
+        {
+            "color": "white",
+            "pin": 38
+        },
+        {
+            "color": "red",
+            "pin": 39
+        }
+    ],
+    "board_type": 101,
+    "version": "0.0.1",
+}

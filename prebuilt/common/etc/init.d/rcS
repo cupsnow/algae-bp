@@ -24,7 +24,7 @@ for i in /var/run /var/lock; do
 done
 
 # shellcheck disable=SC2043
-for i in /media; do
+for i in /media /tmp; do
   [ -d "${i}" ] || mkdir -p "${i}"
   mount -t tmpfs -osize=40m none "${i}"
 done

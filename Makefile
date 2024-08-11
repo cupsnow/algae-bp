@@ -11,7 +11,10 @@ PKGDIR2=$(abspath $(PROJDIR)/..)
 BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
+
+# ti_linux
 APP_ATTR_bp?=bp
+
 APP_ATTR_qemuarm64?=qemuarm64
 
 APP_PLATFORM?=bp
@@ -230,7 +233,8 @@ CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
     $$([ x"$$($(call CMD_SED_KEYVAL1,CONFIG_SYS_REDUNDAND_ENVIRONMENT) $(uboot_BUILDDIR)/.config)"=x"y" ] && echo -r) \
     -s $$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config) \
     -o $(or $(2),$(DESTDIR)/uboot.env) \
-	$(or $(1),ubootenv-$(APP_PLATFORM).txt)
+	$(or $(1),ubootenv-$(APP_PLATFORM).txt) \
+  && chmod a+r $(or $(2),$(DESTDIR)/uboot.env)
 
 $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
@@ -238,8 +242,14 @@ $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 #------------------------------------
 # for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH 
 #
+
+ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
+linux_DIR?=$(PKGDIR2)/ti-processor-sdk/board-support/ti-linux-kernel-6.1.83+gitAUTOINC+c1c2f1971f-ti
+linux_BUILDDIR?=$(BUILDDIR2)/ti-linux-$(APP_PLATFORM)
+else
 linux_DIR?=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
+endif
 linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
 
@@ -251,6 +261,10 @@ linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 linux_defconfig-qemuarm64=defconfig
 
+ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
+linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
+	$(linux_MAKE) defconfig ti_arm64_prune.config
+else
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	if [ -f "$(PROJDIR)/linux-$(APP_PLATFORM).config" ]; then \
 	  cp -v $(PROJDIR)/linux-$(APP_PLATFORM).config $(linux_BUILDDIR)/.config \
@@ -258,6 +272,7 @@ linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	else \
 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
+endif
 
 $(addprefix linux_,help):
 	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
@@ -339,6 +354,47 @@ busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
 GENDIR+=$(busybox_BUILDDIR)
+
+#------------------------------------
+#
+mmcutils_DIR=$(PKGDIR2)/mmc-utils
+mmcutils_BUILDDIR=$(BUILDDIR2)/mmcutils-$(APP_PLATFORM)
+mmcutils_MAKE=$(MAKE) CC=$(CC) C= -C $(mmcutils_BUILDDIR)
+
+mmcutils_defconfig $(mmcutils_BUILDDIR)/Makefile: | $(mmcutils_BUILDDIR)
+	rsync -a $(RSYNC_VERBOSE) $(mmcutils_DIR)/* $(mmcutils_BUILDDIR)/
+
+mmcutils_install: $(DESTDIR)=$(BUILD_SYSROOT)
+mmcutils_install: | $(mmcutils_BUILDDIR)/Makefile
+	$(mmcutils_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) prefix= $(@:mmcutils_%=%)
+
+mmcutils_destpkg $(mmcutils_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(mmcutils_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(mmcutils_BUILDDIR)-destpkg mmcutils_install
+	tar -Jcvf $(mmcutils_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(mmcutils_BUILDDIR)-destpkg) \
+		$(notdir $(mmcutils_BUILDDIR)-destpkg)
+	$(RMTREE) $(mmcutils_BUILDDIR)-destpkg
+
+mmcutils_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+mmcutils_destpkg_install: | $(mmcutils_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(mmcutils_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+mmcutils_destdep_install: $(foreach iter,$(mmcutils_DEP),$(iter)_destdep_install)
+	$(MAKE) mmcutils_destpkg_install
+
+mmcutils_distclean:
+	$(RMDIR) $(mmcutils_BUILDDIR)
+
+mmcutils: | $(mmcutils_BUILDDIR)/Makefile
+	$(mmcutils_MAKE) $(PARALLEL_BUILD)
+
+mmcutils_%: | $(mmcutils_BUILDDIR)/Makefile
+	$(mmcutils_MAKE) $(PARALLEL_BUILD) $(@:mmcutils_%=%)
+
+GENDIR+=$(mmcutils_BUILDDIR)
 
 #------------------------------------
 #
@@ -665,6 +721,7 @@ dist_rootfs_phase3:
 	  && chmod 0700 $(DESTDIR)/root/.exrc
 	ln -sf /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
 	ln -sf /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
+	rsync -L $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
 
 dist_lfs_phase1: DESTDIR=$(dist_DIR)/lfs
 dist_lfs_phase1:
@@ -684,8 +741,8 @@ dist_lfs:
 	$(MAKE) DESTDIR=$(DESTDIR) dist_lfs_phase2
 
 dist-qemuarm64_phase1:
-	$(MAKE) uboot linux busybox_destdep_install \
-	    tmux_destdep_install
+	$(MAKE) uboot linux $(addsuffix _destdep_install, \
+	    busybox tmux mmcutils)
 
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
@@ -737,7 +794,7 @@ dist-bp_phase1:
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(MAKE) busybox_destdep_install tmux_destdep_install
 
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
@@ -747,12 +804,12 @@ dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/dtb
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
-	    $(dist_DIR)/$(APP_PLATFORM)/boot/
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
-	#     $(dist_DIR)/$(APP_PLATFORM)/boot/dtb/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb dist-bp_dtb
+	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb dist-bp_dtb
 
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules

@@ -48,8 +48,9 @@ check_promisc () {
 
 /etc/init.d/mdev-initd start
 
-# cmd_run dmesg -n 4
-cmd_run ifconfig lo up 127.0.0.1
+cmd_run dmesg -n 4
+
+ifce_reset1 lo
 
 # cmd_run /etc/init.d/persist start ||
 #   cmd_run /etc/init.d/persist stop

@@ -56,7 +56,41 @@ setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 
    setenv bootargs_root root=/dev/mmcblk1p2 rw rootwait rootfstype=ext4
 
-   # emmc
+   \# emmc
    setenv bootargs_root root=/dev/mmcblk0p2 rootfstype=ext4 rootwait
 
+- preload u-boot
+
+   ```sh
+   => part list mmc 0
+
+   Partition Map for MMC device 0  --   Partition Type: DOS
+
+   Part    Start Sector    Num Sectors     UUID            Type
+   1     2048            262144          c5802c6f-01     0c Boot
+   2     264192          30357504        c5802c6f-02     83
+   => part list mmc 1
+
+   Partition Map for MMC device 1  --   Partition Type: DOS
+
+   Part    Start Sector    Num Sectors     UUID            Type
+   1     4096            512000          925eb125-01     0c Boot
+   2     516096          120545280       925eb125-02     83
+   => fatls mmc 0:1
+               System Volume Information/
+               extlinux/
+               overlays/
+      61704   k3-am625-beagleplay.dtb
+         54   ID.txt
+   29315584   Image
+   15402499   initrd.img
+      56043   k3-am625-sk-lpmdemo.dtb
+      55532   k3-am625-sk.dtb
+      42192   k3-am625-skeleton.dtb
+      323786   tiboot3.bin
+      996328   tispl.bin
+   1044684   u-boot.img
+
+   10 file(s), 3 dir(s)
    ```
+

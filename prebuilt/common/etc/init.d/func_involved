@@ -262,6 +262,18 @@ hex_gen () {
   echo "$str"
 }
 
+ifce_reset1 () {
+  _lo_ifce=$1
+  cmd_run ip a flush dev ${_lo_ifce}
+  cmd_run ip l set ${_lo_ifce} down
+  cmd_run ip l set ${_lo_ifce} up
+}
+
+ifce_down1 () {
+  _lo_ifce=$1
+  cmd_run ip l set ${_lo_ifce} down
+}
+
 ifce_list2 () {
   local ifce=$(ip l 2>/dev/null | sed -n "s/^[0-9]*:\s\(${1}[^:]*\):\s*<.*${2}.*>.*/\1/p")
   [ -n "$ifce" ] && echo $ifce

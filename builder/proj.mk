@@ -54,6 +54,10 @@ CMD_SED_DEFNUM=sed -n "s/\\s*\#define\\s*$(1)\\s*\\(\\d*\\)/\\1/p"
 CMD_SED_KEYVAL1=sed -n "s/\\s*$(1)\\s*=\\s*\\(.*\\)/\\1/p"
 
 #------------------------------------
+#
+CMD_GIT_VER=git describe --always --tags
+
+#------------------------------------
 # $(call UNIQ,b b a a) # -> b a
 #
 UNIQ=$(if $1,$(strip $(firstword $1) $(call UNIQ,$(filter-out $(firstword $1),$1))))
