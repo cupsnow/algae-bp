@@ -19,18 +19,19 @@
 #define ALGAE_VER_RELEASE 0
 #define ALGAE_VER_CODE 1
 
-#define log_m(_lvl, _msg, _args...) do { \
+#  define log_m(_lvl, _msg, _args...) do { \
 	struct timespec ts; \
 	struct tm tm; \
 	clock_gettime(CLOCK_REALTIME, &ts); \
 	localtime_r(&ts.tv_sec, &tm); \
-	fprintf(stdout, "[%02d:%02d:%02d.%06d][%s][%s][#%d]" _msg, \
-			tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec / 1000, \
+	fprintf(stdout, "[%02ld:%02ld:%02ld.%06ld][%s][%s][#%d]" _msg, \
+			(long)tm.tm_hour, (long)tm.tm_min, (long)tm.tm_sec, \
+			(long)ts.tv_nsec / 1000, \
 			_lvl, __func__, __LINE__, ##_args); \
 	fflush(stdout); \
 } while(0)
-#define log_d(...) log_m("Debug", __VA_ARGS__)
-#define log_e(...) log_m("ERROR", __VA_ARGS__)
+#  define log_d(...) log_m("Debug", __VA_ARGS__)
+#  define log_e(...) log_m("ERROR", __VA_ARGS__)
 
 #ifdef __cplusplus
 extern "C" {

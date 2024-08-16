@@ -1,0 +1,63 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="syslogd-initd"
+
+log_d "$0 $*"
+
+SYSLOGD_DAEMON=/sbin/syslogd
+SYSLOGD_PIDFILE="/var/run/syslogd.pid"
+SYSLOGD_CONF="/tmp/syslog.conf"
+SYSLOGD_ROTATECNT=5
+SYSLOGD_SHM=800
+SYSLOGD_ARGS="-L ${SYSLOGD_SHM:+-C${SYSLOGD_SHM}} ${SYSLOGD_ROTATECNT:+-b${SYSLOGD_ROTATECNT}} ${SYSLOGD_CONF:+-f${SYSLOGD_CONF}}"
+
+KLOGD_DAEMON=/sbin/klogd
+KLOGD_PIDFILE="/var/run/klogd.pid"
+KLOGD_ARGS=
+
+TZFILE="/etc/TZ"
+
+do_start() {
+  if [ -f "$TZFILE" ]; then
+    TZ="$(cat $TZFILE)"
+    export TZ
+  fi
+
+  if [ -n "$SYSLOGD_CONF" ] && [ ! -f "$SYSLOGD_CONF" ]; then
+    cp /etc/syslog.conf "$SYSLOGD_CONF"
+  fi
+
+  # shellcheck disable=SC2086
+  start-stop-daemon -b -S -m -p $SYSLOGD_PIDFILE --exec $SYSLOGD_DAEMON -- -n $SYSLOGD_ARGS
+  # $SYSLOGD_DAEMON ${SYSLOGD_ARGS}
+
+  # shellcheck disable=SC2086
+  start-stop-daemon -b -S -m -p $KLOGD_PIDFILE --exec $KLOGD_DAEMON -- -n $KLOGD_ARGS
+  # $KLOGD_DAEMON ${KLOGD_ARGS}
+}
+
+do_stop() {
+  # start-stop-daemon -K -p $SYSLOGD_PIDFILE
+  # start-stop-daemon -K -p $KLOGD_PIDFILE
+  killall syslogd klogd >/dev/null 2>&1
+}
+
+case "$1" in
+  start)
+  do_start
+  ;;
+  stop)
+  do_stop
+  ;;
+  restart|reload)
+  do_stop
+  do_start
+  ;;
+  *)
+  echo "Usage: $0 {start|stop|restart}"
+  exit 1
+esac
+
+exit $?

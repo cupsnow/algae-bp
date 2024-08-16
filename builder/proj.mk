@@ -50,6 +50,11 @@ DEPFLAGS=-MMD -MT $(@) -MF $(@).d -MP
 
 #------------------------------------
 #
+CMD_OBJTYPE=$(OBJDUMP) -f $(1) | head -n2 | sed -n "s/^.*file format\s*\(.*\)\s*.*/\1/p"
+CMD_OBJARCH=$(OBJDUMP) -f $(1) | head -n3 | sed -n "s/^architecture:\s*\(.*\),.*/\1/p"
+
+#------------------------------------
+#
 CMD_SED_DEFNUM=sed -n "s/\\s*\#define\\s*$(1)\\s*\\(\\d*\\)/\\1/p"
 CMD_SED_KEYVAL1=sed -n "s/\\s*$(1)\\s*=\\s*\\(.*\\)/\\1/p"
 

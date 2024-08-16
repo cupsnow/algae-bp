@@ -33,12 +33,14 @@ mount -t debugfs none /sys/kernel/debug >/dev/null 2>&1
 
 [ -e /etc/ld.so.cache ] || ldconfig -C /var/run/ld.so.cache
 
-if [ -e /etc/TZ ]; then
-  TZ="$(cat /etc/TZ)"
-  export TZ
-fi
+# apply by app, leave UTC in default
+# if [ -e /etc/TZ ]; then
+#   TZ="$(cat /etc/TZ)"
+#   export TZ
+# fi
 
-syslogd -C800 -s 200 -b 1 # && klogd
+# move to syslogd-initd
+# syslogd -C800 -s 200 -b 1 # && klogd
 
 fw_fallback_ignore_knob=/proc/sys/kernel/firmware_config/ignore_sysfs_fallback
 [ -e $fw_fallback_ignore_knob ] && echo "1" > $fw_fallback_ignore_knob

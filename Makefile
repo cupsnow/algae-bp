@@ -20,7 +20,7 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) locale_posix2c
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -62,8 +62,27 @@ LDFLAGS+=
 GENDIR:=
 GENPYVENV:=
 
+# abstract from make $(1)=XXX -> XXX
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
+
+# abstract from make V=XXX -> XXX
 CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
+
+# abstract from make V=1 ... -> -v
+# RSYNC_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
+
+ifneq ($(strip $(filter x"1", x"$(CLIARGS_VERBOSE)")),)
+RSYNC_VERBOSE=-v
+CP_VERBOSE=-v
+MV_VERBOSE=-v
+endif
+
+
+# abstract from make V=1 ... -> -v
+CP_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
+
+# abstract from make V=1 ... -> -v
+MV_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
 
 #------------------------------------
 #
@@ -319,6 +338,9 @@ busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
 	  $(busybox_MAKE) defconfig; \
 	fi
 
+$(addprefix busybox_,mrproper):
+	$(filter-out O=%,$(busybox_MAKE)) $(@:busybox_%=%)
+
 $(addprefix busybox_,help doc html): | $(BUILDDIR)/pyvenv
 	. $(BUILDDIR)/pyvenv/bin/activate && \
 	  $(busybox_MAKE) $(@:busybox_%=%)
@@ -502,13 +524,17 @@ $(addprefix $(PROJDIR)/tool/bin/,tic):
 
 #------------------------------------
 #
-CMD_LOCALE_BASE=I18NPATH=$(TOOLCHAIN_SYSROOT)/usr/share/i18n localedef
+TOOLCHAIN_I18NPATH=$(TOOLCHAIN_SYSROOT)/usr/share/i18n
+CMD_LOCALE_BASE=I18NPATH=$(TOOLCHAIN_I18NPATH) localedef
 CMD_LOCALE_COMPILE=$(if $(2),,$(error "CMD_LOCALE_COMPILE invalid argument")) \
     $(CMD_LOCALE_BASE) -i $1 -f $2 $(or $(3),$(1).$(2))
 CMD_LOCALE_AR=$(if $(2),,$(error "CMD_LOCALE_AR invalid argument")) \
     $(CMD_LOCALE_BASE) --add-to-archive --replace --prefix=$(1) $(2)
 CMD_LOCALE_LIST=$(if $(1),,$(error "CMD_LOCALE_LIST invalid argument")) \
     $(CMD_LOCALE_BASE) --list-archive --prefix=$(1)
+CMD_CHARMAP_INST=rsync -a $(RSYNC_VERBOSE) --ignore-missing-args \
+    $(patsubst %,$(TOOLCHAIN_I18NPATH)/charmaps/%.gz,$(2)) \
+    $(1)/usr/share/i18n/charmaps/
 
 locale_BUILDDIR=$(BUILDDIR)/locale-$(APP_BUILD)
 
@@ -516,6 +542,7 @@ locale_install: | $(locale_BUILDDIR)
 locale_install: DESTDIR=$(BUILDDIR)/locale-destdir
 locale_install:
 	[ -d "$(DESTDIR)/usr/lib/locale" ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
+	[ -d "$(DESTDIR)/usr/share/i18n/charmaps" ] || $(MKDIR) $(DESTDIR)/usr/share/i18n/charmaps
 ifneq ($(strip $(filter locale_posix2c,$(APP_ATTR))),)
 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/C.UTF-8) || [ $$? -eq 1 ]
 	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/C.UTF-8)
@@ -525,8 +552,13 @@ else
 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/POSIX.UTF-8) || [ $$? -eq 1 ]
 	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/POSIX.UTF-8)
 endif
-	# @echo "Locale:"
-	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
+	# $(call CMD_LOCALE_COMPILE,en_US,UTF-8,$(locale_BUILDDIR)/en_US.UTF-8) || [ $$? -eq 1 ]
+	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/en_US.UTF-8)
+	# $(call CMD_CHARMAP_INST,$(DESTDIR),UTF-8)
+	# $(call CMD_LOCALE_COMPILE,zh_TW,BIG5,$(locale_BUILDDIR)/zh_TW.BIG5) || [ $$? -eq 1 ]
+	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.BIG5)
+	# $(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
+	# @echo "Locale archived: $$($(call CMD_LOCALE_LIST,$(DESTDIR)) | xargs)"
 
 GENDIR+=$(locale_BUILDDIR)
 
@@ -626,7 +658,9 @@ tmux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 # endif
 # tmux_CFGPARAM_$(APP_PLATFORM)+=CFLAGS="$(tmux_CFLAGS)"
 
-$(tmux_DIR)/configure: $(tmux_DIR)/autogen.sh
+$(tmux_DIR)/autogen.sh:
+
+$(tmux_DIR)/configure: | $(tmux_DIR)/autogen.sh
 	cd $(tmux_DIR) \
 	  && ./autogen.sh
 
@@ -685,8 +719,6 @@ dummy1:
 #
 dist_DIR=$(PROJDIR)/destdir
 
-RSYNC_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
-
 SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
 SD_ROOTFS=$(firstword $(wildcard /media/$(USER)/rootfs))
 
@@ -722,6 +754,10 @@ dist_rootfs_phase3:
 	ln -sf /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
 	ln -sf /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
 	rsync -L $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
+ifeq (1,1)
+	$(MAKE) dummy1
+	rsync -L $(BUILDDIR)/dummy1/tester_syslog $(DESTDIR)/root/
+endif
 
 dist_lfs_phase1: DESTDIR=$(dist_DIR)/lfs
 dist_lfs_phase1:
@@ -762,6 +798,11 @@ dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
+
+dist-qemuarm64_locale:
+	$(RMTREE) $(locale_BUILDDIR)*
+	$(MAKE) locale_destdep_install
+	$(MAKE) dist_phase2
 
 dist-qemuarm64:
 	$(MAKE) dist-qemuarm64_phase1

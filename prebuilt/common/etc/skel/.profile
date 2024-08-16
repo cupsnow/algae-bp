@@ -1,5 +1,7 @@
 #!/bin/sh
 
-eval "`resize`"
-alias rs='eval "`resize`"'
-alias tftp='tftp -b 50000'
+if type resize >/dev/null 2>&1; then
+  alias rs='eval "$(resize)"'
+  eval "$(resize)"
+fi
+
