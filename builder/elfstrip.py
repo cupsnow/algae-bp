@@ -2,24 +2,32 @@
 import sys, os, logging, argparse, asyncio, pathlib
 import magic, pathspec
 
-# level=logging.INFO, 
+# level=logging.INFO,
 logging.basicConfig(format="[%(asctime)s][%(levelname)s][%(name)s][%(funcName)s][#%(lineno)d]%(message)s")
-logger = logging.getLogger("strip")
+
+logger = logging.getLogger("elfstrip")
 logger_level = logging.DEBUG
 logger.setLevel(logger_level)
 
-def logger_level_verbose(inc = 1, lvl_base = None):
-    if lvl_base is None:
-        global logger_level
-        lvl_base = logger_level
-    lut = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO,
-            logging.DEBUG, logging.NOTSET]
-    idx = lut.index(lvl_base)
-    if inc + idx >= len(lut):
-        return lut[-1]
-    if inc + idx < 0:
-        return lut[0]
-    return lut[inc + idx]
+app_cfg = {
+    "path_list": [],
+}
+
+def logger_level_verbose(noiser=1, apply=None):
+    global logger_level
+    lvl = apply or logger_level
+    lut = [logging.NOTSET, logging.DEBUG, logging.INFO, logging.WARNING,
+            logging.ERROR, logging.CRITICAL]
+    idx = lut.index(lvl) - noiser
+    if idx < 0:
+        lvl = lut[0]
+    elif idx >= len(lut):
+        lvl = lut[-1]
+    else:
+        lvl = lut[idx]
+    if apply is None:
+        logger_level = lvl
+    return lvl
 
 def filesave(data, fn, wmod="w"):
     '''
@@ -41,23 +49,13 @@ def filesave(data, fn, wmod="w"):
         f.write(data)
     # logger.debug(f"written {fn} {len(data)} {unit}")
 
-def do_strip(*args, strip_program="strip", outdir=None, exclusion_match=None):
-    done_set = []
-    work_set = [*args]
-
-
-
-
-    for src in args:
-        if do_match(src, exclusion_match):
-            continue
-        if os.path.isdir(src):
-            dirs.append(src)
-            continue
-        if os.path.isfile(src):
-            do_strip_file(src, strip_program, outdir)
-        if os.path.isdir(src):
-            dirs.append(src)
+def do_strip(tgt, root=None):
+    p = pathlib.Path(tgt)
+    if p.is_symlink:
+        logger.debug(f"Skip symlink: {tgt}")
+        return 0
+    if p.is_dir():
+        path
 
 async def main(argv):
     logger.debug(f"argv: {argv}")
@@ -65,51 +63,28 @@ async def main(argv):
             formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     argparser.add_argument("-h", "--help", action="store_true", help="Show this help")
     argparser.add_argument("-v", "--verbose", action="count", default=0, help="More message output")
-    argparser.add_argument("--strip-program-args", default="-g", help="Strip executable cli args")
-    argparser.add_argument("--strip-program", help="Program used to strip executable")
-    argparser.add_argument("--exclude", nargs="?", help="GitIgnoreSpec for exclusion")
+    argparser.add_argument("-L", "--dereference", action="store_true", help="Dereference the input")
+    argparser.add_argument("--strip", default="strip", help="Program used to strip executable")
     argparser.add_argument("input", nargs="?", help="Input path")
 
-    args = argparser.parse_args(argv[1:])
+    cli_args = argparser.parse_args(argv[1:])
+    app_cfg.update({"cli_args": cli_args})
 
-    if args.verbose != 0:
-        logger.setLevel(logger_level_verbose(args.verbose))
+    if cli_args.verbose != 0:
+        logger_level_verbose(cli_args.verbose)
 
-    if args.help:
+    if cli_args.help:
         argparser.print_help()
         return 1
 
-    spec_ex = None
-    if args.exclude is not None:
-        with open(args.exclude, 'r') as f:
-            spec_ex = pathspec.PathSpec.from_lines('gitignore', f)
+    logger.debug(f"strip cli: {cli_args.strip}")
 
-    strip_program = args.strip_program or "strip"
-    logger.debug(f"strip_program: {strip_program}")
-
-    if args.input is None:
+    if cli_args.input is None:
         logger.error("No input")
         return 1
 
-    for dirfile in args.input:
-
-
-        p = pathlib.Path(dirfile)
-        if p.is_symlink():
-            if not args.dereference:
-                continue
-        pr = p.resolve()
-
-
-        pr = p.resolve()
-        if p.is_symlink():
-            pr = p.resolve()
-        if os.path.islink(dirfile):
-            if os.path.isfile(dirfile):
-
-        if os.path.isfile(dir):
-
-        do_strip(args.input, strip_program=strip_program)
+    for tgt in cli_args.input:
+        do_strip(tgt)
 
 if __name__ == "__main__":
     asyncio.run(main(sys.argv))

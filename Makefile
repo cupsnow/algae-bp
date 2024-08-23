@@ -54,6 +54,8 @@ BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig" 
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
+PYVENVDIR=$(PROJDIR)/.venv
+
 CPPFLAGS+=
 CFLAGS+=
 CXXFLAGS+=
@@ -62,32 +64,24 @@ LDFLAGS+=
 GENDIR:=
 GENPYVENV:=
 
-# abstract from make $(1)=XXX -> XXX
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
 
-# abstract from make V=XXX -> XXX
 CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
 
-# abstract from make V=1 ... -> -v
-# RSYNC_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
+RSYNC_VERBOSE:=--debug=FILTER
 
 ifneq ($(strip $(filter x"1", x"$(CLIARGS_VERBOSE)")),)
-RSYNC_VERBOSE=-v
-CP_VERBOSE=-v
-MV_VERBOSE=-v
+RSYNC_VERBOSE+=-v
+CP_VERBOSE+=-v
+MV_VERBOSE+=-v
 endif
-
-
-# abstract from make V=1 ... -> -v
-CP_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
-
-# abstract from make V=1 ... -> -v
-MV_VERBOSE=$(if $(filter x"1", x"$(CLIARGS_VERBOSE)"),-v)
 
 #------------------------------------
 #
 .DEFAULT_GOAL=help
-help:
+help: help1
+
+help1:
 	@echo "APP_ATTR: $(APP_ATTR)"
 	@echo "AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
@@ -121,12 +115,12 @@ optee_MAKEARGS-bp+=CFG_ARM64_core=y PLATFORM=k3-am62x CFG_TEE_CORE_LOG_LEVEL=2 \
     CFG_TEE_CORE_DEBUG=y CFG_WITH_SOFTWARE_PRNG=y \
     CROSS_COMPILE=$(ARM_CROSS_COMPILE) CROSS_COMPILE64=$(AARCH64_CROSS_COMPILE)
 
-optee: | $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate \
+optee: | $(PYVENVDIR)
+	. $(PYVENVDIR)/bin/activate \
 	  && $(optee_MAKE) $(PARALLEL_BUILD)
 
 optee_%:
-	. $(BUILDDIR)/pyvenv/bin/activate \
+	. $(PYVENVDIR)/bin/activate \
 	  && $(optee_MAKE) $(PARALLEL_BUILD) $(@:optee_%=%)
 
 GENPYVENV+=pyelftools cryptography
@@ -208,8 +202,8 @@ uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
 $(addprefix uboot_,help):
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-$(addprefix uboot_,htmldocs): | $(BUILDDIR)/pyvenv $(uboot_BUILDDIR)
-	. $(BUILDDIR)/pyvenv/bin/activate \
+$(addprefix uboot_,htmldocs): | $(PYVENVDIR) $(uboot_BUILDDIR)
+	. $(PYVENVDIR)/bin/activate \
 	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 uboot_tools_install: DESTDIR=$(PROJDIR)/tool
@@ -227,12 +221,12 @@ ubootenv: DESTDIR=$(BUILDDIR)
 ubootenv:
 	$(call CMD_UENV)
 
-uboot: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate \
+uboot: | $(uboot_BUILDDIR)/.config $(PYVENVDIR)
+	. $(PYVENVDIR)/bin/activate \
 	  && $(uboot_MAKE) $(PARALLEL_BUILD)
 
-uboot_%: | $(uboot_BUILDDIR)/.config $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate \
+uboot_%: | $(uboot_BUILDDIR)/.config $(PYVENVDIR)
+	. $(PYVENVDIR)/bin/activate \
 	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 GENPYVENV+=yamllint jsonschema
@@ -298,8 +292,8 @@ $(addprefix linux_,help):
 
 # dep: apt install dvipng imagemagick
 #      pip install sphinx_rtd_theme six
-$(addprefix linux_,htmldocs): | $(BUILDDIR)/pyvenv $(linux_BUILDDIR)
-	. $(BUILDDIR)/pyvenv/bin/activate \
+$(addprefix linux_,htmldocs): | $(PYVENVDIR) $(linux_BUILDDIR)
+	. $(PYVENVDIR)/bin/activate \
 	  && $(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
 $(addprefix linux_,menuconfig savedefconfig oldconfig): | $(linux_BUILDDIR)/.config
@@ -341,8 +335,8 @@ busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
 $(addprefix busybox_,mrproper):
 	$(filter-out O=%,$(busybox_MAKE)) $(@:busybox_%=%)
 
-$(addprefix busybox_,help doc html): | $(BUILDDIR)/pyvenv
-	. $(BUILDDIR)/pyvenv/bin/activate && \
+$(addprefix busybox_,help doc html): | $(PYVENVDIR)
+	. $(PYVENVDIR)/bin/activate && \
 	  $(busybox_MAKE) $(@:busybox_%=%)
 
 busybox_destpkg $(busybox_BUILDDIR)-destpkg.tar.xz:
@@ -452,7 +446,7 @@ ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
 	    echo "INPUT(-l$${i}w)" > $(DESTDIR)/lib/lib$${i}.so; \
 	  fi; \
 	  if [ -e $(DESTDIR)/lib/lib$${i}w.a ]; then \
-	    ln -sf lib$${i}w.a $(DESTDIR)/lib/lib$${i}.a; \
+	    ln -sfn lib$${i}w.a $(DESTDIR)/lib/lib$${i}.a; \
 	  fi; \
 	done
 
@@ -560,9 +554,7 @@ endif
 	# $(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
 	# @echo "Locale archived: $$($(call CMD_LOCALE_LIST,$(DESTDIR)) | xargs)"
 
-GENDIR+=$(locale_BUILDDIR)
-
-locale_destpkg $(locale_BUILDDIR)-destpkg.tar.xz:
+locale_destpkg $(locale_BUILDDIR)-destpkg.tar.xz: | $(locale_BUILDDIR)
 	$(RMTREE) $(locale_BUILDDIR)-destpkg
 	$(MAKE) DESTDIR=$(locale_BUILDDIR)-destpkg locale_install
 	tar -Jcvf $(locale_BUILDDIR)-destpkg.tar.xz \
@@ -580,6 +572,8 @@ locale_destpkg_install: | $(locale_BUILDDIR)-destpkg.tar.xz
 
 locale_destdep_install: $(foreach iter,$(locale_DEP),$(iter)_destdep_install)
 	$(MAKE) locale_destpkg_install
+
+GENDIR+=$(locale_BUILDDIR)
 
 #------------------------------------
 #
@@ -738,8 +732,17 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
     $(if $(strip $(wildcard $(2))), \
       rsync -a $(RSYNC_VERBOSE) -I $(wildcard $(2)) $(1))
 
-dist_rootfs_phase3: DESTDIR=$(dist_DIR)/rootfs
-dist_rootfs_phase3:
+CMD_GENROOT_EXT4= \
+  $(RMTREE) $(2) \
+    && truncate -s 512M $(2) \
+    && fakeroot mkfs.ext4 -d $(1) $(2)
+
+dist_rootfs_phase1:
+	$(MAKE) $(addsuffix _destdep_install, \
+	    busybox tmux mmcutils)
+
+dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
+dist_rootfs_phase2:
 	for i in dev media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
@@ -751,37 +754,22 @@ dist_rootfs_phase3:
 		$(DESTDIR)/root/
 	[ -f $(DESTDIR)/root/.exrc ] \
 	  && chmod 0700 $(DESTDIR)/root/.exrc
-	ln -sf /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
-	ln -sf /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
-	rsync -L $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
+	ln -sfn /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
+	ln -sfn /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
+	rsync -L $(RSYNC_VERBOSE) $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
 ifeq (1,1)
 	$(MAKE) dummy1
-	rsync -L $(BUILDDIR)/dummy1/tester_syslog $(DESTDIR)/root/
+	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/dummy1/tester_syslog $(DESTDIR)/root/
 endif
 
-dist_lfs_phase1: DESTDIR=$(dist_DIR)/lfs
-dist_lfs_phase1:
-	$(MAKE) DESTDIR=$(DESTDIR) busybox_destdep_install \
-	    tmux_destdep_install
-
-dist_lfs_phase2: DESTDIR=$(dist_DIR)/lfs
-dist_lfs_phase2:
-	$(MAKE) DESTDIR=$(DESTDIR) dist_rootfs_phase3
-	$(RMTREE) $(dist_DIR)/lfs.bin
-	truncate -s 512M $(dist_DIR)/lfs.bin
-	mkfs.ext4 -d $(DESTDIR) $(dist_DIR)/lfs.bin
-
-dist_lfs: DESTDIR=$(dist_DIR)/lfs
-dist_lfs:
-	$(MAKE) DESTDIR=$(DESTDIR) dist_lfs_phase1
-	$(MAKE) DESTDIR=$(DESTDIR) dist_lfs_phase2
-
 dist-qemuarm64_phase1:
-	$(MAKE) uboot linux $(addsuffix _destdep_install, \
-	    busybox tmux mmcutils)
+	$(MAKE) uboot linux
+	$(MAKE) dist_rootfs_phase1
 
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
-dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
+dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+	[ -L "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64" ] \
+	  || ln -sfn lib $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/u-boot.bin \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
@@ -790,19 +778,19 @@ dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase3
-	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin
-	truncate -s 512M $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin
-	mkfs.ext4 -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin
+	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
+	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 
 dist-qemuarm64_locale:
 	$(RMTREE) $(locale_BUILDDIR)*
 	$(MAKE) locale_destdep_install
-	$(MAKE) dist_phase2
+	$(MAKE) dist-qemuarm64_phase2
 
 dist-qemuarm64:
 	$(MAKE) dist-qemuarm64_phase1
@@ -830,9 +818,10 @@ dist-bp_dtb:
 	    > $(BUILDDIR)/$(DTBFILE:%.dtb=%).dts
 
 dist-bp_phase1:
-	$(MAKE) atf optee linux
-	$(MAKE) uboot linux_modules linux_dtbs
+	$(MAKE) atf optee linux uboot
+	$(MAKE) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
+	$(MAKE) dist_rootfs_phase1
 	$(MAKE) busybox_destdep_install tmux_destdep_install
 
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
@@ -857,7 +846,7 @@ dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	echo ignored *** $(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase3
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
@@ -1009,9 +998,9 @@ distclean:
 
 #------------------------------------
 #
-$(BUILDDIR)/pyvenv:
+pyvenv $(PYVENVDIR):
 	python3 -m venv $@
-	. $(BUILDDIR)/pyvenv/bin/activate \
+	. $(PYVENVDIR)/bin/activate \
 	  && pip3 install $(sort $(GENPYVENV))
 
 #------------------------------------
