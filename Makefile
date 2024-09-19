@@ -3,6 +3,8 @@
 include builder/proj.mk
 -include site.mk
 
+export SHELL=/bin/bash
+
 PARALLEL_BUILD?=$(or $(1),-j)10
 
 PKGDIR=$(PROJDIR)/package
@@ -74,6 +76,7 @@ ifneq ($(strip $(filter x"1", x"$(CLIARGS_VERBOSE)")),)
 RSYNC_VERBOSE+=-v
 CP_VERBOSE+=-v
 MV_VERBOSE+=-v
+ELFSTRIP_VERBOSE+=-v
 endif
 
 #------------------------------------
@@ -145,14 +148,15 @@ uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
     -C $(uboot_DIR)
 
 uboot_MAKEARGS-bp-r5+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
-    CROSS_COMPILE=$(ARM_CROSS_COMPILE)
+    ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)
 
 uboot_defconfig-bp-r5=am62x_beagleplay_r5_defconfig
 
 uboot_MAKEARGS-bp-a53+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     BL31=$(firstword $(wildcard $(atf_BUILDDIR)/k3/lite/release/bl31.bin \
         $(atf_BUILDDIR)/k3/lite/debug/bl31.bin)) \
-    TEE=$(optee_BUILDDIR)/core/tee-raw.bin CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+    TEE=$(optee_BUILDDIR)/core/tee-raw.bin \
+	ARCH=arm CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
 
@@ -218,7 +222,7 @@ $(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.con
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 ubootenv: DESTDIR=$(BUILDDIR)
-ubootenv:
+ubootenv: $(PROJDIR)/tool/bin/mkenvimage
 	$(call CMD_UENV)
 
 uboot: | $(uboot_BUILDDIR)/.config $(PYVENVDIR)
@@ -229,7 +233,7 @@ uboot_%: | $(uboot_BUILDDIR)/.config $(PYVENVDIR)
 	. $(PYVENVDIR)/bin/activate \
 	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
-GENPYVENV+=yamllint jsonschema
+GENPYVENV+=setuptools pyyaml yamllint jsonschema swig
 
 # for tools_install
 GENDIR+=$(PROJDIR)/tool/bin
@@ -818,7 +822,7 @@ dist-bp_dtb:
 	    > $(BUILDDIR)/$(DTBFILE:%.dtb=%).dts
 
 dist-bp_phase1:
-	$(MAKE) atf optee linux uboot
+	$(MAKE) atf optee linux uboot $(kernelrelease)
 	$(MAKE) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(MAKE) dist_rootfs_phase1
@@ -843,10 +847,20 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
-	echo ignored *** $(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
+	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
+	. $(PYVENVDIR)/bin/activate && \
+	  python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
+	      -l $(BUILDDIR)/elfstrip.log \
+	      --strip=$(TOOLCHAIN_PATH)/bin/$(STRIP) \
+		  --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
+	      $(dist_DIR)/$(APP_PLATFORM)/rootfs
+	$(busybox_DIR)/examples/depmod.pl \
+	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
+	    -F $(linux_BUILDDIR)/System.map
+
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
@@ -866,110 +880,6 @@ dist-bp_sd_phase2: | $(SD_ROOTFS)
 dist-bp_sd:
 	$(MAKE) dist-bp_sd_phase1
 	$(MAKE) dist-bp_sd_phase2
-
-#------------------------------------
-#
-dist_strip_known_sh_pattern=\.sh \.pl \.py c_rehash ncursesw6-config alsaconf \
-    $(addprefix usr/bin/,xtrace tzselect ldd sotruss catchsegv mtrace) \.la
-dist_strip_known_sh_pattern2=$(subst $(SPACE),|,$(sort $(subst $(COMMA),$(SPACE), \
-    $(dist_strip_known_sh_pattern))))
-dist_strip:
-	@echo -e "$(ANSI_GREEN)Strip executable$(if $($(@)_log),$(COMMA) log to $($(@)_log))$(ANSI_NORMAL)"
-	@$(if $($(@)_log),echo "" >> $($(@)_log); date >> $($(@)_log))
-	@$(if $($(@)_log),echo "Start strip; path: $($(@)_DIR) $($(@)_EXTRA)" >> $($(@)_log))
-	@for i in $(addprefix $($(@)_DIR), \
-	  usr/lib/libgcc_s.so.1 usr/lib64/libgcc_s.so.1 \
-	  bin sbin lib lib64 usr/bin usr/sbin usr/lib usr/lib64) $($(@)_EXTRA); do \
-	  if [ ! -e "$$i" ]; then \
-	    $(if $($(@)_log),echo "Strip skipping missing explicite $$i" >> $($(@)_log);) \
-	    continue; \
-	  fi; \
-	  [ -f "$$i" ] && { \
-	    $(if $($(@)_log),echo "Strip explicite $$i" >> $($(@)_log);) \
-	    $(STRIP) -g $$i; \
-	    continue; \
-	  }; \
-	  [ -d "$$i" ] && { \
-	    $(if $($(@)_log),echo "Strip recurse dir $$i" >> $($(@)_log);) \
-	    for j in `find $$i`; do \
-	      [[ "$$j" =~ .+($(dist_strip_known_sh_pattern2)) ]] && { \
-	        $(if $($(@)_log),echo "Skip known script/file $$j" >> $($(@)_log);) \
-	        continue; \
-		  }; \
-	      [[ "$$j" =~ .*/lib/modules/.+\.ko ]] && { \
-	        $(if $($(@)_log),echo "Strip implicite kernel module $$j" >> $($(@)_log);) \
-	        $(STRIP) -g $$j; \
-	        continue; \
-	      }; \
-	      [ ! -x "$$j" ] && { \
-	        $(if $($(@)_log),echo "Strip skipping non-executable $$j" >> $($(@)_log);) \
-	        continue; \
-	      }; \
-	      [ -L "$$j" ] && { \
-	        $(if $($(@)_log),echo "Strip skipping symbolic $$j -> `readlink $$j`" >> $($(@)_log);) \
-	        continue; \
-	      }; \
-	      [ -d "$$j" ] && { \
-	        $(if $($(@)_log),echo "Strip skipping dirname $$j" >> $($(@)_log);) \
-	        continue; \
-	      }; \
-	      $(if $($(@)_log),echo "Strip implicite file $$j" >> $($(@)_log);) \
-	      $(STRIP) -g $$j; \
-	    done; \
-	  }; \
-	done
-
-# ~/07_sw/arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-readelf -d destdir/sdcard/rootfs/lib/libavcodec.so.58.134.100 | sed -nE "s/.*\(NEEDED\)\s+Shared library:\s*\[(.*)\]/\1/p"
-# ~/07_sw/arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-objdump -p destdir/rootfs_least/bin/busybox | sed -nE "s/^\s*NEEDED\s+(.*)/\1/p"
-dist_elfdep: elfdep_log=$(BUILDDIR)/elfdep_log-$(APP_PLATFORM).txt
-dist_elfdep:
-	@echo -e "$(ANSI_GREEN)ELF dep dump$(ANSI_NORMAL)"
-	@echo "# `date`" $(if $(elfdep_log),&>> $(elfdep_log))
-	for i in $(addprefix $(dist_DIR)/rootfs/, \
-	    usr/lib/libgcc_s.so.1 usr/lib64/libgcc_s.so.1 \
-	    bin sbin lib lib64 usr/bin usr/sbin usr/lib usr/lib64); do \
-	  if [ ! -e "$$i" ]; then \
-	    echo "# Skipping missing explicite $$i" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	    continue; \
-	  fi; \
-	  [ -f "$$i" ] && { \
-	    echo "# ELF explicite $$i" $(if $(elfdep_log),&>> $(elfdep_log)); \
-		$(call ELFDEP,"$$i") $(if $(elfdep_log),&>> $(elfdep_log)); \
-	    continue; \
-	  }; \
-	  [ -d "$$i" ] && { \
-	    echo "# Recurse dir $$i" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	    for j in `find $$i`; do \
-	      [[ "$$j" =~ .+(\.sh|\.pl|\.py|c_rehash|ncursesw6-config|alsaconf) ]] && { \
-	        echo "# Skip known script/file $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	        continue; \
-	      }; \
-	      [[ "$$j" =~ .*/lib/modules/.+\.ko ]] && { \
-	        echo "# ELF implicite kernel module $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	        $(call ELFDEP,"$$j") $(if $(elfdep_log),&>> $(elfdep_log)); \
-	        continue; \
-	      }; \
-	      [ ! -x "$$j" ] && { \
-	        echo "# Skipping non-executable $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	        continue; \
-	      }; \
-	      [ -L "$$j" ] && { \
-	        echo "# Skipping symbolic $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	        continue; \
-	      }; \
-	      [ -d "$$j" ] && { \
-	        echo "# Skipping dirname $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	        continue; \
-	      }; \
-	      echo "# ELF implicite file $$j" $(if $(elfdep_log),&>> $(elfdep_log)); \
-	      $(call ELFDEP,"$$j") $(if $(elfdep_log),&>> $(elfdep_log)); \
-	    done; \
-	  }; \
-	done
-	echo "" $(if $(elfdep_log),&>> $(elfdep_log))
-	echo "# Sorted result" $(if $(elfdep_log),&>> $(elfdep_log))
-	$(if $(elfdep_log), cat "$(elfdep_log)" | "grep" -v -e "^\s*#" -e "^\s*$$" \
-	  | sort | uniq &>> $(elfdep_log))
 
 #------------------------------------
 #
