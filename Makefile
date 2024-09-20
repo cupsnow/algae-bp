@@ -134,7 +134,7 @@ GENPYVENV+=pyelftools cryptography
 ti-linux-fw_DIR?=$(PKGDIR2)/ti-linux-firmware
 
 #------------------------------------
-# apt install libssl-dev device-tree-compiler swig python3-distutils
+# apt install libssl-dev device-tree-compiler swig python3-distutils libgnutls28-dev
 # apt install python3-dev python3-setuptools
 # for build doc: pip install yamllint jsonschema
 #
@@ -184,7 +184,7 @@ ubootenv:
 
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
-	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) FORCE_ORIGIN=1 \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot
 
 uboot_%:
@@ -196,7 +196,7 @@ else
 # normal case
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
-	if [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
+	if [ "$(FORCE_ORIGIN)" != "1" ] && [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
 	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config && \
 	  yes "" | $(uboot_MAKE) oldconfig; \
 	else \

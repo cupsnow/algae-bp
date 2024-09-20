@@ -35,6 +35,64 @@ busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
 setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 ```
 
+## yocto
+
+Reference
+
+- [BeaglePlay: Part 1 – Building a base image using Yocto][guide1]
+- [meta-ti-bsp/readme][meta-ti-bsp readme]
+
+[guide1]: https://kickstartembedded.com/2023/08/06/beagleplay-part-1-building-a-base-image-using-yocto/
+[meta-ti-bsp readme]: https://git.ti.com/cgit/arago-project/meta-ti/tree/meta-ti-bsp/README?h=kirkstone
+
+### step
+
+1. Clone
+
+   ```sh
+   git clone -b kirkstone https://git.yoctoproject.org/poky poky-bp
+   cd poky-bp
+   git clone -b kirkstone git://git.yoctoproject.org/meta-arm
+   git clone -b kirkstone https://git.ti.com/cgit/arago-project/meta-ti   
+   ```
+2. Startup dev console
+
+   ```sh
+   cd poky-bp
+   source oe-init-build-env build-ti
+   sudo sysctl -w fs.inotify.max_user_watches=1048576
+   ```
+
+3. Modify **poky-bp/build-ti/conf/bblayers.conf**
+
+   ```
+   BBLAYERS ?= " \
+   /home/shashank/work/yocto/poky/meta \
+   /home/shashank/work/yocto/poky/meta-poky \
+   /home/shashank/work/yocto/poky/meta-yocto-bsp \
+   /home/shashank/work/yocto/meta-arm/meta-arm-toolchain \
+   /home/shashank/work/yocto/meta-arm/meta-arm \
+   /home/shashank/work/yocto/meta-ti/meta-ti-bsp \
+   "
+   ```
+
+4. Modify **poky-bp/build-ti/conf/local.conf**
+
+   Choose target from **poky-bp/meta-ti/meta-ti-bsp/conf/machine**
+
+   ```
+   MACHINE ??= "beagleplay"
+   ```
+
+5. Run
+
+   Fetch source only
+
+   ```sh
+   bitbake core-image-minimal --runall=fetch
+   ```
+
+
 ## Garage
 
 - u-boot comand collection
