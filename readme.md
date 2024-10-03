@@ -3,9 +3,17 @@
 
 - [beagleplay Ready Source](#beagleplay-ready-source)
 - [Build](#build)
-- [U-Boot command](#u-boot-command)
-- [Issue](#issue)
-  - [Debug U-Boot Load Kernel](#debug-u-boot-load-kernel)
+- [nfs](#nfs)
+  - [Host](#host)
+  - [Client](#client)
+- [U-Boot](#u-boot)
+  - [Env for SDCard](#env-for-sdcard)
+  - [Env for EMMC](#env-for-emmc)
+  - [added commend to boot from sdcard](#added-commend-to-boot-from-sdcard)
+  - [kernel bootargs](#kernel-bootargs)
+  - [write uboot to emmc](#write-uboot-to-emmc)
+- [yocto](#yocto)
+  - [step](#step)
 - [Garage](#garage)
 
 ## beagleplay Ready Source
@@ -23,17 +31,74 @@ busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
    make dist && make dist_sd
    ```
 
-## U-Boot command
+## nfs
+
+### Host
+
+Assume host runs Ubuntu 24.04
+
+```sh
+sudo apt install nfs-kernel-server
+```
+
+**/etc/exports**
+
+```
+/home/joelai/02_dev 192.168.31.1/24(ro,sync,no_subtree_check,anonuid=1000)
+/home/joelai/Downloads 192.168.31.1/24(rw,sync,no_subtree_check,anonuid=1000)
+```
+
+### Client
+
+Assume client runs busybox
+
+```sh
+mkdir -p /media/lavender/02_dev
+mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
+```
+
+## U-Boot
+
+### Env for SDCard
+
+### Env for EMMC
+
+### added commend to boot from sdcard
 
 - Boot from sdcard: `run sdboot`
 
-## Issue
-
-### Debug U-Boot Load Kernel
+### kernel bootargs
 
 ```sh
 setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 ```
+
+### write uboot to emmc
+
+commands in linux shell
+
+```
+echo "Enable Boot0 boot"
+mmc bootpart enable 1 2 /dev/mmcblk0
+mmc bootbus set single_backward x1 x8 /dev/mmcblk0
+mmc hwreset enable /dev/mmcblk0
+
+echo "Clearing eMMC boot0"
+echo '0' >> /sys/class/block/mmcblk0boot0/force_ro
+dd if=/dev/zero of=/dev/mmcblk0boot0 count=32 bs=128k
+
+mkdir /media/boot-sd && mount /dev/mmcblk1p1 /media/boot-sd
+
+echo "Write bootloader"
+dd if=/media/boot-sd/tiboot3.bin of=/dev/mmcblk0boot0 bs=128k
+
+echo "Copy the rest of the boot binaries"
+mkdir /media/boot-emmc && mount /dev/mmcblk0p1 /media/boot-emmc
+cp /media/boot-sd/tispl.bin /media/boot-emmc/
+cp /media/boot-sd/u-boot.img /media/boot-emmc/
+sync
+```
+
 
 ## yocto
 
@@ -53,7 +118,7 @@ Reference
    git clone -b kirkstone https://git.yoctoproject.org/poky poky-bp
    cd poky-bp
    git clone -b kirkstone git://git.yoctoproject.org/meta-arm
-   git clone -b kirkstone https://git.ti.com/cgit/arago-project/meta-ti   
+   git clone -b kirkstone https://git.ti.com/cgit/arago-project/meta-ti
    ```
 2. Startup dev console
 

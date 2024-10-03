@@ -10,6 +10,7 @@ logger.setLevel(logger_level)
 
 app_cfg = {
     "dest": [],
+    "du_yield": 0
 }
 
 def logger_level_verbose(noiser=1, base=None):
@@ -64,7 +65,7 @@ def do_strip_elf(p):
     else:
         elfstrip = app_cfg["elfstrip"]
     try:
-        r = subprocess.run(f"{elfstrip} {p}", shell=True, 
+        r = subprocess.run(f"{elfstrip} {p}", shell=True,
                 capture_output=True, check=True)
     except subprocess.CalledProcessError as err:
         do_strip_log(f"Failed Strip {p}\n  {err.stderr}")
@@ -81,7 +82,7 @@ def do_test_elf(p):
 
     if p.stat().st_size <= len(_ELF_MAGIC):
         return False
-   
+
     with open(p, "rb") as f:
         val = f.read(4)
         if val == _ELF_MAGIC:
@@ -98,6 +99,7 @@ def do_strip(tgt, symlink=False):
     dest = app_cfg["dest"]
     bound = app_cfg["bound"]
     defer_dir = []
+    du_yield = 0
     for tgt1 in tgt:
         p = pathlib.Path(tgt1)
         if p.is_symlink() and not symlink:
@@ -110,11 +112,11 @@ def do_strip(tgt, symlink=False):
         if not p.exists():
             do_strip_log(f"Skip absent: {tgt1}")
             continue
-        if (p.resolve() != bound 
+        if (p.resolve() != bound
                 and not bound in p.resolve().parents):
             do_strip_log(f"Skip out of bound: {tgt1}")
             continue
-        if (p.is_socket() or p.is_fifo() or p.is_char_device() 
+        if (p.is_socket() or p.is_fifo() or p.is_char_device()
                 or p.is_block_device()):
             do_strip_log(f"Skip dev: {tgt1}")
             continue
@@ -125,13 +127,16 @@ def do_strip(tgt, symlink=False):
         if not do_test_elf(p):
             do_strip_log(f"Skip non-elf: {tgt1}")
             continue
+        sz0 = p.stat().st_size
         do_strip_elf(p)
+        du_yield += sz0 - p.stat().st_size
+
+    app_cfg["du_yield"] += du_yield
 
     for tgt1 in defer_dir:
         p = pathlib.Path(tgt1)
         do_strip_log(f"Enter dir: {tgt1}")
         do_strip([x for x in p.iterdir()])
-
 
 async def main(argv):
     logger.debug(f"argv: {argv}")
@@ -170,11 +175,14 @@ async def main(argv):
     if cli_args.input is None:
         logger.error("No input")
         return 1
-    
+
     if cli_args.log is not None:
         app_cfg.update({"logfp": open(cli_args.log, "w")})
 
     do_strip(cli_args.input, symlink=True)
+
+    du_yield = app_cfg["du_yield"]
+    do_strip_log(f"Total size save: {du_yield}")
 
     if "logfp" in app_cfg:
         app_cfg["logfp"].close()
@@ -183,10 +191,10 @@ if __name__ == "__main__":
     if True:
         asyncio.run(main(sys.argv))
     elif True:
-        asyncio.run(main(["elfstrip.py", 
+        asyncio.run(main(["elfstrip.py",
                 *"-v -l elfstrip.log".split(),
                 *"--strip=algae-bp/tool/gcc-aarch64/bin/aarch64-unknown-linux-gnu-strip".split(),
                 *"--bound=algae-bp/destdir/bp/rootfs".split(),
                 "algae-bp/tic",
-                "algae-bp/destdir/bp/rootfs", 
+                "algae-bp/destdir/bp/rootfs",
                 "algae-bp/destdir/bp/rootfs"]))

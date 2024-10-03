@@ -22,7 +22,7 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) locale_posix2c
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -257,6 +257,10 @@ $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
 
 #------------------------------------
+#
+wlregdb_DIR?=$(PKGDIR2)/wireless-regdb
+
+#------------------------------------
 # for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH 
 #
 
@@ -418,6 +422,60 @@ GENDIR+=$(mmcutils_BUILDDIR)
 
 #------------------------------------
 #
+zlib_DIR=$(PKGDIR2)/zlib
+zlib_BUILDDIR?=$(BUILDDIR2)/zlib-$(APP_BUILD)
+
+zlib_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(zlib_BUILDDIR)
+
+zlib_defconfig $(zlib_BUILDDIR)/configure.log: | $(zlib_BUILDDIR)
+	cd $(zlib_BUILDDIR) \
+	  && prefix= CROSS_PREFIX=$(CROSS_COMPILE) \
+	      CFLAGS="$(zlib_CFLAGS_$(APP_PLATFORM))" \
+	      $(zlib_DIR)/configure $(zlib_ACARGS_$(APP_PLATFORM))
+
+GENDIR+=$(zlib_BUILDDIR)
+
+zlib_distclean:
+	$(RM) $(zlib_BUILDDIR)
+
+zlib_install: DESTDIR=$(BUILD_SYSROOT)
+zlib_install: | $(zlib_BUILDDIR)/configure.log
+	$(zlib_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:zlib_%=%)
+	for i in zlib; do \
+	  if [ -f "$(DESTDIR)/lib/$${i}.la" ]; then \
+	    rm -f $(DESTDIR)/lib/$${i}.la; \
+	  fi && \
+	  if [ -f "$(DESTDIR)/lib/pkgconfig/$${i}.pc" ]; then \
+	    rm -f $(DESTDIR)/lib/pkgconfig/$${i}.pc; \
+	  fi; \
+	done
+	rmdir $(DESTDIR)/lib/pkgconfig
+
+zlib_destpkg $(zlib_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(zlib_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(zlib_BUILDDIR)-destpkg zlib_install
+	tar -Jcvf $(zlib_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(zlib_BUILDDIR)-destpkg) \
+	    $(notdir $(zlib_BUILDDIR)-destpkg)
+	$(RMTREE) $(zlib_BUILDDIR)-destpkg
+
+zlib_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+zlib_destpkg_install: | $(zlib_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(zlib_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+zlib_destdep_install: $(foreach iter,$(zlib_DEP),$(iter)_destdep_install)
+	$(MAKE) zlib_destpkg_install
+
+zlib: | $(zlib_BUILDDIR)/configure.log
+	$(zlib_MAKE) $(PARALLEL_BUILD)
+
+zlib_%: | $(zlib_BUILDDIR)/configure.log
+	$(zlib_MAKE) $(PARALLEL_BUILD) $(patsubst _%,%,$(@:zlib%=%))
+
+#------------------------------------
+#
 ncursesw_DIR?=$(PKGDIR2)/ncurses
 ncursesw_BUILDDIR?=$(BUILDDIR2)/ncursesw-$(APP_BUILD)
 ncursesw_TINFODIR=/usr/share/terminfo
@@ -477,7 +535,7 @@ ncursesw: | $(ncursesw_BUILDDIR)/Makefile
 ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
 	$(ncursesw_MAKE) $(PARALLEL_BUILD) $(@:ncursesw_%=%)
 
-GENDIR += $(ncursesw_BUILDDIR)
+GENDIR+=$(ncursesw_BUILDDIR)
 
 terminfo: DESTDIR=$(BUILD_SYSROOT)
 terminfo: | $(PROJDIR)/tool/bin/tic
@@ -708,6 +766,156 @@ GENDIR+=$(tmux_BUILDDIR)
 
 #------------------------------------
 #
+openssl_DEP=zlib
+openssl_DIR=$(PKGDIR2)/openssl
+openssl_BUILDDIR?=$(BUILDDIR2)/openssl-$(APP_BUILD)
+openssl_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssl_BUILDDIR)
+
+openssl_ACARGS_ub20+=linux-x86_64
+openssl_ACARGS_bp+=linux-aarch64
+
+# enable-engine enable-afalgeng
+openssl_defconfig $(openssl_BUILDDIR)/configdata.pm: | $(openssl_BUILDDIR)
+	cd $(openssl_BUILDDIR) \
+	  && $(openssl_DIR)/Configure --cross-compile-prefix=$(CROSS_COMPILE) \
+	      --prefix=/ --openssldir=/lib/ssl no-tests no-hw-padlock \
+	      $(openssl_ACARGS_$(APP_PLATFORM)) \
+	      -L$(BUILD_SYSROOT)/lib -I$(BUILD_SYSROOT)/include
+
+GENDIR+=$(openssl_BUILDDIR)
+
+openssl_install: DESTDIR=$(BUILD_SYSROOT)
+openssl_install: $(openssl_BUILDDIR)/configdata.pm
+	$(openssl_MAKE) install_sw install_ssldirs
+	for i in libcrypto libssl openssl; do \
+	  if [ -f "$(DESTDIR)/lib/$${i}.la" ]; then \
+	    rm -f $(DESTDIR)/lib/$${i}.la; \
+	  fi && \
+	  if [ -f "$(DESTDIR)/lib/pkgconfig/$${i}.pc" ]; then \
+	    rm -f $(DESTDIR)/lib/pkgconfig/$${i}.pc; \
+	  fi; \
+	done
+	rmdir $(DESTDIR)/lib/pkgconfig
+
+openssl_destpkg $(openssl_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(openssl_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(openssl_BUILDDIR)-destpkg openssl_install
+	tar -Jcvf $(openssl_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(openssl_BUILDDIR)-destpkg) \
+	    $(notdir $(openssl_BUILDDIR)-destpkg)
+	$(RMTREE) $(openssl_BUILDDIR)-destpkg
+
+openssl_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+openssl_destpkg_install: | $(openssl_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(openssl_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+openssl_destdep_install: $(foreach iter,$(openssl_DEP),$(iter)_destdep_install)
+	$(MAKE) openssl_destpkg_install
+
+openssl: $(openssl_BUILDDIR)/configdata.pm
+	$(openssl_MAKE) $(PARALLEL_BUILD)
+
+openssl_%: $(openssl_BUILDDIR)/configdata.pm
+	$(openssl_MAKE) $(PARALLEL_BUILD) $(@:openssl_%=%)
+
+#------------------------------------
+#
+libnl_DIR?=$(PKGDIR2)/libnl
+libnl_BUILDDIR?=$(BUILDDIR2)/libnl-$(APP_BUILD)
+
+libnl_MAKE=$(MAKE) -C $(libnl_BUILDDIR)
+
+$(libnl_DIR)/configure: $(libnl_DIR)/autogen.sh
+	cd $(libnl_DIR) \
+	  && ./autogen.sh
+
+libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUILDDIR)
+	cd $(libnl_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libnl_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
+		  --disable-mbedtls --with-pic \
+	      $(libnl_ACARGS_$(APP_PLATFORM))
+
+CMD_RM_PAT=$(if $(3),,$(error "CMD_RM_PAT invalid argument")) \
+  for i in $(3); do \
+    for j in $$(find $(2) -maxdepth 1 -iname $${i}$(1)); do \
+      rm -f $${j}; \
+    done; \
+  done
+
+libnl_install: DESTDIR=$(BUILD_SYSROOT)
+libnl_install: | $(libnl_BUILDDIR)/Makefile
+	$(libnl_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:libnl_%=%)
+	$(call CMD_RM_PAT,.la,$(DESTDIR)/lib, \
+	  libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
+	$(call CMD_RM_PAT,.pc,$(DESTDIR)/lib/pkgconfig, \
+	  libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
+	$(call CMD_RM_PAT,.la,$(DESTDIR)/lib/libnl/cli/cls, \
+	  basic cgroup)
+	$(call CMD_RM_PAT,.la,$(DESTDIR)/lib/libnl/cli/qdisc, \
+	  bfifo blackhole fq_codel htb ingress pfifo plug )
+	rmdir $(DESTDIR)/lib/pkgconfig
+
+libnl_destpkg $(libnl_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(libnl_BUILDDIR)-destpkg
+	$(MAKE) DESTDIR=$(libnl_BUILDDIR)-destpkg libnl_install
+	tar -Jcvf $(libnl_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(libnl_BUILDDIR)-destpkg) \
+	    $(notdir $(libnl_BUILDDIR)-destpkg)
+	$(RMTREE) $(libnl_BUILDDIR)-destpkg
+
+libnl_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
+libnl_destpkg_install: | $(libnl_BUILDDIR)-destpkg.tar.xz
+	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
+	tar -Jxvf $(libnl_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $(DESTDIR)
+
+libnl_destdep_install: $(foreach iter,$(libnl_DEP),$(iter)_destdep_install)
+	$(MAKE) libnl_destpkg_install
+
+libnl: | $(libnl_BUILDDIR)/Makefile
+	$(libnl_MAKE) $(PARALLEL_BUILD)
+
+libnl_%: | $(libnl_BUILDDIR)/Makefile
+	$(libnl_MAKE) $(PARALLEL_BUILD) $(@:libnl_%=%)
+
+GENDIR+=$(libnl_BUILDDIR)
+
+#------------------------------------
+# dep: libnl
+#
+iw_DIR=$(PKGDIR2)/iw
+iw_BUILDDIR?=$(BUILDDIR2)/iw-$(APP_BUILD)
+# iw_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/libnl3
+iw_LIBDIR=$(BUILD_SYSROOT)/lib
+
+iw_MAKE=PKG_CONFIG_LIBDIR="$(BUILD_SYSROOT)/lib/pkgconfig" \
+    PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)" \
+    PREFIX=/ DESTDIR=$(DESTDIR) CC=$(CC) LDFLAGS="$(addprefix -L,$(iw_LIBDIR)) -lm" \
+    $(MAKE) -C $(iw_BUILDDIR)
+
+iw_defconfig $(iw_BUILDDIR)/Makefile:
+	[ -d $(iw_BUILDDIR) ] || $(MKDIR) $(iw_BUILDDIR)
+	$(CP) $(iw_DIR)/* $(iw_BUILDDIR)/
+
+iw_install: DESTDIR=$(BUILD_SYSROOT)
+
+iw_dist_install: DESTDIR=$(BUILD_SYSROOT)
+iw_dist_install:
+	$(RM) $(iw_BUILDDIR)_footprint
+	$(call RUN_DIST_INSTALL1,iw,$(iw_BUILDDIR)/Makefile)
+
+iw: | $(iw_BUILDDIR)/Makefile
+	$(iw_MAKE) $(BUILDPARALLEL:%=-j%)
+
+iw_%: | $(iw_BUILDDIR)/Makefile
+	$(iw_MAKE) $(BUILDPARALLEL:%=-j%) $(@:iw_%=%)
+
+
+#------------------------------------
+#
 dummy_DIR=$(PROJDIR)/package/dummy1
 
 dummy1:
@@ -738,16 +946,18 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 
 CMD_GENROOT_EXT4= \
   $(RMTREE) $(2) \
-    && truncate -s 512M $(2) \
+    && truncate -s 255M $(2) \
     && fakeroot mkfs.ext4 -d $(1) $(2)
 
 dist_rootfs_phase1:
+# build package
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox tmux mmcutils)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
-	for i in dev media proc root sys tmp var/run; do \
+# install prebuilt
+	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
 	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(DESTDIR)/)
@@ -758,6 +968,9 @@ dist_rootfs_phase2:
 		$(DESTDIR)/root/
 	[ -f $(DESTDIR)/root/.exrc ] \
 	  && chmod 0700 $(DESTDIR)/root/.exrc
+	rsync -a $(RSYNC_VERBOSE) $(wlregdb_DIR)/regulatory.db \
+	    $(wlregdb_DIR)/regulatory.db.p7s \
+	    $(DESTDIR)/lib/firmware/
 	ln -sfn /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
 	ln -sfn /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
 	rsync -L $(RSYNC_VERBOSE) $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
@@ -767,13 +980,15 @@ ifeq (1,1)
 endif
 
 dist-qemuarm64_phase1:
-	$(MAKE) uboot linux
+	$(MAKE) uboot linux $(kernelrelease)
+	$(MAKE) linux_modules linux_dtbs
+	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
+	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
 
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
-	[ -L "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64" ] \
-	  || ln -sfn lib $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/u-boot.bin \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
@@ -783,13 +998,26 @@ dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a
+	$(busybox_DIR)/examples/depmod.pl \
+	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
+	    -F $(linux_BUILDDIR)/System.map
+	. $(PYVENVDIR)/bin/activate && \
+	  python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
+	      -l $(BUILDDIR)/elfstrip.log \
+	      --strip=$(TOOLCHAIN_PATH)/bin/$(STRIP) \
+		  --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
+	      $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
-	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+
+dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot
+dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin)
 
 dist-qemuarm64_locale:
 	$(RMTREE) $(locale_BUILDDIR)*
@@ -799,6 +1027,7 @@ dist-qemuarm64_locale:
 dist-qemuarm64:
 	$(MAKE) dist-qemuarm64_phase1
 	$(MAKE) dist-qemuarm64_phase2
+	$(MAKE) dist-qemuarm64_phase3
 
 dist_DTINCDIR+=$(linux_DIR)/scripts/dtc/include-prefixes
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
@@ -825,42 +1054,51 @@ dist-bp_phase1:
 	$(MAKE) atf optee linux uboot $(kernelrelease)
 	$(MAKE) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
+	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
-	$(MAKE) busybox_destdep_install tmux_destdep_install
 
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tispl.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/u-boot.img_unsigned \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/u-boot.img
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
 	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb dist-bp_dtb
-
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
-
-dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs
-	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
-	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
+	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a
+	$(busybox_DIR)/examples/depmod.pl \
+	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
+	    -F $(linux_BUILDDIR)/System.map
 	. $(PYVENVDIR)/bin/activate && \
 	  python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
 	      -l $(BUILDDIR)/elfstrip.log \
 	      --strip=$(TOOLCHAIN_PATH)/bin/$(STRIP) \
 		  --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
 	      $(dist_DIR)/$(APP_PLATFORM)/rootfs
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
+
+dist-bp_depmod:
 	$(busybox_DIR)/examples/depmod.pl \
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
 	    -F $(linux_BUILDDIR)/System.map
 
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+
+dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 

@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2120
 self=$0
 selfdir="$(cd $(dirname $self); pwd)"
 
@@ -25,33 +26,24 @@ cmd_run () {
   "$@"
 }
 
-_pri_ip="192.168.12.16"
+_pri_ip="192.168.31.16"
 _pri_listok=""
 _pri_listfailed=""
 
-_lo_iptest="192.168.11.16"
-if ! ping -c 1 -W 1 ${_pri_ip} >/dev/null 2>&1; then
-  for i in $_lo_iptest; do
-    if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
-      _pri_ip=${i}
-      break
-    fi
-  done
-fi
+# _lo_iptest="192.168.12.16"
+# if ! ping -c 1 -W 1 ${_pri_ip} >/dev/null 2>&1; then
+#   for i in $_lo_iptest; do
+#     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
+#       _pri_ip=${i}
+#       break
+#     fi
+#   done
+# fi
 
 [ -z "$_pri_nfsroot" ] && _pri_nfsroot="/media/nfsroot"
 _pri_nfsalgaews="${_pri_nfsroot}/02_dev/algae-ws"
 _pri_nfsalgaebp="${_pri_nfsalgaews}/algae-bp"
 _pri_nfsdw="${_pri_nfsroot}/dw"
-
-# period, duty1k
-duty1k_num () {
-  [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
-  _lo_period=$1
-  [ $_lo_period -ge 1000 ] || { log_e "Too low period"; return 1; }
-  _lo_duty1k=$2
-  echo "$(( $_lo_duty1k * $_lo_period / 1000 ))"
-}
 
 wpa_state () {
   _lo_st=$(wpa_cli ${1:+-i${1}} status 2>/dev/null | sed -n "s/^wpa_state\s*=\s*\(.*\)/\1/p")
@@ -362,10 +354,10 @@ boot_tiboot3 () {
 
 do_insmod () {
   [ -n "$1" ] || { log_e "do_insmod invalid parameter"; return 1; }
-  local modname=$(basename $1)
-  modname="$(echo ${modname%.*} | tr '-' '_')"
-  if [ -e "/sys/module/${modname}" ]; then
-    log_d "module already loaded: ${modname}, skip $*"
+  _lo_modname=$(basename $1)
+  _lo_modname="$(echo "${_lo_modname%.*}" | tr '-' '_')"
+  if [ -e "/sys/module/${_lo_modname}" ]; then
+    log_d "module already loaded: ${_lo_modname}, skip $*"
   elif cmd_run insmod $*; then
     log_d "module loaded: $*"
   else
@@ -397,7 +389,7 @@ devmount () {
 }
 
 nfsumount () {
-  _lo_tgt="${1:-${_pri_nfsroot}/joelai/02_dev}"
+  _lo_tgt="${1:-${_pri_nfsroot}/02_dev}"
   find_mount "*" "${_lo_tgt}" >/dev/null || { return 0; }
   cmd_run eval "umount $_lo_tgt" || {
     cmd_run eval "umount -f $_lo_tgt" || { return 1; }
@@ -521,11 +513,11 @@ if [ -n "$opt_nfsmount" ]; then
   case "$opt_nfsmount" in
   0)
     nfsumount || exit
-    nfsumount ${_pri_nfsdw} || exit
+    nfsumount "${_pri_nfsdw}" || exit
     ;;
   2)
     nfsmount || exit
-    nfsmount /home/joelai/Downloads ${_pri_nfsdw}  || exit
+    nfsmount /home/joelai/Downloads "${_pri_nfsdw}"  || exit
     ;;
   *)
     nfsmount || exit
