@@ -81,6 +81,28 @@ endif
 
 #------------------------------------
 #
+define DEF_DESTDEP
+$(1)_destpkg $$($(1)_BUILDDIR)-destpkg.tar.xz:
+	$$(RMTREE) $$($(1)_BUILDDIR)-destpkg
+	$$(MAKE) DESTDIR=$$($(1)_BUILDDIR)-destpkg $(1)_install
+	tar -Jcvf $$($(1)_BUILDDIR)-destpkg.tar.xz \
+	    -C $$(dir $$($(1)_BUILDDIR)-destpkg) \
+	    $$(notdir $$($(1)_BUILDDIR)-destpkg)
+	$$(RMTREE) $$($(1)_BUILDDIR)-destpkg
+
+$(1)_destpkg_install: DESTDIR=$$(BUILD_SYSROOT)
+$(1)_destpkg_install: | $$($(1)_BUILDDIR)-destpkg.tar.xz
+	[ -d "$$(DESTDIR)" ] || $$(MKDIR) $$(DESTDIR)
+	tar -Jxvf $$($(1)_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $$(DESTDIR)
+
+$(1)_destdep_install: $$(foreach iter,$$($(1)_DEP),$$(iter)_destdep_install)
+	$$(MAKE) $(1)_destpkg_install
+# end of DEF_DEPINSTALL for $(1)
+endef
+
+#------------------------------------
+#
 .DEFAULT_GOAL=help
 help: help1
 
@@ -332,6 +354,8 @@ busybox_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
 busybox_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
     O=$(busybox_BUILDDIR) -C $(busybox_DIR)
 
+GENDIR+=$(busybox_BUILDDIR)
+
 busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
 	if [ -f "$(PROJDIR)/busybox.config" ]; then \
 	  cp -v $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
@@ -347,37 +371,17 @@ $(addprefix busybox_,help doc html): | $(PYVENVDIR)
 	. $(PYVENVDIR)/bin/activate && \
 	  $(busybox_MAKE) $(@:busybox_%=%)
 
-busybox_destpkg $(busybox_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(busybox_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(busybox_BUILDDIR)-destpkg busybox_install
-	tar -Jcvf $(busybox_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(busybox_BUILDDIR)-destpkg) \
-		$(notdir $(busybox_BUILDDIR)-destpkg)
-	$(RMTREE) $(busybox_BUILDDIR)-destpkg
-
-busybox_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-busybox_destpkg_install: | $(busybox_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(busybox_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-busybox_destdep_install: $(foreach iter,$(busybox_DEP),$(iter)_destdep_install)
-	$(MAKE) busybox_destpkg_install
-
-busybox_distclean:
-	$(RMTREE) $(busybox_BUILDDIR) 
-
-busybox: | $(busybox_BUILDDIR)/.config
-	$(busybox_MAKE) $(PARALLEL_BUILD)
-
 busybox_install: DESTDIR=$(BUILD_SYSROOT)
 busybox_install: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) CONFIG_PREFIX=$(DESTDIR) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
+$(eval $(call DEF_DESTDEP,busybox))
+
+busybox: | $(busybox_BUILDDIR)/.config
+	$(busybox_MAKE) $(PARALLEL_BUILD)
+
 busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
-
-GENDIR+=$(busybox_BUILDDIR)
 
 #------------------------------------
 #
@@ -385,29 +389,16 @@ mmcutils_DIR=$(PKGDIR2)/mmc-utils
 mmcutils_BUILDDIR=$(BUILDDIR2)/mmcutils-$(APP_PLATFORM)
 mmcutils_MAKE=$(MAKE) CC=$(CC) C= -C $(mmcutils_BUILDDIR)
 
+GENDIR+=$(mmcutils_BUILDDIR)
+
 mmcutils_defconfig $(mmcutils_BUILDDIR)/Makefile: | $(mmcutils_BUILDDIR)
 	rsync -a $(RSYNC_VERBOSE) $(mmcutils_DIR)/* $(mmcutils_BUILDDIR)/
 
 mmcutils_install: $(DESTDIR)=$(BUILD_SYSROOT)
 mmcutils_install: | $(mmcutils_BUILDDIR)/Makefile
-	$(mmcutils_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) prefix= $(@:mmcutils_%=%)
+	$(mmcutils_MAKE) DESTDIR=$(DESTDIR) prefix= install
 
-mmcutils_destpkg $(mmcutils_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(mmcutils_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(mmcutils_BUILDDIR)-destpkg mmcutils_install
-	tar -Jcvf $(mmcutils_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(mmcutils_BUILDDIR)-destpkg) \
-		$(notdir $(mmcutils_BUILDDIR)-destpkg)
-	$(RMTREE) $(mmcutils_BUILDDIR)-destpkg
-
-mmcutils_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-mmcutils_destpkg_install: | $(mmcutils_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(mmcutils_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-mmcutils_destdep_install: $(foreach iter,$(mmcutils_DEP),$(iter)_destdep_install)
-	$(MAKE) mmcutils_destpkg_install
+$(eval $(call DEF_DESTDEP,mmcutils))
 
 mmcutils_distclean:
 	$(RMDIR) $(mmcutils_BUILDDIR)
@@ -418,14 +409,13 @@ mmcutils: | $(mmcutils_BUILDDIR)/Makefile
 mmcutils_%: | $(mmcutils_BUILDDIR)/Makefile
 	$(mmcutils_MAKE) $(PARALLEL_BUILD) $(@:mmcutils_%=%)
 
-GENDIR+=$(mmcutils_BUILDDIR)
-
 #------------------------------------
 #
 zlib_DIR=$(PKGDIR2)/zlib
 zlib_BUILDDIR?=$(BUILDDIR2)/zlib-$(APP_BUILD)
-
 zlib_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(zlib_BUILDDIR)
+
+GENDIR+=$(zlib_BUILDDIR)
 
 zlib_defconfig $(zlib_BUILDDIR)/configure.log: | $(zlib_BUILDDIR)
 	cd $(zlib_BUILDDIR) \
@@ -433,40 +423,16 @@ zlib_defconfig $(zlib_BUILDDIR)/configure.log: | $(zlib_BUILDDIR)
 	      CFLAGS="$(zlib_CFLAGS_$(APP_PLATFORM))" \
 	      $(zlib_DIR)/configure $(zlib_ACARGS_$(APP_PLATFORM))
 
-GENDIR+=$(zlib_BUILDDIR)
+zlib_install: DESTDIR=$(BUILD_SYSROOT)
+zlib_install: | $(zlib_BUILDDIR)/configure.log
+	$(zlib_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,zlib)
+	rmdir $(DESTDIR)/lib/pkgconfig
+
+$(eval $(call DEF_DESTDEP,zlib))
 
 zlib_distclean:
 	$(RM) $(zlib_BUILDDIR)
-
-zlib_install: DESTDIR=$(BUILD_SYSROOT)
-zlib_install: | $(zlib_BUILDDIR)/configure.log
-	$(zlib_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:zlib_%=%)
-	for i in zlib; do \
-	  if [ -f "$(DESTDIR)/lib/$${i}.la" ]; then \
-	    rm -f $(DESTDIR)/lib/$${i}.la; \
-	  fi && \
-	  if [ -f "$(DESTDIR)/lib/pkgconfig/$${i}.pc" ]; then \
-	    rm -f $(DESTDIR)/lib/pkgconfig/$${i}.pc; \
-	  fi; \
-	done
-	rmdir $(DESTDIR)/lib/pkgconfig
-
-zlib_destpkg $(zlib_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(zlib_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(zlib_BUILDDIR)-destpkg zlib_install
-	tar -Jcvf $(zlib_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(zlib_BUILDDIR)-destpkg) \
-	    $(notdir $(zlib_BUILDDIR)-destpkg)
-	$(RMTREE) $(zlib_BUILDDIR)-destpkg
-
-zlib_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-zlib_destpkg_install: | $(zlib_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(zlib_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-zlib_destdep_install: $(foreach iter,$(zlib_DEP),$(iter)_destdep_install)
-	$(MAKE) zlib_destpkg_install
 
 zlib: | $(zlib_BUILDDIR)/configure.log
 	$(zlib_MAKE) $(PARALLEL_BUILD)
@@ -479,12 +445,13 @@ zlib_%: | $(zlib_BUILDDIR)/configure.log
 ncursesw_DIR?=$(PKGDIR2)/ncurses
 ncursesw_BUILDDIR?=$(BUILDDIR2)/ncursesw-$(APP_BUILD)
 ncursesw_TINFODIR=/usr/share/terminfo
+ncursesw_MAKE=$(MAKE) -C $(ncursesw_BUILDDIR)
 
 # ncursesw_ACARGS_$(APP_PLATFORM)+=--without-debug
 ncursesw_ACARGS_ub20+=--with-pkg-config=/lib
 ncursesw_ACARGS_bp+=--disable-db-install --without-tests --without-manpages
 
-ncursesw_MAKE=$(MAKE) -C $(ncursesw_BUILDDIR)
+GENDIR+=$(ncursesw_BUILDDIR)
 
 # no strip to prevent not recoginize crosscompiled executable
 ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
@@ -512,22 +479,7 @@ ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
 	  fi; \
 	done
 
-ncursesw_destpkg $(ncursesw_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(ncursesw_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(ncursesw_BUILDDIR)-destpkg ncursesw_install
-	tar -Jcvf $(ncursesw_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(ncursesw_BUILDDIR)-destpkg) \
-	    $(notdir $(ncursesw_BUILDDIR)-destpkg)
-	$(RMTREE) $(ncursesw_BUILDDIR)-destpkg
-
-ncursesw_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-ncursesw_destpkg_install: | $(ncursesw_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(ncursesw_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-ncursesw_destdep_install: $(foreach iter,$(ncursesw_DEP),$(iter)_destdep_install)
-	$(MAKE) ncursesw_destpkg_install
+$(eval $(call DEF_DESTDEP,ncursesw))
 
 ncursesw: | $(ncursesw_BUILDDIR)/Makefile
 	$(ncursesw_MAKE) $(PARALLEL_BUILD)
@@ -535,32 +487,11 @@ ncursesw: | $(ncursesw_BUILDDIR)/Makefile
 ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
 	$(ncursesw_MAKE) $(PARALLEL_BUILD) $(@:ncursesw_%=%)
 
-GENDIR+=$(ncursesw_BUILDDIR)
-
-terminfo: DESTDIR=$(BUILD_SYSROOT)
-terminfo: | $(PROJDIR)/tool/bin/tic
-	$(call CMD_TERMINFO)
-
-terminfo_BUILDDIR=$(BUILDDIR2)/terminfo
-terminfo_destpkg $(terminfo_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(terminfo_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(terminfo_BUILDDIR)-destpkg terminfo
-	tar -Jcvf $(terminfo_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(terminfo_BUILDDIR)-destpkg) \
-	    $(notdir $(terminfo_BUILDDIR)-destpkg)
-	$(RMTREE) $(terminfo_BUILDDIR)-destpkg
-
-terminfo_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-terminfo_destpkg_install: | $(terminfo_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(terminfo_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-terminfo_destdep_install: $(foreach iter,$(terminfo_DEP),$(iter)_destdep_install)
-	$(MAKE) terminfo_destpkg_install
-
 # Create small terminfo refer to https://invisible-island.net/ncurses/ncurses.faq.html#big_terminfo
 # refine to comma saperated list when use in tic
+
+terminfo_BUILDDIR=$(BUILDDIR)/terminfo
+
 TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
     ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
     vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen)))
@@ -574,6 +505,12 @@ CMD_TERMINFO= \
       $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src \
   && $(TERMINFO_TIC) -s -o $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR) \
       $(BUILDDIR)/terminfo.src
+
+terminfo_install: DESTDIR=$(BUILD_SYSROOT)
+terminfo_install: | $(PROJDIR)/tool/bin/tic
+	$(call CMD_TERMINFO)
+
+$(eval $(call DEF_DESTDEP,terminfo))
 
 $(addprefix $(PROJDIR)/tool/bin/,tic):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool APP_PLATFORM=ub20 ncursesw_destdep_install
@@ -594,11 +531,13 @@ CMD_CHARMAP_INST=rsync -a $(RSYNC_VERBOSE) --ignore-missing-args \
 
 locale_BUILDDIR=$(BUILDDIR)/locale-$(APP_BUILD)
 
+GENDIR+=$(locale_BUILDDIR)
+
 locale_install: | $(locale_BUILDDIR)
 locale_install: DESTDIR=$(BUILDDIR)/locale-destdir
 locale_install:
 	[ -d "$(DESTDIR)/usr/lib/locale" ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
-	[ -d "$(DESTDIR)/usr/share/i18n/charmaps" ] || $(MKDIR) $(DESTDIR)/usr/share/i18n/charmaps
+	# [ -d "$(DESTDIR)/usr/share/i18n/charmaps" ] || $(MKDIR) $(DESTDIR)/usr/share/i18n/charmaps
 ifneq ($(strip $(filter locale_posix2c,$(APP_ATTR))),)
 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/C.UTF-8) || [ $$? -eq 1 ]
 	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/C.UTF-8)
@@ -614,76 +553,40 @@ endif
 	# $(call CMD_LOCALE_COMPILE,zh_TW,BIG5,$(locale_BUILDDIR)/zh_TW.BIG5) || [ $$? -eq 1 ]
 	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.BIG5)
 	# $(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
+	# rmdir $(DESTDIR)/usr/share/i18n/charmaps
 	# @echo "Locale archived: $$($(call CMD_LOCALE_LIST,$(DESTDIR)) | xargs)"
 
-locale_destpkg $(locale_BUILDDIR)-destpkg.tar.xz: | $(locale_BUILDDIR)
-	$(RMTREE) $(locale_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(locale_BUILDDIR)-destpkg locale_install
-	tar -Jcvf $(locale_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(locale_BUILDDIR)-destpkg) \
-	    $(notdir $(locale_BUILDDIR)-destpkg)
-	$(RMTREE) $(locale_BUILDDIR)-destpkg
-
-locale_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-locale_destpkg_install: | $(locale_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(locale_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-	# @echo "Locale:"
-	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
-
-locale_destdep_install: $(foreach iter,$(locale_DEP),$(iter)_destdep_install)
-	$(MAKE) locale_destpkg_install
-
-GENDIR+=$(locale_BUILDDIR)
+$(eval $(call DEF_DESTDEP,locale))
+# 	# @echo "Locale:"
+# 	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
 
 #------------------------------------
 #
 libevent_DIR?=$(PKGDIR2)/libevent
 libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_BUILD)
-
 libevent_MAKE=$(MAKE) -C $(libevent_BUILDDIR)
 
-$(libevent_DIR)/configure: $(libevent_DIR)/autogen.sh
+$(libevent_DIR)/configure: | $(libevent_DIR)/autogen.sh
 	cd $(libevent_DIR) \
 	  && ./autogen.sh
 
+GENDIR+=$(libevent_BUILDDIR)
+
 libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_DIR)/configure $(libevent_BUILDDIR)
 	cd $(libevent_BUILDDIR) \
-	  && $(BUILD_PKGCFG_ENV) $(libevent_DIR)/configure \
+	  && $(libevent_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
 		  --disable-mbedtls --with-pic \
 	      $(libevent_ACARGS_$(APP_PLATFORM))
 
 libevent_install: DESTDIR=$(BUILD_SYSROOT)
 libevent_install: | $(libevent_BUILDDIR)/Makefile
-	$(libevent_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:libevent_%=%)
-	for i in libevent_core libevent_extra libevent libevent_pthreads; do \
-	  if [ -f "$(DESTDIR)/lib/$${i}.la" ]; then \
-	    rm -f $(DESTDIR)/lib/$${i}.la; \
-	  fi && \
-	  if [ -f "$(DESTDIR)/lib/pkgconfig/$${i}.pc" ]; then \
-	    rm -f $(DESTDIR)/lib/pkgconfig/$${i}.pc; \
-	  fi; \
-	done
+	$(libevent_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libevent_core libevent_extra libevent libevent_pthreads)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libevent_core libevent_extra libevent libevent_pthreads)
 	rmdir $(DESTDIR)/lib/pkgconfig
 
-libevent_destpkg $(libevent_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(libevent_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(libevent_BUILDDIR)-destpkg libevent_install
-	tar -Jcvf $(libevent_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(libevent_BUILDDIR)-destpkg) \
-	    $(notdir $(libevent_BUILDDIR)-destpkg)
-	$(RMTREE) $(libevent_BUILDDIR)-destpkg
-
-libevent_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-libevent_destpkg_install: | $(libevent_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(libevent_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-libevent_destdep_install: $(foreach iter,$(libevent_DEP),$(iter)_destdep_install)
-	$(MAKE) libevent_destpkg_install
+$(eval $(call DEF_DESTDEP,libevent))
 
 libevent: | $(libevent_BUILDDIR)/Makefile
 	$(libevent_MAKE) $(PARALLEL_BUILD)
@@ -691,34 +594,22 @@ libevent: | $(libevent_BUILDDIR)/Makefile
 libevent_%: | $(libevent_BUILDDIR)/Makefile
 	$(libevent_MAKE) $(PARALLEL_BUILD) $(@:libevent_%=%)
 
-GENDIR+=$(libevent_BUILDDIR)
-
 #------------------------------------
 # dep ncursesw libevent locale terminfo
 #
 tmux_DEP=ncursesw libevent locale terminfo
 tmux_DIR=$(PKGDIR2)/tmux
 tmux_BUILDDIR?=$(BUILDDIR2)/tmux-$(APP_BUILD)
-
-# tmux_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(tmux_BUILDDIR)
 tmux_MAKE=$(MAKE) -C $(tmux_BUILDDIR)
 
 tmux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
 tmux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 
-# tmux_CFLAGS+=$(BUILD_CFLAGS2_$(APP_PLATFORM)) -fPIC
-# ifneq ($(strip $(filter release1,$(APP_ATTR))),)
-# tmux_CFLAGS+=-O3
-# else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
-# tmux_CFLAGS+=-g
-# endif
-# tmux_CFGPARAM_$(APP_PLATFORM)+=CFLAGS="$(tmux_CFLAGS)"
-
-$(tmux_DIR)/autogen.sh:
-
 $(tmux_DIR)/configure: | $(tmux_DIR)/autogen.sh
 	cd $(tmux_DIR) \
 	  && ./autogen.sh
+
+GENDIR+=$(tmux_BUILDDIR)
 
 tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDIR)
 	cd $(tmux_BUILDDIR) \
@@ -731,38 +622,16 @@ tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDI
 
 tmux_install: DESTDIR=$(BUILD_SYSROOT)
 
-tmux_destpkg $(tmux_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(tmux_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(tmux_BUILDDIR)-destpkg tmux_install
-	tar -Jcvf $(tmux_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(tmux_BUILDDIR)-destpkg) \
-	    $(notdir $(tmux_BUILDDIR)-destpkg)
-	$(RMTREE) $(tmux_BUILDDIR)-destpkg
+$(eval $(call DEF_DESTDEP,tmux))
 
-tmux_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-tmux_destpkg_install: | $(tmux_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(tmux_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-tmux_destdep: $(foreach iter,$(tmux_DEP),$(iter)_destdep_install)
-	$(MAKE) tmux
-
-tmux_destdep_install: tmux_destdep
-	$(MAKE) tmux_destpkg_install
-
-# tmux_dist_install: DESTDIR=$(BUILD_SYSROOT)
-# tmux_dist_install:
-# 	$(RM) $(tmux_BUILDDIR)_footprint
-# 	$(call RUN_DIST_INSTALL1,tmux,$(tmux_BUILDDIR)/Makefile)
+tmux_distclean:
+	$(RM) $(tmux_BUILDDIR)
 
 tmux: | $(tmux_BUILDDIR)/Makefile
 	$(tmux_MAKE) $(PARALLEL_BUILD)
 
 tmux_%: | $(tmux_BUILDDIR)/Makefile
 	$(tmux_MAKE) $(PARALLEL_BUILD) $(@:tmux_%=%)
-
-GENDIR+=$(tmux_BUILDDIR)
 
 #------------------------------------
 #
@@ -774,6 +643,8 @@ openssl_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssl_BUILDDIR)
 openssl_ACARGS_ub20+=linux-x86_64
 openssl_ACARGS_bp+=linux-aarch64
 
+GENDIR+=$(openssl_BUILDDIR)
+
 # enable-engine enable-afalgeng
 openssl_defconfig $(openssl_BUILDDIR)/configdata.pm: | $(openssl_BUILDDIR)
 	cd $(openssl_BUILDDIR) \
@@ -782,37 +653,14 @@ openssl_defconfig $(openssl_BUILDDIR)/configdata.pm: | $(openssl_BUILDDIR)
 	      $(openssl_ACARGS_$(APP_PLATFORM)) \
 	      -L$(BUILD_SYSROOT)/lib -I$(BUILD_SYSROOT)/include
 
-GENDIR+=$(openssl_BUILDDIR)
-
 openssl_install: DESTDIR=$(BUILD_SYSROOT)
 openssl_install: $(openssl_BUILDDIR)/configdata.pm
 	$(openssl_MAKE) install_sw install_ssldirs
-	for i in libcrypto libssl openssl; do \
-	  if [ -f "$(DESTDIR)/lib/$${i}.la" ]; then \
-	    rm -f $(DESTDIR)/lib/$${i}.la; \
-	  fi && \
-	  if [ -f "$(DESTDIR)/lib/pkgconfig/$${i}.pc" ]; then \
-	    rm -f $(DESTDIR)/lib/pkgconfig/$${i}.pc; \
-	  fi; \
-	done
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libcrypto libssl openssl)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libcrypto libssl openssl)
 	rmdir $(DESTDIR)/lib/pkgconfig
 
-openssl_destpkg $(openssl_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(openssl_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(openssl_BUILDDIR)-destpkg openssl_install
-	tar -Jcvf $(openssl_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(openssl_BUILDDIR)-destpkg) \
-	    $(notdir $(openssl_BUILDDIR)-destpkg)
-	$(RMTREE) $(openssl_BUILDDIR)-destpkg
-
-openssl_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-openssl_destpkg_install: | $(openssl_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(openssl_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-openssl_destdep_install: $(foreach iter,$(openssl_DEP),$(iter)_destdep_install)
-	$(MAKE) openssl_destpkg_install
+$(eval $(call DEF_DESTDEP,openssl))
 
 openssl: $(openssl_BUILDDIR)/configdata.pm
 	$(openssl_MAKE) $(PARALLEL_BUILD)
@@ -824,12 +672,13 @@ openssl_%: $(openssl_BUILDDIR)/configdata.pm
 #
 libnl_DIR?=$(PKGDIR2)/libnl
 libnl_BUILDDIR?=$(BUILDDIR2)/libnl-$(APP_BUILD)
-
 libnl_MAKE=$(MAKE) -C $(libnl_BUILDDIR)
 
 $(libnl_DIR)/configure: $(libnl_DIR)/autogen.sh
 	cd $(libnl_DIR) \
 	  && ./autogen.sh
+
+GENDIR+=$(libnl_BUILDDIR)
 
 libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUILDDIR)
 	cd $(libnl_BUILDDIR) \
@@ -838,42 +687,16 @@ libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUI
 		  --disable-mbedtls --with-pic \
 	      $(libnl_ACARGS_$(APP_PLATFORM))
 
-CMD_RM_PAT=$(if $(3),,$(error "CMD_RM_PAT invalid argument")) \
-  for i in $(3); do \
-    for j in $$(find $(2) -maxdepth 1 -iname $${i}$(1)); do \
-      rm -f $${j}; \
-    done; \
-  done
-
 libnl_install: DESTDIR=$(BUILD_SYSROOT)
 libnl_install: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:libnl_%=%)
-	$(call CMD_RM_PAT,.la,$(DESTDIR)/lib, \
-	  libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
-	$(call CMD_RM_PAT,.pc,$(DESTDIR)/lib/pkgconfig, \
-	  libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
-	$(call CMD_RM_PAT,.la,$(DESTDIR)/lib/libnl/cli/cls, \
-	  basic cgroup)
-	$(call CMD_RM_PAT,.la,$(DESTDIR)/lib/libnl/cli/qdisc, \
-	  bfifo blackhole fq_codel htb ingress pfifo plug )
+	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
+	# $(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
+	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/cls, basic cgroup)
+	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/qdisc, bfifo blackhole fq_codel htb ingress pfifo plug )
 	rmdir $(DESTDIR)/lib/pkgconfig
 
-libnl_destpkg $(libnl_BUILDDIR)-destpkg.tar.xz:
-	$(RMTREE) $(libnl_BUILDDIR)-destpkg
-	$(MAKE) DESTDIR=$(libnl_BUILDDIR)-destpkg libnl_install
-	tar -Jcvf $(libnl_BUILDDIR)-destpkg.tar.xz \
-	    -C $(dir $(libnl_BUILDDIR)-destpkg) \
-	    $(notdir $(libnl_BUILDDIR)-destpkg)
-	$(RMTREE) $(libnl_BUILDDIR)-destpkg
-
-libnl_destpkg_install: DESTDIR=$(BUILD_SYSROOT)
-libnl_destpkg_install: | $(libnl_BUILDDIR)-destpkg.tar.xz
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	tar -Jxvf $(libnl_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $(DESTDIR)
-
-libnl_destdep_install: $(foreach iter,$(libnl_DEP),$(iter)_destdep_install)
-	$(MAKE) libnl_destpkg_install
+$(eval $(call DEF_DESTDEP,libnl))
 
 libnl: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD)
@@ -881,38 +704,65 @@ libnl: | $(libnl_BUILDDIR)/Makefile
 libnl_%: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD) $(@:libnl_%=%)
 
-GENDIR+=$(libnl_BUILDDIR)
-
 #------------------------------------
-# dep: libnl
 #
+iw_DEP=libnl
 iw_DIR=$(PKGDIR2)/iw
 iw_BUILDDIR?=$(BUILDDIR2)/iw-$(APP_BUILD)
-# iw_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/libnl3
+iw_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/libnl3
 iw_LIBDIR=$(BUILD_SYSROOT)/lib
+iw_MAKE=$(BUILD_PKGCFG_ENV) DESTDIR=$(DESTDIR) PREFIX=/ CC=$(CC) \
+    CFLAGS="$(addprefix -I,$(iw_INCDIR)) -DCONFIG_LIBNL30" \
+    LDFLAGS="$(addprefix -L,$(iw_LIBDIR)) -lm -pthread -lnl-3 -lnl-genl-3" \
+	NO_PKG_CONFIG=1 \
+	$(MAKE) -C $(iw_BUILDDIR)
 
-iw_MAKE=PKG_CONFIG_LIBDIR="$(BUILD_SYSROOT)/lib/pkgconfig" \
-    PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)" \
-    PREFIX=/ DESTDIR=$(DESTDIR) CC=$(CC) LDFLAGS="$(addprefix -L,$(iw_LIBDIR)) -lm" \
-    $(MAKE) -C $(iw_BUILDDIR)
+GENDIR+=$(iw_BUILDDIR)
 
-iw_defconfig $(iw_BUILDDIR)/Makefile:
-	[ -d $(iw_BUILDDIR) ] || $(MKDIR) $(iw_BUILDDIR)
-	$(CP) $(iw_DIR)/* $(iw_BUILDDIR)/
+iw_defconfig $(iw_BUILDDIR)/Makefile: | $(iw_BUILDDIR)
+	rsync -a $(RSYNC_VERBOSE) $(iw_DIR)/* $(iw_BUILDDIR)/
 
 iw_install: DESTDIR=$(BUILD_SYSROOT)
 
-iw_dist_install: DESTDIR=$(BUILD_SYSROOT)
-iw_dist_install:
-	$(RM) $(iw_BUILDDIR)_footprint
-	$(call RUN_DIST_INSTALL1,iw,$(iw_BUILDDIR)/Makefile)
+$(eval $(call DEF_DESTDEP,iw))
 
 iw: | $(iw_BUILDDIR)/Makefile
-	$(iw_MAKE) $(BUILDPARALLEL:%=-j%)
+	$(iw_MAKE) $(PARALLEL_BUILD)
 
 iw_%: | $(iw_BUILDDIR)/Makefile
-	$(iw_MAKE) $(BUILDPARALLEL:%=-j%) $(@:iw_%=%)
+	$(iw_MAKE) $(PARALLEL_BUILD) $(@:iw_%=%)
 
+#------------------------------------
+#
+utilinux_DEP=
+utilinux_DIR=$(PKGDIR2)/util-linux
+utilinux_BUILDDIR?=$(BUILDDIR2)/utilinux-$(APP_BUILD)
+utilinux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/libnl3
+utilinux_LIBDIR=$(BUILD_SYSROOT)/lib
+utilinux_MAKE=$(MAKE) -C $(utilinux_BUILDDIR)
+
+$(utilinux_DIR)/configure: | $(utilinux_DIR)/autogen.sh
+	cd $(utilinux_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(utilinux_BUILDDIR)
+
+utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(utilinux_BUILDDIR)
+	cd $(utilinux_BUILDDIR) \
+	  && $(utilinux_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+		  --disable-liblastlog2 \
+	      $(utilinux_ACARGS_$(APP_PLATFORM))
+
+utilinux_install: DESTDIR=$(BUILD_SYSROOT)
+
+$(eval $(call DEF_DESTDEP,utilinux))
+
+utilinux: | $(utilinux_BUILDDIR)/Makefile
+	$(utilinux_MAKE) $(PARALLEL_BUILD)
+
+utilinux_%: | $(utilinux_BUILDDIR)/Makefile
+	$(utilinux_MAKE) $(PARALLEL_BUILD) $(@:utilinux_%=%)
 
 #------------------------------------
 #

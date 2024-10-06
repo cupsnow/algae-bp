@@ -46,21 +46,23 @@ RMTREE=rm -rf
 
 DEP=$(1).d
 DEPFLAGS=-MMD -MT $(or $(1),$@) -MF $(call DEP,$(or $(1),$@)) -MP
-DEPFLAGS=-MMD -MT $(@) -MF $(@).d -MP
 
 #------------------------------------
 #
 CMD_OBJTYPE=$(OBJDUMP) -f $(1) | head -n2 | sed -n "s/^.*file format\s*\(.*\)\s*.*/\1/p"
 CMD_OBJARCH=$(OBJDUMP) -f $(1) | head -n3 | sed -n "s/^architecture:\s*\(.*\),.*/\1/p"
 
-#------------------------------------
-#
 CMD_SED_DEFNUM=sed -n "s/\\s*\#define\\s*$(1)\\s*\\(\\d*\\)/\\1/p"
 CMD_SED_KEYVAL1=sed -n "s/\\s*$(1)\\s*=\\s*\\(.*\\)/\\1/p"
 
-#------------------------------------
-#
-CMD_GIT_VER=git describe --always --tags
+CMD_GIT_DESCVER=git describe --always --tags
+
+CMD_RM_FIND=$(if $(3),,$(error "CMD_RM_FIND invalid argument")) \
+  for _lo_crf_suffix in $(3); do \
+    for _lo_crf_file in $$(find $(2) -maxdepth 1 -iname $${_lo_crf_suffix}$(1)); do \
+      rm -f $${_lo_crf_file}; \
+    done; \
+  done
 
 #------------------------------------
 # $(call UNIQ,b b a a) # -> b a
