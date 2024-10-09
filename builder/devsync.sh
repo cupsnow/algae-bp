@@ -1,10 +1,18 @@
 #!/bin/sh
-# shellcheck disable=SC2120
+# shellcheck disable=SC2120,SC2004
 self=$0
-selfdir="$(cd $(dirname $self); pwd)"
+# shellcheck disable=SC2164,SC2034
+selfdir="$(cd "$(dirname "$self")"; pwd)"
+
+if [ -x builder/func.sh ]; then
+  : . builder/func.sh
+elif [ -x /etc/init.d/func ]; then
+  # shellcheck disable=SC1091
+  . /etc/init.d/func
+fi
 
 ts_up () {
-  _lo_ts1="$(cat /proc/uptime | awk '{ print $1 }')"
+  _lo_ts1="$(</proc/uptime awk '{ print $1 }')"
   echo "${_lo_ts1} * 1000 / 1" | bc
 }
 
@@ -26,59 +34,68 @@ cmd_run () {
   "$@"
 }
 
-_pri_ip="192.168.31.16"
 _pri_listok=""
 _pri_listfailed=""
 
-# _lo_iptest="192.168.12.16"
-# if ! ping -c 1 -W 1 ${_pri_ip} >/dev/null 2>&1; then
-#   for i in $_lo_iptest; do
-#     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
-#       _pri_ip=${i}
-#       break
-#     fi
-#   done
-# fi
+if [ -z "$_pri_ip" ]; then
+  _lo_ip="192.168.31.16"
+  for i in $_lo_ip; do
+    if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
+      _pri_ip=${i}
+      break
+    fi
+  done
+fi
 
-[ -z "$_pri_nfsroot" ] && _pri_nfsroot="/media/nfsroot"
+if [ -z "$_pri_nfsroot" ]; then
+  _lo_nfsroot="/media /tmp"
+  for i in $_lo_nfsroot; do
+    if [ -d "$i" ]; then
+      _pri_nfsroot="${i}/lavender5"
+      break
+    fi
+  done
+fi
+
+_pri_nfsdw="${_pri_nfsroot}/dw"
 _pri_nfsalgaews="${_pri_nfsroot}/02_dev/algae-ws"
 _pri_nfsalgaebp="${_pri_nfsalgaews}/algae-bp"
-_pri_nfsdw="${_pri_nfsroot}/dw"
 
 wpa_state () {
-  _lo_st=$(wpa_cli ${1:+-i${1}} status 2>/dev/null | sed -n "s/^wpa_state\s*=\s*\(.*\)/\1/p")
-  echo $_lo_st
-  [ "$_lo_st" == "COMPLETED" ]
+  _lo_st=$(wpa_cli ${1:+-i${1}} status 2>/dev/null \
+    | sed -n "s/^wpa_state\s*=\s*\(.*\)/\1/p")
+  echo "$_lo_st"
+  test "$_lo_st" = "COMPLETED"
 }
 
 wpa_wait () {
   _lo_ct=${1:-3}
-  while ! _lo_st="$(wpa_state)" && [ $_lo_ct -gt 0 ]; do
+  while ! _lo_st="$(wpa_state)" && [ "$_lo_ct" -gt 0 ]; do
     log_d "wait wpa complete in $_lo_ct"
     sleep 1
     _lo_ct="$(( $_lo_ct - 1 ))"
   done
   log_d "wpa_state: $_lo_st"
-  [ "$_lo_st" == "COMPLETED" ]
+  test "$_lo_st" = "COMPLETED"
 }
 
 gen_wpa_def () {
-  _lo_pri_wpa_conf="${1:-wpa_supplicant.conf}"
+  _lo_wpacfg="${1:-wpa_supplicant.conf}"
 
   # shellcheck disable=SC2154
   if [ -f "$_pri_wpa_base" ]; then
-    cp "$_pri_wpa_base" "$_lo_pri_wpa_conf"
+    cp "$_pri_wpa_base" "$_lo_wpacfg"
     return
   fi
 
-  cat <<EOWPADEF > "$_lo_pri_wpa_conf"
+  cat <<EOWPADEF > "$_lo_wpacfg"
 country=US
 ctrl_interface=/var/run/wpa_supplicant
 update_config=1
 EOWPADEF
 }
 
-gen_wpa_conf () {
+gen_wpa_net () {
   _lo_netcfg=${1:-wpa_network.txt}
   _lo_ssid=$2
   _lo_pw=$3
@@ -95,12 +112,14 @@ gen_wpa_conf () {
     echo "network={"
     echo "  scan_ssid=1"
     echo "  ssid=\"$_lo_ssid\""
-    [ -n "$_lo_psk" ] && echo "  psk=$_lo_psk"
     if [ "$_lo_auth" = "open" ]; then
       echo "  key_mgmt=NONE"
-    elif [ "$_lo_auth" = "wpa3-only" ]; then
+    elif [ "$_lo_auth" = "wpa3_only" ] || [ "$_lo_auth" = "wpa3-only" ]; then
       echo "  ieee80211w=2"
       echo "  key_mgmt=SAE"
+      [ -n "${_lo_pw}" ] && echo "  psk=\"$_lo_pw\""
+    elif [ -n "${_lo_pw}" ]; then
+      echo "  psk=$_lo_psk"
     fi
     echo "}"
   } > "${_lo_netcfg}"
@@ -123,16 +142,22 @@ wpa_conn () {
     wpa_cmd disable_network 0
   fi
   wpa_cmd select_network 0 || { log_e "Failed select network 0"; return 1; }
-  wpa_cmd set_network 0 ssid "\"${_lo_ssid}\"" || { log_e "Failed set ssid=\"${_lo_ssid}\""; return 1; }
-  wpa_cmd set_network 0 scan_ssid 1  || { log_e "Failed set scan_ssid=1"; return 1; }
+  wpa_cmd set_network 0 ssid "\"${_lo_ssid}\"" \
+    || { log_e "Failed set ssid=\"${_lo_ssid}\""; return 1; }
+  wpa_cmd set_network 0 scan_ssid 1  \
+    || { log_e "Failed set scan_ssid=1"; return 1; }
   if [ -n "${_lo_pw}" ]; then
-    wpa_cmd set_network 0 psk "\"${_lo_pw}\"" || { log_e "Failed set psk"; return 1; }
+    wpa_cmd set_network 0 psk "\"${_lo_pw}\"" \
+      || { log_e "Failed set psk"; return 1; }
   fi
   if [ "${_lo_auth}" = "open" ]; then
-    wpa_cmd set_network 0 key_mgmt NONE || { log_e "Failed set key_mgmt=NONE"; return 1; }
+    wpa_cmd set_network 0 key_mgmt NONE \
+      || { log_e "Failed set key_mgmt=NONE"; return 1; }
   elif [ "${_lo_auth}" = "wpa3-only" ]; then
-    wpa_cmd set_network 0 ieee80211w 2 || { log_e "Failed set ieee80211w=2"; return 1; }
-    wpa_cmd set_network 0 key_mgmt SAE || { log_e "Failed set key_mgmt=SAE"; return 1; }
+    wpa_cmd set_network 0 ieee80211w 2 \
+      || { log_e "Failed set ieee80211w=2"; return 1; }
+    wpa_cmd set_network 0 key_mgmt SAE \
+      || { log_e "Failed set key_mgmt=SAE"; return 1; }
   fi
 }
 
@@ -149,30 +174,42 @@ do_ifce_up () {
   done
 }
 
-do_wifi_conn () {
+wifi_conn () {
   _lo_opt_cli=${1}
   _lo_opt_ssid=${2}
   _lo_opt_pw=${3}
   _lo_opt_auth=${4}
 
   _lo_wpacfg="${_pri_wpa_conf:-wpa_supplicant.conf}"
-  _lo_netcfg="wpa_network.txt"
+  _lo_netcfg="wpanet.txt"
 
-  cmd_run eval "killall -9 wpa_supplicant udhcpc > /dev/null 2>&1"
+  _lo_wpasup="wpa_supplicant"
+  # shellcheck disable=SC2043
+  for i in "./wpa_supplicant"; do
+    if [ -x "$i" ]; then
+      _lo_wpasup="${i}"
+      break
+    fi
+  done
 
+  cmd_run eval "killall -9 wpa_supplicant udhcpc >/dev/null 2>&1"
+  
   do_ifce_down wlan0
   do_ifce_up wlan0
 
-  gen_wpa_def "${_lo_wpacfg}" || { log_e "Failed generate $_lo_wpacfg"; return 1; }
+  gen_wpa_def "${_lo_wpacfg}" \
+    || { log_e "Failed generate $_lo_wpacfg"; return 1; }
 
-  cmd_run wpa_supplicant -Dnl80211 -iwlan0 "-c${_lo_wpacfg}" -B
+  cmd_run ${_lo_wpasup} -Dnl80211 -iwlan0 "-c${_lo_wpacfg}" -B
   if [ -n "$_lo_opt_cli" ]; then
     sleep 0.1
-    wpa_conn "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed connect wifi"; return 1; }
+    wpa_conn "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" \
+      || { log_e "Failed connect wifi"; return 1; }
     wpa_cmd disable_network 0
     wpa_cmd enable_network 0 || { log_e "Failed enable network"; return 1; }
   else
-    gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_pri_network_cfg"; return 1; }
+    gen_wpa_net "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" \
+      || { log_e "Failed generate $_lo_netcfg"; return 1; }
     cat "$_lo_netcfg" >> "$_lo_wpacfg"
     wpa_cmd reconfigure || { log_e "Failed reconfigure network"; return 1; }
   fi
@@ -181,17 +218,19 @@ do_wifi_conn () {
   udhcpc -i wlan0 -q || { log_e "Failed dhcp"; return 1; }
 }
 
-do_wpa_conf () {
+wpa_conf () {
   _lo_opt_ssid=${1}
   _lo_opt_pw=${2}
   _lo_opt_auth=${3}
 
   _lo_wpacfg="${_pri_wpa_conf:-wpa_supplicant.conf}"
-  _lo_netcfg="wpa_network.txt"
+  _lo_netcfg="wpanet.txt"
 
-  gen_wpa_def "${_lo_wpacfg}" || { log_e "Failed generate $_lo_wpacfg"; return 1; }
-  gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_pri_network_cfg"; return 1; }
-  cat "$_lo_netcfg" >> "$_lo_wpacfg"
+  gen_wpa_def "${_lo_wpacfg}" \
+    || { log_e "Failed generate $_lo_wpacfg"; return 1; }
+  gen_wpa_net "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" \
+    || { log_e "Failed generate $_lo_netcfg"; return 1; }
+  cat "$_lo_netcfg" >>"$_lo_wpacfg"
 }
 
 find_mount () {
@@ -208,20 +247,22 @@ find_mount () {
   # none /sys/kernel/debug debugfs rw,relatime 0 0
   # /dev/ubi1_0 /mnt/cfg ubifs rw,relatime,assert=read-only,ubi=1,vol=0 0 0
   _pri_for_iter=0
-  while read _pri_line; do
+  while read -r _lo_line; do
     # [ $_pri_for_iter -lt $_pri_for_count ] || break
-    # echo "[$_pri_for_iter]$_pri_line"
+    # echo "[$_pri_for_iter]$_lo_line"
 
-    read _pri_dev _pri_dir _pri_fs _dommy <<-EOM
-$(echo $_pri_line)
+    read -r _pri_dev _pri_dir _pri_fs _dommy <<-EOM
+$_lo_line
 EOM
     # log_d "[#$_pri_for_iter] $_pri_dev, $_pri_dir, $_pri_fs"
 
-    local _pri_ng=
-    [ -n "$_pri_ng" ] || [ "$1" = "*" ] || [ "$1" = "$_pri_dev" ] || _pri_ng=n
-    [ -n "$_pri_ng" ] || [ -z "$2" ] || [ "$2" = "*" ] || [ "$2" = "$_pri_dir" ] || _pri_ng=n
-    [ -n "$_pri_ng" ] || [ -z "$3" ] || [ "$3" = "*" ] || [ "$3" = "$_pri_fs" ] || _pri_ng=n
-    [ -z "$_pri_ng" ] && { echo $_pri_line; return 0; }
+    _lo_ng=
+    [ -n "$_lo_ng" ] || [ "$1" = "*" ] || [ "$1" = "$_pri_dev" ] || _lo_ng=n
+    [ -n "$_lo_ng" ] || [ -z "$2" ] || [ "$2" = "*" ] || [ "$2" = "$_pri_dir" ] \
+      || _lo_ng=n
+    [ -n "$_lo_ng" ] || [ -z "$3" ] || [ "$3" = "*" ] || [ "$3" = "$_pri_fs" ] \
+      || _lo_ng=n
+    [ -z "$_lo_ng" ] && { echo "$_lo_line"; return 0; }
 
     _pri_for_iter="$(( $_pri_for_iter + 1 ))"
   done <<-EOR
@@ -280,7 +321,7 @@ gpio_out () {
   _lo_val=$2
   _lo_iof0=/sys/class/gpio
   _lo_iof=${_lo_iof0}/gpio${_lo_port}
-  echo $_lo_val > ${_lo_iof}/value
+  echo "$_lo_val" >"${_lo_iof}/value"
 }
 
 # <port> <in|out> [value]
@@ -528,10 +569,10 @@ fi
 log_d "args: $*"
 
 if [ "$opt_applet" = "wifi_conn" ]; then
-  cmd_run eval "do_wifi_conn 1 $@"
+  cmd_run wifi_conn 1 "$@"
   exit
 elif [ -n "$opt_applet" ]; then
-  cmd_run eval "do_${opt_applet} $@"
+  cmd_run "${opt_applet}" "$@"
   exit
 fi
 

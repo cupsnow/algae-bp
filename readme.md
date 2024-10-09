@@ -3,6 +3,7 @@
 
 - [beagleplay Ready Source](#beagleplay-ready-source)
 - [Build](#build)
+- [host qemu](#host-qemu)
 - [nfs](#nfs)
   - [Host](#host)
   - [Client](#client)
@@ -30,6 +31,33 @@ busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
    ```sh
    make dist && make dist_sd
    ```
+
+## host qemu
+
+```sh
+sudo ip link del algaebr0 type bridge
+sudo ip tuntap del algaetap0 mode tap
+```
+
+```sh
+sudo ip link add algaebr0 type bridge
+
+sudo ip tuntap add algaetap0 mode tap user `whoami`
+sudo ip link set algaetap0 master algaebr0
+
+sudo ip link set wlx94186551a58a master algaebr0
+
+sudo ip link set algaebr0 up
+sudo ip link set algaetap0 up
+```
+
+```sh
+nmcli connection add type bridge ifname algaebr0
+nmcli connection modify bridge-algaebr0 bridge.stp yes
+nmcli connection modify bridge-algaebr0 ipv4.method manual ipv4.address "10.20.190.2/24" ipv4.gateway "10.20.190.1" ipv4.dns 8.8.8.8
+nmcli connection add type bridge-slave ifname wlx94186551a58a master algaebr0
+nmcli connection delete wlx94186551a58a
+```
 
 ## nfs
 

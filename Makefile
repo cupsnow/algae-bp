@@ -836,6 +836,7 @@ dist-qemuarm64_phase1:
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
+	$(MAKE) busybox_destdep_install tmux_destdep_install
 
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
@@ -845,6 +846,8 @@ dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/vmlinux \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
+	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
