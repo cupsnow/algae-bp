@@ -1,6 +1,10 @@
 #!/bin/sh
 # shellcheck disable=SC1091
 
+# dynamic linker not cached yet
+LD_LIBRARY_PATH=/lib64:/lib:/usr/lib64:/usr/lib
+export LD_LIBRARY_PATH
+
 [ -d /proc ] || mkdir -p /proc
 mount /proc
 
@@ -29,7 +33,7 @@ for i in /media /tmp; do
   mount -t tmpfs -osize=40m none "${i}"
 done
 
-mount -t debugfs none /sys/kernel/debug >/dev/null 2>&1
+mount -t debugfs none /sys/kernel/debug # >/dev/null 2>&1
 
 [ -e /etc/ld.so.cache ] || ldconfig -C /var/run/ld.so.cache
 
