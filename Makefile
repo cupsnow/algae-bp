@@ -152,7 +152,7 @@ GENPYVENV+=pyelftools cryptography
 
 #------------------------------------
 # git clong -b ti-linux-firmware git://git.ti.com/processor-firmware/ti-linux-firmware.git
-# 
+#
 ti-linux-fw_DIR?=$(PKGDIR2)/ti-linux-firmware
 
 #------------------------------------
@@ -283,7 +283,7 @@ $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 wlregdb_DIR?=$(PKGDIR2)/wireless-regdb
 
 #------------------------------------
-# for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH 
+# for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH
 #
 
 ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
@@ -384,9 +384,51 @@ busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
 #------------------------------------
+# apply utilinux libuuid, libblkid
+#
+e2fsprogs_DEP=utilinux
+e2fsprogs_DIR=$(PKGDIR2)/e2fsprogs
+e2fsprogs_BUILDDIR=$(BUILDDIR2)/e2fsprogs-$(APP_BUILD)
+e2fsprogs_MAKE=$(MAKE) -C $(e2fsprogs_BUILDDIR)
+
+e2fsprogs_INCDIR=$(BUILD_SYSROOT)/include
+e2fsprogs_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+
+GENDIR+=$(e2fsprogs_BUILDDIR)
+
+e2fsprogs_defconfig $(e2fsprogs_BUILDDIR)/Makefile: | $(e2fsprogs_BUILDDIR)
+	cd $(e2fsprogs_BUILDDIR) \
+	  && $(e2fsprogs_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --enable-elf-shlibs \
+		  --disable-libuuid --disable-libblkid \
+	      CPPFLAGS="$(addprefix -I,$(e2fsprogs_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(e2fsprogs_LIBDIR)) -lblkid" \
+	      $(e2fsprogs_ACARGS_$(APP_PLATFORM))
+
+e2fsprogs_install: $(DESTDIR)=$(BUILD_SYSROOT)
+e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/Makefile
+	$(e2fsprogs_MAKE) DESTDIR=$(DESTDIR) install
+	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	#     blkid com_err e2p ext2fs ss uuid)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+	    blkid com_err e2p ext2fs ss uuid)
+	rmdir $(DESTDIR)/lib/pkgconfig
+
+$(eval $(call DEF_DESTDEP,e2fsprogs))
+
+e2fsprogs_distclean:
+	$(RMDIR) $(e2fsprogs_BUILDDIR)
+
+e2fsprogs: | $(e2fsprogs_BUILDDIR)/Makefile
+	$(e2fsprogs_MAKE) $(PARALLEL_BUILD)
+
+e2fsprogs_%: | $(e2fsprogs_BUILDDIR)/Makefile
+	$(e2fsprogs_MAKE) $(PARALLEL_BUILD) $(@:e2fsprogs_%=%)
+
+#------------------------------------
 #
 mmcutils_DIR=$(PKGDIR2)/mmc-utils
-mmcutils_BUILDDIR=$(BUILDDIR2)/mmcutils-$(APP_PLATFORM)
+mmcutils_BUILDDIR=$(BUILDDIR2)/mmcutils-$(APP_BUILD)
 mmcutils_MAKE=$(MAKE) CC=$(CC) C= -C $(mmcutils_BUILDDIR)
 
 GENDIR+=$(mmcutils_BUILDDIR)
@@ -458,7 +500,7 @@ ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
 	cd $(ncursesw_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(ncursesw_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --with-termlib --with-ticlib \
-	      --enable-widec --disable-stripping \
+	      --with-shared --enable-widec --disable-stripping \
 	      --with-default-terminfo-dir=$(ncursesw_TINFODIR) \
 	      CFLAGS="-fPIC $(ncursesw_CFLAGS_$(APP_PLATFORM))" \
 	      $(ncursesw_ACARGS_$(APP_PLATFORM))
@@ -582,8 +624,10 @@ libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_DIR)/configure $(
 libevent_install: DESTDIR=$(BUILD_SYSROOT)
 libevent_install: | $(libevent_BUILDDIR)/Makefile
 	$(libevent_MAKE) DESTDIR=$(DESTDIR) install
-	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libevent_core libevent_extra libevent libevent_pthreads)
-	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libevent_core libevent_extra libevent libevent_pthreads)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    libevent_core libevent_extra libevent libevent_pthreads)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+	    libevent_core libevent_extra libevent libevent_pthreads)
 	rmdir $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,libevent))
@@ -733,12 +777,13 @@ iw_%: | $(iw_BUILDDIR)/Makefile
 	$(iw_MAKE) $(PARALLEL_BUILD) $(@:iw_%=%)
 
 #------------------------------------
+# apt: gettext
 #
-utilinux_DEP=
+utilinux_DEP=ncursesw
 utilinux_DIR=$(PKGDIR2)/util-linux
 utilinux_BUILDDIR?=$(BUILDDIR2)/utilinux-$(APP_BUILD)
-utilinux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/libnl3
-utilinux_LIBDIR=$(BUILD_SYSROOT)/lib
+utilinux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+utilinux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 utilinux_MAKE=$(MAKE) -C $(utilinux_BUILDDIR)
 
 $(utilinux_DIR)/configure: | $(utilinux_DIR)/autogen.sh
@@ -751,10 +796,21 @@ utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(
 	cd $(utilinux_BUILDDIR) \
 	  && $(utilinux_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-		  --disable-liblastlog2 \
+	      --disable-liblastlog2 --without-python \
+	      --disable-makeinstall-chown --disable-makeinstall-setuid \
+	      CFLAGS="$(addprefix -I,$(utilinux_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(utilinux_LIBDIR))" \
 	      $(utilinux_ACARGS_$(APP_PLATFORM))
 
 utilinux_install: DESTDIR=$(BUILD_SYSROOT)
+utilinux_install:  | $(utilinux_BUILDDIR)/Makefile
+	$(utilinux_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    blkid fdisk mount smartcols uuid \
+	    libblkid libfdisk libmount libsmartcols libuuid)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+	    blkid fdisk mount smartcols uuid)
+	rmdir $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,utilinux))
 
@@ -802,7 +858,7 @@ CMD_GENROOT_EXT4= \
 dist_rootfs_phase1:
 # build package
 	$(MAKE) $(addsuffix _destdep_install, \
-	    busybox tmux mmcutils)
+	    busybox tmux mmcutils e2fsprogs)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
