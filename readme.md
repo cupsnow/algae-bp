@@ -34,6 +34,8 @@ busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
 
 ## host qemu
 
+`nm-connection-editor`
+
 ```sh
 sudo ip link del algaebr0 type bridge
 sudo ip tuntap del algaetap0 mode tap

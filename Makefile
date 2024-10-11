@@ -391,8 +391,12 @@ e2fsprogs_DIR=$(PKGDIR2)/e2fsprogs
 e2fsprogs_BUILDDIR=$(BUILDDIR2)/e2fsprogs-$(APP_BUILD)
 e2fsprogs_MAKE=$(MAKE) -C $(e2fsprogs_BUILDDIR)
 
-e2fsprogs_INCDIR=$(BUILD_SYSROOT)/include
-e2fsprogs_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+e2fsprogs_INCDIR+=$(BUILD_SYSROOT)/include
+e2fsprogs_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+
+ifneq ($(strip $(filter utilinux,$(e2fsprogs_DEP))),)
+e2fsprogs_LIBS+=blkid
+endif
 
 GENDIR+=$(e2fsprogs_BUILDDIR)
 
@@ -402,10 +406,10 @@ e2fsprogs_defconfig $(e2fsprogs_BUILDDIR)/Makefile: | $(e2fsprogs_BUILDDIR)
 	      --host=`$(CC) -dumpmachine` --prefix= --enable-elf-shlibs \
 		  --disable-libuuid --disable-libblkid \
 	      CPPFLAGS="$(addprefix -I,$(e2fsprogs_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(e2fsprogs_LIBDIR)) -lblkid" \
+	      LDFLAGS="$(addprefix -L,$(e2fsprogs_LIBDIR)) $(addprefix -l,$(e2fsprogs_LIBS))" \
 	      $(e2fsprogs_ACARGS_$(APP_PLATFORM))
 
-e2fsprogs_install: $(DESTDIR)=$(BUILD_SYSROOT)
+e2fsprogs_install: DESTDIR=$(BUILD_SYSROOT)
 e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/Makefile
 	$(e2fsprogs_MAKE) DESTDIR=$(DESTDIR) install
 	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
@@ -436,7 +440,7 @@ GENDIR+=$(mmcutils_BUILDDIR)
 mmcutils_defconfig $(mmcutils_BUILDDIR)/Makefile: | $(mmcutils_BUILDDIR)
 	rsync -a $(RSYNC_VERBOSE) $(mmcutils_DIR)/* $(mmcutils_BUILDDIR)/
 
-mmcutils_install: $(DESTDIR)=$(BUILD_SYSROOT)
+mmcutils_install: DESTDIR=$(BUILD_SYSROOT)
 mmcutils_install: | $(mmcutils_BUILDDIR)/Makefile
 	$(mmcutils_MAKE) DESTDIR=$(DESTDIR) prefix= install
 
@@ -532,7 +536,7 @@ ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
 # Create small terminfo refer to https://invisible-island.net/ncurses/ncurses.faq.html#big_terminfo
 # refine to comma saperated list when use in tic
 
-terminfo_BUILDDIR=$(BUILDDIR)/terminfo
+terminfo_BUILDDIR=$(BUILDDIR2)/terminfo-$(APP_BUILD)
 
 TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
     ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
@@ -543,7 +547,7 @@ TERMINFO_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
 CMD_TERMINFO= \
   { [ -d "$(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR)" ] || \
     $(MKDIR) $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR); } \
-  && $(TERMINFO_TIC) -s -1 -I -x -e"$(TERMINFO_NAMES)" \
+  && $(TERMINFO_TIC) -s -r -I -x -e"$(TERMINFO_NAMES)" \
       $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src \
   && $(TERMINFO_TIC) -s -o $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR) \
       $(BUILDDIR)/terminfo.src
@@ -856,13 +860,16 @@ CMD_GENROOT_EXT4= \
     && fakeroot mkfs.ext4 -d $(1) $(2)
 
 dist_rootfs_phase1:
-# build package
+# build package and install to sysroot
+# packages are higher priority then busybox
 	$(MAKE) $(addsuffix _destdep_install, \
-	    busybox tmux mmcutils e2fsprogs)
+	    busybox)
+	$(MAKE) $(addsuffix _destdep_install, \
+	    tmux mmcutils e2fsprogs)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
-# install prebuilt
+# install prebuilt to rootfs
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
@@ -892,7 +899,6 @@ dist-qemuarm64_phase1:
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
-	$(MAKE) busybox_destdep_install tmux_destdep_install
 
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib

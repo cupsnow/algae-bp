@@ -1,8 +1,8 @@
 #
 ::sysinit:/etc/init.d/rcS
 # ::askfirst:/bin/sh
-# ::respawn:/sbin/getty -n -l /bin/sh 0 console vt100
-::respawn:/sbin/getty 0 console linux
+# ::respawn:/sbin/getty -L -n -l /bin/sh 0 console vt100
+::respawn:/sbin/getty -L 0 console linux
 
 ::restart:/sbin/init
 
