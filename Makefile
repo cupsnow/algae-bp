@@ -384,6 +384,77 @@ busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
 #------------------------------------
+#
+attr_DIR=$(PKGDIR2)/attr
+attr_BUILDDIR=$(BUILDDIR2)/attr-$(APP_BUILD)
+attr_MAKE=$(MAKE) -C $(attr_BUILDDIR)
+
+$(attr_DIR)/configure: | $(attr_DIR)/autogen.sh
+	cd $(attr_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(attr_BUILDDIR)
+
+attr_defconfig $(attr_BUILDDIR)/Makefile: | $(attr_DIR)/configure $(attr_BUILDDIR)
+	cd $(attr_BUILDDIR) \
+	  && $(attr_DIR)/configure \
+	  --host=`$(CC) -dumpmachine` --prefix=
+
+attr_install: DESTDIR=$(BUILD_SYSROOT)
+attr_install: | $(attr_BUILDDIR)/Makefile
+	$(attr_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libattr)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libattr)
+	rmdir --ignore-fail-on-non-empty --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+
+$(eval $(call DEF_DESTDEP,attr))
+
+attr: | $(attr_BUILDDIR)/Makefile
+	$(attr_MAKE) $(PARALLEL_BUILD)
+
+attr_%: | $(attr_BUILDDIR)/Makefile
+	$(attr_MAKE) $(PARALLEL_BUILD) $(@:attr_%=%)
+
+#------------------------------------
+#
+acl_DEP=attr
+acl_DIR=$(PKGDIR2)/acl
+acl_BUILDDIR=$(BUILDDIR2)/acl-$(APP_BUILD)
+acl_MAKE=$(MAKE) -C $(acl_BUILDDIR)
+
+acl_INCDIR=$(BUILD_SYSROOT)/include
+acl_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+
+$(acl_DIR)/configure: | $(acl_DIR)/autogen.sh
+	cd $(acl_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(acl_BUILDDIR)
+
+acl_defconfig $(acl_BUILDDIR)/Makefile: | $(acl_DIR)/configure $(acl_BUILDDIR)
+	cd $(acl_BUILDDIR) \
+	  && $(acl_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      CPPFLAGS="$(addprefix -I,$(acl_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(acl_LIBDIR))" \
+	      $(acl_ACARGS_$(APP_PLATFORM))
+
+acl_install: DESTDIR=$(BUILD_SYSROOT)
+acl_install: | $(acl_BUILDDIR)/Makefile
+	$(acl_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libacl)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libacl)
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+
+$(eval $(call DEF_DESTDEP,acl))
+
+acl: | $(acl_BUILDDIR)/Makefile
+	$(acl_MAKE) $(PARALLEL_BUILD)
+
+acl_%: | $(acl_BUILDDIR)/Makefile
+	$(acl_MAKE) $(PARALLEL_BUILD) $(@:acl_%=%)
+
+#------------------------------------
 # apply utilinux libuuid, libblkid
 #
 e2fsprogs_DEP=utilinux
@@ -416,12 +487,9 @@ e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/Makefile
 	#     blkid com_err e2p ext2fs ss uuid)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
 	    blkid com_err e2p ext2fs ss uuid)
-	rmdir $(DESTDIR)/lib/pkgconfig
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,e2fsprogs))
-
-e2fsprogs_distclean:
-	$(RMDIR) $(e2fsprogs_BUILDDIR)
 
 e2fsprogs: | $(e2fsprogs_BUILDDIR)/Makefile
 	$(e2fsprogs_MAKE) $(PARALLEL_BUILD)
@@ -445,9 +513,6 @@ mmcutils_install: | $(mmcutils_BUILDDIR)/Makefile
 	$(mmcutils_MAKE) DESTDIR=$(DESTDIR) prefix= install
 
 $(eval $(call DEF_DESTDEP,mmcutils))
-
-mmcutils_distclean:
-	$(RMDIR) $(mmcutils_BUILDDIR)
 
 mmcutils: | $(mmcutils_BUILDDIR)/Makefile
 	$(mmcutils_MAKE) $(PARALLEL_BUILD)
@@ -473,7 +538,7 @@ zlib_install: DESTDIR=$(BUILD_SYSROOT)
 zlib_install: | $(zlib_BUILDDIR)/configure.log
 	$(zlib_MAKE) DESTDIR=$(DESTDIR) install
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,zlib)
-	rmdir $(DESTDIR)/lib/pkgconfig
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,zlib))
 
@@ -485,6 +550,77 @@ zlib: | $(zlib_BUILDDIR)/configure.log
 
 zlib_%: | $(zlib_BUILDDIR)/configure.log
 	$(zlib_MAKE) $(PARALLEL_BUILD) $(patsubst _%,%,$(@:zlib%=%))
+
+#------------------------------------
+#
+lzo_DIR=$(PKGDIR2)/lzo
+lzo_BUILDDIR=$(BUILDDIR2)/lzo-$(APP_BUILD)
+lzo_MAKE=$(MAKE) -C $(lzo_BUILDDIR)
+
+GENDIR+=$(lzo_BUILDDIR)
+
+lzo_defconfig $(lzo_BUILDDIR)/Makefile: | $(lzo_BUILDDIR)
+	cd $(lzo_BUILDDIR) \
+	  && $(lzo_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      --enable-shared
+
+lzo_install: DESTDIR=$(BUILD_SYSROOT)
+lzo_install: | $(lzo_BUILDDIR)/Makefile
+	$(lzo_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,liblzo2)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,lzo2)
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+
+$(eval $(call DEF_DESTDEP,lzo))
+
+lzo: | $(lzo_BUILDDIR)/Makefile
+	$(lzo_MAKE) $(PARALLEL_BUILD)
+
+lzo_%: | $(lzo_BUILDDIR)/Makefile
+	$(lzo_MAKE) $(PARALLEL_BUILD) $(@:lzo_%=%)
+
+#------------------------------------
+# ubifs dep: e2fsprogs,lzo
+# jfss2 dep: acl
+# dep: zlib openssl
+#
+mtdutils_DEP=zlib acl lzo e2fsprogs
+mtdutils_DIR=$(PKGDIR2)/mtd-utils
+mtdutils_BUILDDIR=$(BUILDDIR2)/mtdutils-$(APP_BUILD)
+mtdutils_MAKE=$(MAKE) -C $(mtdutils_BUILDDIR)
+
+mtdutils_INCDIR=$(BUILD_SYSROOT)/include
+mtdutils_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+
+$(mtdutils_DIR)/configure: | $(mtdutils_DIR)/autogen.sh
+	cd $(mtdutils_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(mtdutils_BUILDDIR)
+
+mtdutils_defconfig $(mtdutils_BUILDDIR)/Makefile: | $(mtdutils_DIR)/configure $(mtdutils_BUILDDIR)
+	cd $(mtdutils_BUILDDIR) \
+	  && $(mtdutils_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+		  --without-zstd \
+	      CFLAGS="$(addprefix -I,$(mtdutils_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(mtdutils_LIBDIR))" \
+
+mtdutils_install: DESTDIR=$(BUILD_SYSROOT)
+mtdutils_install: | $(mtdutils_BUILDDIR)/Makefile
+	$(mtdutils_MAKE) DESTDIR=$(DESTDIR) install
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libmtdutils2)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,mtdutils2)
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+
+$(eval $(call DEF_DESTDEP,mtdutils))
+
+mtdutils: | $(mtdutils_BUILDDIR)/Makefile
+	$(mtdutils_MAKE) $(PARALLEL_BUILD)
+
+mtdutils_%: | $(mtdutils_BUILDDIR)/Makefile
+	$(mtdutils_MAKE) $(PARALLEL_BUILD) $(@:mtdutils_%=%)
 
 #------------------------------------
 #
@@ -599,7 +735,7 @@ endif
 	# $(call CMD_LOCALE_COMPILE,zh_TW,BIG5,$(locale_BUILDDIR)/zh_TW.BIG5) || [ $$? -eq 1 ]
 	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.BIG5)
 	# $(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
-	# rmdir $(DESTDIR)/usr/share/i18n/charmaps
+	# rmdir --ignore-fail-on-non-empty $(DESTDIR)/usr/share/i18n/charmaps
 	# @echo "Locale archived: $$($(call CMD_LOCALE_LIST,$(DESTDIR)) | xargs)"
 
 $(eval $(call DEF_DESTDEP,locale))
@@ -632,7 +768,7 @@ libevent_install: | $(libevent_BUILDDIR)/Makefile
 	    libevent_core libevent_extra libevent libevent_pthreads)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
 	    libevent_core libevent_extra libevent libevent_pthreads)
-	rmdir $(DESTDIR)/lib/pkgconfig
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,libevent))
 
@@ -706,7 +842,7 @@ openssl_install: $(openssl_BUILDDIR)/configdata.pm
 	$(openssl_MAKE) install_sw install_ssldirs
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libcrypto libssl openssl)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libcrypto libssl openssl)
-	rmdir $(DESTDIR)/lib/pkgconfig
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,openssl))
 
@@ -742,7 +878,7 @@ libnl_install: | $(libnl_BUILDDIR)/Makefile
 	# $(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
 	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/cls, basic cgroup)
 	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/qdisc, bfifo blackhole fq_codel htb ingress pfifo plug )
-	rmdir $(DESTDIR)/lib/pkgconfig
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,libnl))
 
@@ -814,7 +950,7 @@ utilinux_install:  | $(utilinux_BUILDDIR)/Makefile
 	    libblkid libfdisk libmount libsmartcols libuuid)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
 	    blkid fdisk mount smartcols uuid)
-	rmdir $(DESTDIR)/lib/pkgconfig
+	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,utilinux))
 
