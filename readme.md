@@ -89,6 +89,8 @@ mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
 
 ## U-Boot
 
+For BP, currently upstream version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
+
 ### Env for SDCard
 
 ### Env for EMMC

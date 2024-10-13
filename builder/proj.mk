@@ -64,6 +64,11 @@ CMD_RM_FIND=$(if $(3),,$(error "CMD_RM_FIND invalid argument")) \
     done; \
   done
 
+# sort space separated list
+# echo "pkg.patch pkg-002.patch pkg-001.patch pkg-008.patch" | tr " " "\n" | sort -g | xargs
+CMD_SORT_WS_SEP1=echo "$(1)" | tr " " "\n" | sort -g
+CMD_SORT_WS_SEP=$(call CMD_SORT_WS_SEP1,$(1)) | xargs
+
 #------------------------------------
 # $(call UNIQ,b b a a) # -> b a
 #

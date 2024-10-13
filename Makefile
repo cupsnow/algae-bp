@@ -112,6 +112,16 @@ help1:
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
 
+CMD_DEPGRAPH1=echo $(1): $(2)
+CMD_DEPGRAPH=$(if $($(1)_DEP), \
+  $(foreach iter,$($(1)_DEP), \
+    $(call CMD_DEPGRAPH,$(iter));\
+	$(call CMD_DEPGRAPH1,$(1),$($(1)_DEP))), \
+  $(call CMD_DEPGRAPH1,$(1)))
+
+depgraph_%:
+	@$(call CMD_DEPGRAPH,$(@:depgraph_%=%))
+
 #------------------------------------
 #
 atf_DIR?=$(PKGDIR2)/arm-trusted-firmware
@@ -180,7 +190,11 @@ uboot_MAKEARGS-bp-a53+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     TEE=$(optee_BUILDDIR)/core/tee-raw.bin \
 	ARCH=arm CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
+uboot_MAKEARGS-bp-a53-emmc=$(uboot_MAKEARGS-bp-a53)
+
 uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
+
+uboot_defconfig-bp-a53-emmc=$(uboot_defconfig-bp-a53)
 
 uboot_MAKEARGS-qemuarm64+=CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
@@ -206,23 +220,39 @@ ubootenv:
 
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
-	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) FORCE_ORIGIN=1 \
-	    optee_BUILDDIR=$(optee_BUILDDIR) uboot
+	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
+	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-defconfig*.patch)" \
+	    uboot
+	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
+	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-defconfig*.patch)" \
+	    uboot
 
 uboot_%:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot_$(@:uboot_%=%)
+	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
+	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-emmc-defconfig*.patch)" \
+	    uboot_$(@:uboot_%=%)
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
+	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
+	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-defconfig*.patch)" \
+	    uboot_$(@:uboot_%=%)
 
 else
 # normal case
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
-	if [ "$(FORCE_ORIGIN)" != "1" ] && [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
-	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config && \
-	  yes "" | $(uboot_MAKE) oldconfig; \
+	if [ "$(REPO_DEFCONFIG)" != "1" ] && [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
+	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config \
+	    && ( yes "" | $(uboot_MAKE) oldconfig ); \
 	else \
 	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
+	  cd $(uboot_BUILDDIR) \
+	    && for i in $$($(call CMD_SORT_WS_SEP,$(REPO_DEFCONFIG_PATCH))); do \
+	      patch -p1 --verbose <$${i}; \
+	    done; \
 	fi
 
 $(addprefix uboot_,help):
@@ -467,6 +497,7 @@ e2fsprogs_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 
 ifneq ($(strip $(filter utilinux,$(e2fsprogs_DEP))),)
 e2fsprogs_LIBS+=blkid
+e2fsprogs_ACARGS_$(APP_PLATFORM)+=--disable-libuuid --disable-libblkid
 endif
 
 GENDIR+=$(e2fsprogs_BUILDDIR)
@@ -475,13 +506,13 @@ e2fsprogs_defconfig $(e2fsprogs_BUILDDIR)/Makefile: | $(e2fsprogs_BUILDDIR)
 	cd $(e2fsprogs_BUILDDIR) \
 	  && $(e2fsprogs_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --enable-elf-shlibs \
-		  --disable-libuuid --disable-libblkid \
 	      CPPFLAGS="$(addprefix -I,$(e2fsprogs_INCDIR))" \
 	      LDFLAGS="$(addprefix -L,$(e2fsprogs_LIBDIR)) $(addprefix -l,$(e2fsprogs_LIBS))" \
 	      $(e2fsprogs_ACARGS_$(APP_PLATFORM))
 
+
 e2fsprogs_install: DESTDIR=$(BUILD_SYSROOT)
-e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/Makefile
+e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/scrub/e2scrub.conf
 	$(e2fsprogs_MAKE) DESTDIR=$(DESTDIR) install
 	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
 	#     blkid com_err e2p ext2fs ss uuid)
@@ -490,6 +521,8 @@ e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/Makefile
 	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,e2fsprogs))
+
+$(e2fsprogs_BUILDDIR)/scrub/e2scrub.conf: e2fsprogs
 
 e2fsprogs: | $(e2fsprogs_BUILDDIR)/Makefile
 	$(e2fsprogs_MAKE) $(PARALLEL_BUILD)
@@ -585,7 +618,7 @@ lzo_%: | $(lzo_BUILDDIR)/Makefile
 # jfss2 dep: acl
 # dep: zlib openssl
 #
-mtdutils_DEP=zlib acl lzo e2fsprogs
+mtdutils_DEP=zlib acl lzo e2fsprogs openssl
 mtdutils_DIR=$(PKGDIR2)/mtd-utils
 mtdutils_BUILDDIR=$(BUILDDIR2)/mtdutils-$(APP_BUILD)
 mtdutils_MAKE=$(MAKE) -C $(mtdutils_BUILDDIR)
@@ -608,11 +641,6 @@ mtdutils_defconfig $(mtdutils_BUILDDIR)/Makefile: | $(mtdutils_DIR)/configure $(
 	      LDFLAGS="$(addprefix -L,$(mtdutils_LIBDIR))" \
 
 mtdutils_install: DESTDIR=$(BUILD_SYSROOT)
-mtdutils_install: | $(mtdutils_BUILDDIR)/Makefile
-	$(mtdutils_MAKE) DESTDIR=$(DESTDIR) install
-	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libmtdutils2)
-	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,mtdutils2)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
 
 $(eval $(call DEF_DESTDEP,mtdutils))
 
@@ -1001,7 +1029,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    tmux mmcutils e2fsprogs)
+	    tmux mmcutils mtdutils)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
@@ -1111,6 +1139,7 @@ dist-bp_phase1:
 
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
@@ -1124,6 +1153,10 @@ dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
 	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb dist-bp_dtb
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
+	    $(BUILD_SYSROOT)/root/tispl-emmc.bin
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
+	    $(BUILD_SYSROOT)/root/u-boot-emmc.img
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
@@ -1147,6 +1180,7 @@ dist-bp_depmod:
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+GENDIR+=$(BUILD_SYSROOT)/root
 
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib

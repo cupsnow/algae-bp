@@ -4,6 +4,9 @@ self=$0
 # shellcheck disable=SC2164,SC2034
 selfdir="$(cd "$(dirname "$self")"; pwd)"
 
+_pri_mount="busybox mount"
+_pri_umount="busybox umount"
+
 if [ -x builder/func.sh ]; then
   : . builder/func.sh
 elif [ -x /etc/init.d/func ]; then
@@ -424,7 +427,7 @@ devmount () {
   find_mount "*" "${_lo_tgt}" >/dev/null && { log_d "already mounted ${_lo_tgt}"; return 0; }
 
   [ -d "${_lo_tgt}" ] || mkdir -p "${_lo_tgt}"
-  cmd_run eval "mount \"${_lo_src}\" \"${_lo_tgt}\"" || return 1
+  cmd_run eval "$_pri_mount \"${_lo_src}\" \"${_lo_tgt}\"" || return 1
   log_d "mounted ${_lo_tgt}"
   return 0
 }
@@ -432,8 +435,8 @@ devmount () {
 nfsumount () {
   _lo_tgt="${1:-${_pri_nfsroot}/02_dev}"
   find_mount "*" "${_lo_tgt}" >/dev/null || { return 0; }
-  cmd_run eval "umount $_lo_tgt" || {
-    cmd_run eval "umount -f $_lo_tgt" || { return 1; }
+  cmd_run eval "$_pri_umount $_lo_tgt" || {
+    cmd_run eval "$_pri_umount -f $_lo_tgt" || { return 1; }
     log_d "forced un-mount ${_lo_tgt}"
     return 0
   }
@@ -451,7 +454,7 @@ nfsmount () {
   cmd_run eval "ping -c 1 -W 1 ${_lo_ip} >/dev/null 2>&1" || { log_e "failed ping to ${_lo_ip}"; return 1; }
 
   [ -d "${_lo_tgt}" ] || mkdir -p "${_lo_tgt}"
-  cmd_run eval "mount -o nolock \"${_lo_ip}:${_lo_src}\" \"${_lo_tgt}\"" || return 1
+  cmd_run eval "$_pri_mount -o nolock \"${_lo_ip}:${_lo_src}\" \"${_lo_tgt}\"" || return 1
   log_d "mounted ${_lo_tgt}"
   return 0
 }
@@ -490,6 +493,63 @@ nfsget_x () {
   nfsget_n "$@" && cmd_run chmod +x "$_lo_tgt"
 }
 
+flash_tiboot3 () {
+  [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
+
+  _lo_tiboot3=$1
+  [ -f "${_lo_tiboot3}" ] ||  { log_e "Miss ${_lo_tiboot3}"; return 1; }
+
+  _lo_emmcdev=mmcblk0
+  _lo_emmcdevpart=${_lo_emmcdev}boot0
+
+  log_d "Enable Boot0 boot"
+  cmd_run mmc bootpart enable 1 2 /dev/${_lo_emmcdev} \
+    || { log_e "Failed"; return 1; }
+  cmd_run mmc bootbus set single_backward x1 x8 /dev/${_lo_emmcdev} \
+    || { log_e "Failed"; return 1; }
+
+  # NOTE!  This is a one-time programmable (unreversible) change.
+  # cmd_run mmc hwreset enable /dev/${_lo_emmcdev} || { log_e "Failed"; return 1; }
+
+  log_d "Clearing eMMC boot0"
+  cmd_run eval "echo '0' >>/sys/class/block/${_lo_emmcdevpart}/force_ro" \
+    || { log_e "Failed"; return 1; }
+  dd if=/dev/zero of=/dev/${_lo_emmcdevpart} count=32 bs=128k \
+    || { log_e "Failed"; return 1; }
+
+  log_d "Write tiboot3"
+  dd if="${_lo_tiboot3}" of=/dev/${_lo_emmcdevpart} bs=128k \
+    || { log_e "Failed"; return 1; }
+}
+
+flash_tispl () {
+  [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
+  
+  _lo_tispl=$1
+  [ -f "${_lo_tispl}" ] ||  { log_e "Miss ${_lo_tispl}"; return 1; }
+
+  _lo_emmcdevpart=mmcblk0p1
+
+  devmount /dev/${_lo_emmcdevpart} || { log_e "Failed"; return 1; }
+
+  cmd_run cp -av "${_lo_tispl}" /media/${_lo_emmcdevpart}/tispl.bin  \
+    || { log_e "Failed"; return 1; }
+}
+
+flash_uboot () {
+  [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
+  
+  _lo_uboot=$1
+  [ -f "${_lo_uboot}" ] ||  { log_e "Miss ${_lo_uboot}"; return 1; }
+
+  _lo_emmcdevpart=mmcblk0p1
+
+  devmount /dev/${_lo_emmcdevpart} || { log_e "Failed"; return 1; }
+
+  cmd_run cp -av "${_lo_uboot}" /media/${_lo_emmcdevpart}/u-boot.img  \
+    || { log_e "Failed"; return 1; }
+}
+
 show_help () {
 cat <<-EOHELP
 USAGE
@@ -507,6 +567,9 @@ OPTIONS
 APPLET
   wifi_conn <SSID> <PW> [open|wpa3-only]
   wpa_conf <SSID> <PW> [open|wpa3-only]
+  flash_tiboot3 <tiboot3.bin>
+  flash_tispl <tispl.bin>
+  flash_uboot <u-boot.img>
 EOHELP
 }
 
@@ -592,12 +655,10 @@ for opt1 in "$@"; do
 
     nfsget_x "${_pri_nfsalgaebp}/builder/$(basename $self)"
     ;;
-  ota)
-    [ -f /etc/bp.json ] || { log_e "Maybe not board bp"; return 1; }
-    nfsmount || exit
+  bootpart)
     devmount /dev/mmcblk0p1 || exit
-    cmd_run eval "cp -av ${_pri_nfsalgaebp}/destdir/bp/boot/* /media/mmcblk0p1/"
-    # boot_tiboot3 ${_pri_nfsalgaebp}/destdir/bp/boot/tiboot3.bin
+    devmount /dev/mmcblk0p2 || exit
+    devmount /dev/mmcblk1p1 || exit
     ;;
   sh1)
     nfsmount || exit
