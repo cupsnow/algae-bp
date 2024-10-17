@@ -69,6 +69,11 @@ CMD_RM_FIND=$(if $(3),,$(error "CMD_RM_FIND invalid argument")) \
 CMD_SORT_WS_SEP1=echo "$(1)" | tr " " "\n" | sort -g
 CMD_SORT_WS_SEP=$(call CMD_SORT_WS_SEP1,$(1)) | xargs
 
+CMD_RM_EMPTYDIR= \
+  for i in $(1); do \
+    [ -d $${i} ] && rmdir --ignore-fail-on-non-empty $${i}; \
+  done
+
 #------------------------------------
 # $(call UNIQ,b b a a) # -> b a
 #

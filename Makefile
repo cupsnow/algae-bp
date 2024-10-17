@@ -51,7 +51,11 @@ TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(APP_PLATFORM)
-BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig" \
+
+# 0 remove .pc and .la after build
+# 1 remove .la after build
+BUILD_PKGCFG_USAGE=2
+BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig" \
     PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
@@ -70,7 +74,7 @@ CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
 
 CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
 
-RSYNC_VERBOSE:=--debug=FILTER
+RSYNC_VERBOSE+=--debug=FILTER
 
 ifneq ($(strip $(filter x"1", x"$(CLIARGS_VERBOSE)")),)
 RSYNC_VERBOSE+=-v
@@ -111,16 +115,27 @@ help1:
 	@echo "AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
+	$(call CMD_RM_EMPTYDIR,abc def)
 
-CMD_DEPGRAPH1=echo $(1): $(2)
-CMD_DEPGRAPH=$(if $($(1)_DEP), \
-  $(foreach iter,$($(1)_DEP), \
-    $(call CMD_DEPGRAPH,$(iter));\
-	$(call CMD_DEPGRAPH1,$(1),$($(1)_DEP))), \
-  $(call CMD_DEPGRAPH1,$(1)))
+meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.ini
+	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/meson-aarch64.ini \
+	    $(BUILDDIR)/meson-aarch64.ini
+	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-aarch64.ini
+	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64.ini
 
-depgraph_%:
-	@$(call CMD_DEPGRAPH,$(@:depgraph_%=%))
+CMD_DEPSHOW_RULE=echo "$(1): $(2)";
+CMD_DEPSHOW_DOT=$(foreach iter,$(2),echo "  $(iter) -> $(1)";)
+CMD_DEPSHOW=$(if $($(1)_DEP), \
+  $(foreach iter,$($(1)_DEP),$(call CMD_DEPSHOW,$(iter),$(2))) \
+  $(call $(or $(2),CMD_DEPSHOW_RULE),$(1),$($(1)_DEP)), \
+  $(call $(or $(2),CMD_DEPSHOW_RULE),$(1)))
+
+depshow_%:
+	@$(call CMD_DEPSHOW,$(@:depshow_%=%))
+	@echo
+	@echo "digraph $(@:depshow_%=%) {"
+	@$(call CMD_DEPSHOW,$(@:depshow_%=%),CMD_DEPSHOW_DOT)
+	@echo "}"
 
 #------------------------------------
 #
@@ -402,8 +417,8 @@ $(addprefix busybox_,help doc html): | $(PYVENVDIR)
 	  $(busybox_MAKE) $(@:busybox_%=%)
 
 busybox_install: DESTDIR=$(BUILD_SYSROOT)
-busybox_install: $(busybox_BUILDDIR)/.config
-	$(busybox_MAKE) CONFIG_PREFIX=$(DESTDIR) $(PARALLEL_BUILD) $(@:busybox_%=%)
+busybox_install: | $(busybox_BUILDDIR)/.config
+	$(busybox_MAKE) CONFIG_PREFIX=$(DESTDIR) install
 
 $(eval $(call DEF_DESTDEP,busybox))
 
@@ -433,9 +448,14 @@ attr_defconfig $(attr_BUILDDIR)/Makefile: | $(attr_DIR)/configure $(attr_BUILDDI
 attr_install: DESTDIR=$(BUILD_SYSROOT)
 attr_install: | $(attr_BUILDDIR)/Makefile
 	$(attr_MAKE) DESTDIR=$(DESTDIR) install
+
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libattr)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libattr)
-	rmdir --ignore-fail-on-non-empty --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,--ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,attr))
 
@@ -472,9 +492,13 @@ acl_defconfig $(acl_BUILDDIR)/Makefile: | $(acl_DIR)/configure $(acl_BUILDDIR)
 acl_install: DESTDIR=$(BUILD_SYSROOT)
 acl_install: | $(acl_BUILDDIR)/Makefile
 	$(acl_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libacl)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libacl)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,acl))
 
@@ -504,7 +528,7 @@ GENDIR+=$(e2fsprogs_BUILDDIR)
 
 e2fsprogs_defconfig $(e2fsprogs_BUILDDIR)/Makefile: | $(e2fsprogs_BUILDDIR)
 	cd $(e2fsprogs_BUILDDIR) \
-	  && $(e2fsprogs_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(e2fsprogs_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --enable-elf-shlibs \
 	      CPPFLAGS="$(addprefix -I,$(e2fsprogs_INCDIR))" \
 	      LDFLAGS="$(addprefix -L,$(e2fsprogs_LIBDIR)) $(addprefix -l,$(e2fsprogs_LIBS))" \
@@ -514,11 +538,11 @@ e2fsprogs_defconfig $(e2fsprogs_BUILDDIR)/Makefile: | $(e2fsprogs_BUILDDIR)
 e2fsprogs_install: DESTDIR=$(BUILD_SYSROOT)
 e2fsprogs_install: | $(e2fsprogs_BUILDDIR)/scrub/e2scrub.conf
 	$(e2fsprogs_MAKE) DESTDIR=$(DESTDIR) install
-	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
-	#     blkid com_err e2p ext2fs ss uuid)
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
 	    blkid com_err e2p ext2fs ss uuid)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,e2fsprogs))
 
@@ -570,8 +594,10 @@ zlib_defconfig $(zlib_BUILDDIR)/configure.log: | $(zlib_BUILDDIR)
 zlib_install: DESTDIR=$(BUILD_SYSROOT)
 zlib_install: | $(zlib_BUILDDIR)/configure.log
 	$(zlib_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,zlib)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,zlib))
 
@@ -594,16 +620,20 @@ GENDIR+=$(lzo_BUILDDIR)
 
 lzo_defconfig $(lzo_BUILDDIR)/Makefile: | $(lzo_BUILDDIR)
 	cd $(lzo_BUILDDIR) \
-	  && $(lzo_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(lzo_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 	      --enable-shared
 
 lzo_install: DESTDIR=$(BUILD_SYSROOT)
 lzo_install: | $(lzo_BUILDDIR)/Makefile
 	$(lzo_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,liblzo2)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,lzo2)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,lzo))
 
@@ -634,13 +664,15 @@ GENDIR+=$(mtdutils_BUILDDIR)
 
 mtdutils_defconfig $(mtdutils_BUILDDIR)/Makefile: | $(mtdutils_DIR)/configure $(mtdutils_BUILDDIR)
 	cd $(mtdutils_BUILDDIR) \
-	  && $(mtdutils_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(mtdutils_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-		  --without-zstd \
+		  --without-zstd --without-selinux \
 	      CFLAGS="$(addprefix -I,$(mtdutils_INCDIR))" \
 	      LDFLAGS="$(addprefix -L,$(mtdutils_LIBDIR))" \
 
 mtdutils_install: DESTDIR=$(BUILD_SYSROOT)
+mtdutils_install: | $(mtdutils_BUILDDIR)/Makefile
+	$(mtdutils_MAKE) DESTDIR=$(DESTDIR) install
 
 $(eval $(call DEF_DESTDEP,mtdutils))
 
@@ -677,7 +709,7 @@ ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
 ncursesw_install: DESTDIR=$(BUILD_SYSROOT)
 ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
 	$(ncursesw_MAKE) $(PARALLEL_BUILD)
-	$(ncursesw_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) install
+	$(ncursesw_MAKE) DESTDIR=$(DESTDIR) install
 	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
 	echo "INPUT(-lncursesw)" > $(DESTDIR)/lib/libcurses.so;
 	for i in ncurses form panel menu tinfo; do \
@@ -763,12 +795,176 @@ endif
 	# $(call CMD_LOCALE_COMPILE,zh_TW,BIG5,$(locale_BUILDDIR)/zh_TW.BIG5) || [ $$? -eq 1 ]
 	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.BIG5)
 	# $(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
-	# rmdir --ignore-fail-on-non-empty $(DESTDIR)/usr/share/i18n/charmaps
+	# $(call CMD_RM_EMPTYDIR,$(DESTDIR)/usr/share/i18n/charmaps)
 	# @echo "Locale archived: $$($(call CMD_LOCALE_LIST,$(DESTDIR)) | xargs)"
 
 $(eval $(call DEF_DESTDEP,locale))
 # 	# @echo "Locale:"
 # 	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
+
+#------------------------------------
+# https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz
+#
+libiconv_DIR?=$(PKGDIR2)/libiconv
+libiconv_BUILDDIR?=$(BUILDDIR2)/libiconv-$(APP_BUILD)
+libiconv_MAKE=$(MAKE) -C $(libiconv_BUILDDIR)
+
+# $(libiconv_DIR)/configure: | $(libiconv_DIR)/autogen.sh
+# 	cd $(libiconv_DIR) \
+# 	  && ./autogen.sh --skip-gnulib
+
+GENDIR+=$(libiconv_BUILDDIR)
+
+libiconv_defconfig $(libiconv_BUILDDIR)/Makefile: | $(libiconv_DIR)/configure $(libiconv_BUILDDIR)
+	cd $(libiconv_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libiconv_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+		  --enable-year2038 \
+	      $(libiconv_ACARGS_$(APP_PLATFORM))
+
+libiconv_install: DESTDIR=$(BUILD_SYSROOT)
+libiconv_install: | $(libiconv_BUILDDIR)/Makefile
+	$(libiconv_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    libasprintf liblibiconvlib liblibiconvpo liblibiconvsrc libtextstyle)
+endif
+
+$(eval $(call DEF_DESTDEP,libiconv))
+
+libiconv: | $(libiconv_BUILDDIR)/Makefile
+	$(libiconv_MAKE) $(PARALLEL_BUILD)
+
+libiconv_%: | $(libiconv_BUILDDIR)/Makefile
+	$(libiconv_MAKE) $(PARALLEL_BUILD) $(@:libiconv_%=%)
+
+#------------------------------------
+# https://ftp.gnu.org/pub/gnu/gettext/gettext-0.22.5.tar.gz
+#
+gettext_DIR?=$(PKGDIR2)/gettext
+gettext_BUILDDIR?=$(BUILDDIR2)/gettext-$(APP_BUILD)
+gettext_MAKE=$(MAKE) -C $(gettext_BUILDDIR)
+gettext_ACARGS_$(APP_PLATFORM)=$(libiconv_DESTDIR:%=--with-libiconv-prefix=%)
+
+# $(gettext_DIR)/configure: | $(gettext_DIR)/autogen.sh
+# 	cd $(gettext_DIR) \
+# 	  && ./autogen.sh --skip-gnulib
+
+GENDIR+=$(gettext_BUILDDIR)
+
+gettext_defconfig $(gettext_BUILDDIR)/Makefile: | $(gettext_DIR)/configure $(gettext_BUILDDIR)
+	cd $(gettext_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(gettext_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+		  --enable-year2038 \
+	      $(gettext_ACARGS_$(APP_PLATFORM))
+
+gettext_install: DESTDIR=$(BUILD_SYSROOT)
+gettext_install: | $(gettext_BUILDDIR)/gettext-tools/src/.libs/xgettext
+	$(gettext_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    libasprintf libgettextlib libgettextpo libgettextsrc libtextstyle)
+endif
+
+$(eval $(call DEF_DESTDEP,gettext))
+
+$(gettext_BUILDDIR)/gettext-tools/src/.libs/xgettext: gettext
+
+gettext: | $(gettext_BUILDDIR)/Makefile
+# DESTDIR is used while building gettext
+	DESTDIR= $(gettext_MAKE) DESTDIR= $(PARALLEL_BUILD)
+
+gettext_%: | $(gettext_BUILDDIR)/Makefile
+	$(gettext_MAKE) $(PARALLEL_BUILD) $(@:gettext_%=%)
+
+#------------------------------------
+#
+iconvgettext_BUILDDIR=$(BUILDDIR2)/iconvgettext-$(APP_BUILD)
+
+iconvgettext_install: DESTDIR=$(BUILD_SYSROOT)
+iconvgettext_install:
+	$(RMTREE) $(gettext_BUILDDIR) $(libiconv_BUILDDIR)
+	$(MAKE) DESTDIR=$(DESTDIR) libiconv_install
+	$(MAKE) libiconv_DESTDIR=$(DESTDIR) DESTDIR=$(DESTDIR) gettext_install
+	$(RMTREE) $(libiconv_BUILDDIR)
+	$(MAKE) DESTDIR=$(DESTDIR) libiconv_install
+
+$(eval $(call DEF_DESTDEP,iconvgettext))
+
+#------------------------------------
+#
+pcre2_DIR?=$(PKGDIR2)/pcre2
+pcre2_BUILDDIR?=$(BUILDDIR2)/pcre2-$(APP_BUILD)
+pcre2_MAKE=$(MAKE) -C $(pcre2_BUILDDIR)
+
+$(pcre2_DIR)/configure: | $(pcre2_DIR)/autogen.sh
+	cd $(pcre2_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(pcre2_BUILDDIR)
+
+pcre2_defconfig $(pcre2_BUILDDIR)/Makefile: | $(pcre2_DIR)/configure $(pcre2_BUILDDIR)
+	cd $(pcre2_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(pcre2_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(pcre2_ACARGS_$(APP_PLATFORM))
+
+pcre2_install: DESTDIR=$(BUILD_SYSROOT)
+pcre2_install: | $(pcre2_BUILDDIR)/Makefile
+	$(pcre2_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libpcre2-8 libpcre2-posix)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libpcre2-8 libpcre2-posix)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,pcre2))
+
+pcre2: | $(pcre2_BUILDDIR)/Makefile
+	$(pcre2_MAKE) $(PARALLEL_BUILD)
+
+pcre2_%: | $(pcre2_BUILDDIR)/Makefile
+	$(pcre2_MAKE) $(PARALLEL_BUILD) $(@:pcre2_%=%)
+
+#------------------------------------
+#
+libffi_DIR?=$(PKGDIR2)/libffi
+libffi_BUILDDIR?=$(BUILDDIR2)/libffi-$(APP_BUILD)
+libffi_MAKE=$(MAKE) -C $(libffi_BUILDDIR)
+
+$(libffi_DIR)/configure: | $(libffi_DIR)/autogen.sh
+	cd $(libffi_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(libffi_BUILDDIR)
+
+libffi_defconfig $(libffi_BUILDDIR)/Makefile: | $(libffi_DIR)/configure $(libffi_BUILDDIR)
+	cd $(libffi_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libffi_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(libffi_ACARGS_$(APP_PLATFORM))
+
+libffi_install: DESTDIR=$(BUILD_SYSROOT)
+libffi_install: | $(libffi_BUILDDIR)/Makefile
+	$(libffi_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib64,libffi)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libffi)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,libffi))
+
+libffi: | $(libffi_BUILDDIR)/Makefile
+	$(libffi_MAKE) $(PARALLEL_BUILD)
+
+libffi_%: | $(libffi_BUILDDIR)/Makefile
+	$(libffi_MAKE) $(PARALLEL_BUILD) $(@:libffi_%=%)
 
 #------------------------------------
 #
@@ -784,7 +980,7 @@ GENDIR+=$(libevent_BUILDDIR)
 
 libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_DIR)/configure $(libevent_BUILDDIR)
 	cd $(libevent_BUILDDIR) \
-	  && $(libevent_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(libevent_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
 		  --disable-mbedtls --with-pic \
 	      $(libevent_ACARGS_$(APP_PLATFORM))
@@ -792,11 +988,15 @@ libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_DIR)/configure $(
 libevent_install: DESTDIR=$(BUILD_SYSROOT)
 libevent_install: | $(libevent_BUILDDIR)/Makefile
 	$(libevent_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
 	    libevent_core libevent_extra libevent libevent_pthreads)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
 	    libevent_core libevent_extra libevent libevent_pthreads)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,libevent))
 
@@ -817,7 +1017,7 @@ tmux_MAKE=$(MAKE) -C $(tmux_BUILDDIR)
 tmux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
 tmux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 
-$(tmux_DIR)/configure: | $(tmux_DIR)/autogen.sh
+$(tmux_DIR)/configure:
 	cd $(tmux_DIR) \
 	  && ./autogen.sh
 
@@ -825,7 +1025,7 @@ GENDIR+=$(tmux_BUILDDIR)
 
 tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDIR)
 	cd $(tmux_BUILDDIR) \
-	  && $(BUILD_ENV) $(tmux_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(tmux_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 	      ac_cv_func_strtonum_working=no \
 	      CPPFLAGS="$(addprefix -I,$(tmux_INCDIR))" \
@@ -833,6 +1033,8 @@ tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDI
 	      $(tmux_ACARGS_$(APP_PLATFORM))
 
 tmux_install: DESTDIR=$(BUILD_SYSROOT)
+tmux_install: | $(tmux_BUILDDIR)/Makefile
+	$(tmux_MAKE) DESTDIR=$(DESTDIR) install
 
 $(eval $(call DEF_DESTDEP,tmux))
 
@@ -846,6 +1048,69 @@ tmux_%: | $(tmux_BUILDDIR)/Makefile
 	$(tmux_MAKE) $(PARALLEL_BUILD) $(@:tmux_%=%)
 
 #------------------------------------
+# https://github.com/scop/bash-completion.git
+#
+bashcomp_DIR?=$(PKGDIR2)/bash-completion
+bashcomp_BUILDDIR?=$(BUILDDIR2)/bashcomp-$(APP_BUILD)
+bashcomp_MAKE=$(MAKE) -C $(bashcomp_BUILDDIR)
+
+$(bashcomp_DIR)/configure: | $(bashcomp_DIR)/configure.ac
+	cd $(bashcomp_DIR) \
+	  && autoreconf -fiv
+
+GENDIR+=$(bashcomp_BUILDDIR)
+
+bashcomp_defconfig $(bashcomp_BUILDDIR)/Makefile: | $(bashcomp_DIR)/configure $(bashcomp_BUILDDIR)
+	cd $(bashcomp_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(bashcomp_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(bashcomp_ACARGS_$(APP_PLATFORM))
+
+bashcomp_install: DESTDIR=$(BUILD_SYSROOT)
+bashcomp_install: | $(bashcomp_BUILDDIR)/Makefile
+	$(bashcomp_MAKE) DESTDIR=$(DESTDIR) install
+
+$(eval $(call DEF_DESTDEP,bashcomp))
+
+bashcomp: | $(bashcomp_BUILDDIR)/Makefile
+	$(bashcomp_MAKE) $(PARALLEL_BUILD)
+
+bashcomp_%: | $(bashcomp_BUILDDIR)/Makefile
+	$(bashcomp_MAKE) $(PARALLEL_BUILD) $(@:bashcomp_%=%)
+
+
+#------------------------------------
+#
+bash_DIR?=$(PKGDIR2)/bash
+bash_BUILDDIR?=$(BUILDDIR2)/bash-$(APP_BUILD)
+bash_MAKE=$(MAKE) -C $(bash_BUILDDIR)
+
+# $(bash_DIR)/configure: | $(bash_DIR)/autogen.sh
+# 	cd $(bash_DIR) \
+# 	  && ./autogen.sh
+
+GENDIR+=$(bash_BUILDDIR)
+
+bash_defconfig $(bash_BUILDDIR)/Makefile: | $(bash_DIR)/configure $(bash_BUILDDIR)
+	cd $(bash_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(bash_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(bash_ACARGS_$(APP_PLATFORM))
+
+bash_install: DESTDIR=$(BUILD_SYSROOT)
+bash_install: | $(bash_BUILDDIR)/Makefile
+	$(bash_MAKE) DESTDIR=$(DESTDIR) install
+
+$(eval $(call DEF_DESTDEP,bash))
+
+bash: | $(bash_BUILDDIR)/Makefile
+	$(bash_MAKE) $(PARALLEL_BUILD)
+
+bash_%: | $(bash_BUILDDIR)/Makefile
+	$(bash_MAKE) $(PARALLEL_BUILD) $(@:bash_%=%)
+
+#------------------------------------
+# openssl-3.3
 #
 openssl_DEP=zlib
 openssl_DIR=$(PKGDIR2)/openssl
@@ -854,23 +1119,28 @@ openssl_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssl_BUILDDIR)
 
 openssl_ACARGS_ub20+=linux-x86_64
 openssl_ACARGS_bp+=linux-aarch64
+openssl_ACARGS_qemuarm64+=linux-aarch64
 
 GENDIR+=$(openssl_BUILDDIR)
 
 # enable-engine enable-afalgeng
 openssl_defconfig $(openssl_BUILDDIR)/configdata.pm: | $(openssl_BUILDDIR)
 	cd $(openssl_BUILDDIR) \
-	  && $(openssl_DIR)/Configure --cross-compile-prefix=$(CROSS_COMPILE) \
-	      --prefix=/ --openssldir=/lib/ssl no-tests no-hw-padlock \
+	  && $(BUILD_PKGCFG_ENV) $(openssl_DIR)/Configure --cross-compile-prefix=$(CROSS_COMPILE) \
+	      --prefix=/ --openssldir=/lib/ssl no-tests \
 	      $(openssl_ACARGS_$(APP_PLATFORM)) \
 	      -L$(BUILD_SYSROOT)/lib -I$(BUILD_SYSROOT)/include
 
 openssl_install: DESTDIR=$(BUILD_SYSROOT)
-openssl_install: $(openssl_BUILDDIR)/configdata.pm
+openssl_install: | $(openssl_BUILDDIR)/configdata.pm
 	$(openssl_MAKE) install_sw install_ssldirs
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libcrypto libssl openssl)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libcrypto libssl openssl)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,openssl))
 
@@ -901,12 +1171,16 @@ libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUI
 
 libnl_install: DESTDIR=$(BUILD_SYSROOT)
 libnl_install: | $(libnl_BUILDDIR)/Makefile
-	$(libnl_MAKE) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) $(@:libnl_%=%)
-	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
-	# $(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
-	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/cls, basic cgroup)
-	# $(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/qdisc, bfifo blackhole fq_codel htb ingress pfifo plug )
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+	$(libnl_MAKE) DESTDIR=$(DESTDIR) $(@:libnl_%=%)
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/cls, basic cgroup)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib/libnl/cli/qdisc, bfifo blackhole fq_codel htb ingress pfifo plug )
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, libnl-3* libnl-cli-3* libnl-genl-3* libnl-nf-3* libnl-route-3*)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,libnl))
 
@@ -935,6 +1209,8 @@ iw_defconfig $(iw_BUILDDIR)/Makefile: | $(iw_BUILDDIR)
 	rsync -a $(RSYNC_VERBOSE) $(iw_DIR)/* $(iw_BUILDDIR)/
 
 iw_install: DESTDIR=$(BUILD_SYSROOT)
+iw_install: | $(iw_BUILDDIR)/Makefile
+	$(iw_MAKE) DESTDIR=$(DESTDIR) install
 
 $(eval $(call DEF_DESTDEP,iw))
 
@@ -973,12 +1249,16 @@ utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(
 utilinux_install: DESTDIR=$(BUILD_SYSROOT)
 utilinux_install:  | $(utilinux_BUILDDIR)/Makefile
 	$(utilinux_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
 	    blkid fdisk mount smartcols uuid \
 	    libblkid libfdisk libmount libsmartcols libuuid)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
 	    blkid fdisk mount smartcols uuid)
-	rmdir --ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,utilinux))
 
@@ -987,6 +1267,44 @@ utilinux: | $(utilinux_BUILDDIR)/Makefile
 
 utilinux_%: | $(utilinux_BUILDDIR)/Makefile
 	$(utilinux_MAKE) $(PARALLEL_BUILD) $(@:utilinux_%=%)
+
+#------------------------------------
+# https://download.gnome.org/sources/glib/2.82/glib-2.82.1.tar.xz
+#
+glib_DEP=iconvgettext pcre2 utilinux libffi
+glib_DIR=$(PKGDIR2)/glib
+glib_BUILDDIR?=$(BUILDDIR2)/glib-$(APP_BUILD)
+glib_MESON=. $(PYVENVDIR)/bin/activate && meson
+glib_MAKE=
+
+glib_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
+    -I$(BUILD_SYSROOT)/include/libmount \
+	-I$(BUILD_SYSROOT)/include/blkid
+glib_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
+    -L$(BUILD_SYSROOT)/lib
+glib_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+    $(BUILD_SYSROOT)/share/pkgconfig
+
+glib_defconfig $(glib_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) meson setup \
+	      -Dprefix=/ \
+		  -Dc_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_CPPFLAGS))" \
+	      -Dc_link_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_LDFLAGS))" \
+		  -Dcpp_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_CPPFLAGS))" \
+	      -Dcpp_link_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_LDFLAGS))" \
+		  -Dpkg_config_path="$(subst $(SPACE),:,$(glib_ACARGS_PKGDIR))" \
+		  -Dinstalled_tests=false \
+		  -Dselinux=disabled \
+		  -Db_coverage=false \
+		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  $(glib_BUILDDIR) $(glib_DIR)
+
+glib: | $(glib_BUILDDIR)/build.ninja
+	$(glib_MESON) compile -C $(glib_BUILDDIR)
+
+
+GENPYVENV+=meson ninja
 
 #------------------------------------
 #
