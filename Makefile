@@ -22,7 +22,7 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) locale_posix2c
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -130,12 +130,37 @@ CMD_DEPSHOW=$(if $($(1)_DEP), \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1),$($(1)_DEP)), \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1)))
 
+depshow:
+	@echo "USAGE: make [-s] [$(@)_<PKG> | depdot_<PKG>]"
+
 depshow_%:
 	@$(call CMD_DEPSHOW,$(@:depshow_%=%))
-	@echo
-	@echo "digraph $(@:depshow_%=%) {"
-	@$(call CMD_DEPSHOW,$(@:depshow_%=%),CMD_DEPSHOW_DOT)
+
+# DEPDOT_NAME=$(subst $(SPACE),,$(firstword $(1)) $(words $(1)))
+DEPDOT_NAME=$(firstword $(1))$(words $(1))
+
+# depdot: DEPDOT_PKGS=glib mtdutils
+depdot: depdot_name=$(call DEPDOT_NAME,$(DEPDOT_PKGS))
+depdot:
+	@if [ -z "$(DEPDOT_PKGS)" ]; then \
+	  echo "USAGE: make -s \"DEPDOT_PKGS=<PKGS>\" $@"; \
+	  echo ""; \
+	  false; \
+	fi
+	@echo "digraph $(depdot_name) {"
+	@$(foreach iter,$(DEPDOT_PKGS),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT))
 	@echo "}"
+
+depdotshow: depdot_name=$(call DEPDOT_NAME,$(DEPDOT_PKGS))
+depdotshow:
+	@if [ -z "$(DEPDOT_PKGS)" ]; then \
+	  echo "USAGE: make -s \"DEPDOT_PKGS=<PKGS>\" $@"; \
+	  echo ""; \
+	  false; \
+	fi
+	$(MAKE) -s DEPDOT_PKGS="$(DEPDOT_PKGS)" depdot >$(BUILDDIR)/dep-$(depdot_name).dot
+	dot -Tsvg $(BUILDDIR)/dep-$(depdot_name).dot >$(BUILDDIR)/dep-$(depdot_name).svg
+	xdg-open $(BUILDDIR)/dep-$(depdot_name).svg
 
 #------------------------------------
 #
@@ -779,23 +804,25 @@ locale_install: | $(locale_BUILDDIR)
 locale_install: DESTDIR=$(BUILDDIR)/locale-destdir
 locale_install:
 	[ -d "$(DESTDIR)/usr/lib/locale" ] || $(MKDIR) $(DESTDIR)/usr/lib/locale
-	# [ -d "$(DESTDIR)/usr/share/i18n/charmaps" ] || $(MKDIR) $(DESTDIR)/usr/share/i18n/charmaps
+	[ -d "$(DESTDIR)/usr/share/i18n/charmaps" ] || $(MKDIR) $(DESTDIR)/usr/share/i18n/charmaps
 ifneq ($(strip $(filter locale_posix2c,$(APP_ATTR))),)
 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/C.UTF-8) || [ $$? -eq 1 ]
 	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/C.UTF-8)
 else
 	$(call CMD_LOCALE_COMPILE,C,UTF-8,$(locale_BUILDDIR)/C.UTF-8) || [ $$? -eq 1 ]
 	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/C.UTF-8)
+endif
 	$(call CMD_LOCALE_COMPILE,POSIX,UTF-8,$(locale_BUILDDIR)/POSIX.UTF-8) || [ $$? -eq 1 ]
 	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/POSIX.UTF-8)
-endif
-	# $(call CMD_LOCALE_COMPILE,en_US,UTF-8,$(locale_BUILDDIR)/en_US.UTF-8) || [ $$? -eq 1 ]
-	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/en_US.UTF-8)
-	# $(call CMD_CHARMAP_INST,$(DESTDIR),UTF-8)
-	# $(call CMD_LOCALE_COMPILE,zh_TW,BIG5,$(locale_BUILDDIR)/zh_TW.BIG5) || [ $$? -eq 1 ]
-	# $(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.BIG5)
-	# $(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
-	# $(call CMD_RM_EMPTYDIR,$(DESTDIR)/usr/share/i18n/charmaps)
+	$(call CMD_LOCALE_COMPILE,en_US,UTF-8,$(locale_BUILDDIR)/en_US.UTF-8) || [ $$? -eq 1 ]
+	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/en_US.UTF-8)
+	$(call CMD_LOCALE_COMPILE,zh_TW,UTF-8,$(locale_BUILDDIR)/zh_TW.UTF-8) || [ $$? -eq 1 ]
+	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.UTF-8)
+	$(call CMD_LOCALE_COMPILE,zh_TW,BIG5,$(locale_BUILDDIR)/zh_TW.BIG5) || [ $$? -eq 1 ]
+	$(call CMD_LOCALE_AR,$(DESTDIR),$(locale_BUILDDIR)/zh_TW.BIG5)
+	$(call CMD_CHARMAP_INST,$(DESTDIR),UTF-8)
+	$(call CMD_CHARMAP_INST,$(DESTDIR),BIG5)
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/usr/share/i18n/charmaps)
 	# @echo "Locale archived: $$($(call CMD_LOCALE_LIST,$(DESTDIR)) | xargs)"
 
 $(eval $(call DEF_DESTDEP,locale))
@@ -1359,7 +1386,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    tmux mmcutils mtdutils)
+	    tmux mmcutils mtdutils glib)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
@@ -1430,8 +1457,9 @@ dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 
 dist-qemuarm64_locale:
 	$(RMTREE) $(locale_BUILDDIR)*
-	$(MAKE) locale_destdep_install
-	$(MAKE) dist-qemuarm64_phase2
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs locale_destdep_install
+	# $(MAKE) dist-qemuarm64_phase2
+	$(MAKE) dist-qemuarm64_phase3
 
 dist-qemuarm64:
 	$(MAKE) dist-qemuarm64_phase1

@@ -1,49 +1,50 @@
 #!/bin/sh
+# shellcheck disable=SC1091,SC2154,SC2004
 
 . /etc/init.d/func
 
 check_macaddr () {
-  local macaddr="$(get_inient1 $macaddr_cfg macaddr)"
-  [ -z "$macaddr" ] || return 0
+  _lo_macaddr="$(get_inient1 "$macaddr_cfg" macaddr)"
+  [ -z "$_lo_macaddr" ] || return 0
   
   # local mac bit1 is 1
-  macaddr="06:$(hex_gen 5 :)"
-  echo "macaddr=$macaddr" > $macaddr_cfg
+  _lo_macaddr="06:$(hex_gen 5 :)"
+  echo "macaddr=$_lo_macaddr" > "$macaddr_cfg"
 }
 
 check_serialnum () {
-  local serialnum="$(get_inient1 $serialnum_cfg serialnum)"
-  [ -z "$serialnum" ] || return 0
+  _lo_serialnum="$(get_inient1 "$serialnum_cfg" serialnum)"
+  [ -z "$_lo_serialnum" ] || return 0
 
-  serialnum="$(get_inient1 $macaddr_cfg macaddr | sed -e "s/://g")"
-  if [ -n "$serialnum" ]; then
-    echo "serialnum=$serialnum" > $serialnum_cfg
+  _lo_serialnum="$(get_inient1 "$macaddr_cfg" macaddr | sed -e "s/://g")"
+  if [ -n "$_lo_serialnum" ]; then
+    echo "serialnum=$_lo_serialnum" > "$serialnum_cfg"
     return
   fi
   
-  echo "serialnum=$(hex_gen 6)" > $serialnum_cfg  
+  echo "serialnum=$(hex_gen 6)" > "$serialnum_cfg"  
 }
 
 check_refactory () {
-  [ -f $oob_cfg ] || return 0
-  local refact="$(as_num $(get_inient1 $oob_cfg refactory))"
-  if [ "$refact" -ge 1 ] &>/dev/null; then
-    log_d "set refactory=$(( $refact - 1 ))"
-    echo "refactory=$(( $refact - 1 ))" > $oob_cfg
+  [ -f "$oob_cfg" ] || return 0
+  _lo_refact="$(as_num "$(get_inient1 "$oob_cfg" refactory)")"
+  if [ "$_lo_refact" -ge 1 ] >/dev/null 2>&1; then
+    log_d "set refactory=$(( $_lo_refact - 1 ))"
+    echo "refactory=$(( $_lo_refact - 1 ))" > "$oob_cfg"
     return
   fi
-  cmd_run rm -rf $oob_cfg
+  cmd_run rm -rf "$oob_cfg"
 }
 
 check_promisc () {
-  [ -f $promisc_cfg ] || return 0
-  local promisc="$(as_num $(get_inient1 $promisc_cfg promisc))"
-  if [ "$promisc" -ge 1 ] &>/dev/null; then
-    log_d "set promisc=$(( $promisc - 1 ))"
-    echo "promisc=$(( $promisc - 1 ))" > $promisc_cfg
+  [ -f "$promisc_cfg" ] || return 0
+  _lo_promisc="$(as_num "$(get_inient1 "$promisc_cfg" promisc)")"
+  if [ "$_lo_promisc" -ge 1 ] >/dev/null 2>&1; then
+    log_d "set promisc=$(( $_lo_promisc - 1 ))"
+    echo "promisc=$(( $_lo_promisc - 1 ))" > "$promisc_cfg"
     return
   fi
-  cmd_run rm -rf $promisc_cfg
+  cmd_run rm -rf "$promisc_cfg"
 }
 
 /etc/init.d/mdev-initd start

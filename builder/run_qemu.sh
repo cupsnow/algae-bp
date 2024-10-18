@@ -113,7 +113,7 @@ done
 log_d "Escape sequence: ctrl-a x"
 log_d "Run command: $*"
 
-if [ -z "$1" ]; then
+if [ -z "$1" ] || ! typeset -F | grep -q "declare -f $1"; then
   show_help
   exit 1
 fi
