@@ -43,7 +43,7 @@ usb_ax88772_did=772b
 ifplugd_down_dly=0
 
 func_rel () {
-  return 0
+  return 1
 }
 
 ts_dt () {

@@ -6,3 +6,5 @@ six
 sphinx
 sphinx_rtd_theme
 sphinx-prompt
+meson
+ninja

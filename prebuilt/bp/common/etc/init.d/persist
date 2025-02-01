@@ -1,0 +1,32 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="persist"
+
+pri_persist_src=/dev/mmcblk0p4
+pri_persist_tgt=/media/persist
+
+case "$1" in
+start)
+  [ -d "${pri_persist_tgt}" ] || cmd_run mkdir -p ${pri_persist_tgt}
+  cmd_run mount ${pri_persist_src} ${pri_persist_tgt}
+  ;;
+stop)
+  cmd_run umount ${pri_persist_tgt}
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    $(basename $0) [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+esac

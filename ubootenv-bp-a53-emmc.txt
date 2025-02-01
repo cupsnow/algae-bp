@@ -4,7 +4,7 @@ fdtaddr=0x88000000
 loadaddr=0x82000000
 kernel_comp_addr_r=0x85000000
 kernel_comp_size=0x2000000
-mmcdev=1
+mmcdev=0
 mmcpart=1
 
 envfile=uenv.txt
@@ -25,6 +25,7 @@ loadimage2=fatload mmc 0:1 ${loadaddr} ${bootdir}/Image
 loadfdt2=fatload mmc 0:1 ${fdtaddr} ${bootdir}/dtb/k3-am625-beagleplay.dtb
 loadbootargs2=setenv bootargs ${bootargs_root2} ${bootargs_console2} ${bootargs_extra2}
 
+bootset=2
 sdboot=run loadimage${bootset} && run loadfdt${bootset} && run loadbootargs${bootset} && booti ${loadaddr} - ${fdtaddr}
 
 bootcmd=run sdboot

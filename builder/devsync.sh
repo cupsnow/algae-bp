@@ -1,18 +1,11 @@
 #!/bin/sh
 # shellcheck disable=SC2120,SC2004
-self=$0
 # shellcheck disable=SC2164,SC2034
+self=$0
 selfdir="$(cd "$(dirname "$self")"; pwd)"
 
 _pri_mount="busybox mount"
 _pri_umount="busybox umount"
-
-if [ -x builder/func.sh ]; then
-  : . builder/func.sh
-elif [ -x /etc/init.d/func ]; then
-  # shellcheck disable=SC1091
-  . /etc/init.d/func
-fi
 
 ts_up () {
   _lo_ts1="$(</proc/uptime awk '{ print $1 }')"
@@ -41,7 +34,7 @@ _pri_listok=""
 _pri_listfailed=""
 
 if [ -z "$_pri_ip" ]; then
-  _lo_ip="192.168.31.16"
+  _lo_ip="192.168.16.6"
   for i in $_lo_ip; do
     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
       _pri_ip=${i}
@@ -84,12 +77,6 @@ wpa_wait () {
 
 gen_wpa_def () {
   _lo_wpacfg="${1:-wpa_supplicant.conf}"
-
-  # shellcheck disable=SC2154
-  if [ -f "$_pri_wpa_base" ]; then
-    cp "$_pri_wpa_base" "$_lo_wpacfg"
-    return
-  fi
 
   cat <<EOWPADEF > "$_lo_wpacfg"
 country=US
@@ -166,14 +153,14 @@ wpa_conn () {
 
 do_ifce_down () {
   for i in "$@"; do
-    cmd_run ip a flush dev $i
-    cmd_run ip l set dev $i down
+    cmd_run ip a flush dev "$i"
+    cmd_run ip l set dev "$i" down
   done
 }
 
 do_ifce_up () {
   for i in "$@"; do
-    cmd_run ip l set dev $i up
+    cmd_run ip l set dev "$i" up
   done
 }
 
@@ -184,9 +171,9 @@ wifi_conn () {
   _lo_opt_auth=${4}
 
   _lo_wpacfg="${_pri_wpa_conf:-wpa_supplicant.conf}"
-  _lo_netcfg="wpanet.txt"
+  _lo_netcfg="wpa_network.txt"
 
-  _lo_wpasup="wpa_supplicant"
+  _lo_wpasup=
   # shellcheck disable=SC2043
   for i in "./wpa_supplicant"; do
     if [ -x "$i" ]; then
@@ -194,6 +181,7 @@ wifi_conn () {
       break
     fi
   done
+  [ -z "$_lo_wpasup" ] && _lo_wpasup="wpa_supplicant"
 
   cmd_run eval "killall -9 wpa_supplicant udhcpc >/dev/null 2>&1"
   
@@ -206,13 +194,11 @@ wifi_conn () {
   cmd_run ${_lo_wpasup} -Dnl80211 -iwlan0 "-c${_lo_wpacfg}" -B
   if [ -n "$_lo_opt_cli" ]; then
     sleep 0.1
-    wpa_conn "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" \
-      || { log_e "Failed connect wifi"; return 1; }
+    wpa_conn "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed connect wifi"; return 1; }
     wpa_cmd disable_network 0
     wpa_cmd enable_network 0 || { log_e "Failed enable network"; return 1; }
   else
-    gen_wpa_net "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" \
-      || { log_e "Failed generate $_lo_netcfg"; return 1; }
+    gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_lo_netcfg"; return 1; }
     cat "$_lo_netcfg" >> "$_lo_wpacfg"
     wpa_cmd reconfigure || { log_e "Failed reconfigure network"; return 1; }
   fi
@@ -227,13 +213,11 @@ wpa_conf () {
   _lo_opt_auth=${3}
 
   _lo_wpacfg="${_pri_wpa_conf:-wpa_supplicant.conf}"
-  _lo_netcfg="wpanet.txt"
+  _lo_netcfg="wpa_network.txt"
 
-  gen_wpa_def "${_lo_wpacfg}" \
-    || { log_e "Failed generate $_lo_wpacfg"; return 1; }
-  gen_wpa_net "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" \
-    || { log_e "Failed generate $_lo_netcfg"; return 1; }
-  cat "$_lo_netcfg" >>"$_lo_wpacfg"
+  gen_wpa_def "${_lo_wpacfg}" || { log_e "Failed generate $_lo_wpacfg"; return 1; }
+  gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_lo_netcfg"; return 1; }
+  cat "$_lo_netcfg" >> "$_lo_wpacfg"
 }
 
 find_mount () {
@@ -500,9 +484,9 @@ flash_tiboot3 () {
   [ -f "${_lo_tiboot3}" ] ||  { log_e "Miss ${_lo_tiboot3}"; return 1; }
 
   _lo_emmcdev=mmcblk0
-  _lo_emmcdevpart=${_lo_emmcdev}boot0
+  _lo_emmcdevpart=${_lo_emmcdev}boot${2:-0}
 
-  log_d "Enable Boot0 boot"
+  log_d "Enable ${_lo_emmcdevpart}"
   cmd_run mmc bootpart enable 1 2 /dev/${_lo_emmcdev} \
     || { log_e "Failed"; return 1; }
   cmd_run mmc bootbus set single_backward x1 x8 /dev/${_lo_emmcdev} \
@@ -511,7 +495,7 @@ flash_tiboot3 () {
   # NOTE!  This is a one-time programmable (unreversible) change.
   # cmd_run mmc hwreset enable /dev/${_lo_emmcdev} || { log_e "Failed"; return 1; }
 
-  log_d "Clearing eMMC boot0"
+  log_d "Clearing eMMC ${_lo_emmcdevpart}"
   cmd_run eval "echo '0' >>/sys/class/block/${_lo_emmcdevpart}/force_ro" \
     || { log_e "Failed"; return 1; }
   dd if=/dev/zero of=/dev/${_lo_emmcdevpart} count=32 bs=128k \
@@ -522,38 +506,10 @@ flash_tiboot3 () {
     || { log_e "Failed"; return 1; }
 }
 
-flash_tispl () {
-  [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
-  
-  _lo_tispl=$1
-  [ -f "${_lo_tispl}" ] ||  { log_e "Miss ${_lo_tispl}"; return 1; }
-
-  _lo_emmcdevpart=mmcblk0p1
-
-  devmount /dev/${_lo_emmcdevpart} || { log_e "Failed"; return 1; }
-
-  cmd_run cp -av "${_lo_tispl}" /media/${_lo_emmcdevpart}/tispl.bin  \
-    || { log_e "Failed"; return 1; }
-}
-
-flash_uboot () {
-  [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
-  
-  _lo_uboot=$1
-  [ -f "${_lo_uboot}" ] ||  { log_e "Miss ${_lo_uboot}"; return 1; }
-
-  _lo_emmcdevpart=mmcblk0p1
-
-  devmount /dev/${_lo_emmcdevpart} || { log_e "Failed"; return 1; }
-
-  cmd_run cp -av "${_lo_uboot}" /media/${_lo_emmcdevpart}/u-boot.img  \
-    || { log_e "Failed"; return 1; }
-}
-
 show_help () {
 cat <<-EOHELP
 USAGE
-  ${1:-$(basename $0)} [OPTIONS]
+  ${1:-$(basename "$0")} [OPTIONS] [COMMANDS]
 
 OPTIONS
   --help         Show this help
@@ -562,9 +518,8 @@ OPTIONS
       arg 2 will also mount 'dw'
       arg 0 will do umount
   -t, --test
-  --applet=<APPLET>  Run applet
 
-APPLET
+COMMANDS
   wifi_conn <SSID> <PW> [open|wpa3-only]
   wpa_conf <SSID> <PW> [open|wpa3-only]
   flash_tiboot3 <tiboot3.bin>
@@ -584,19 +539,11 @@ opt_applet=
 while [ -n "$1" ]; do
   case "$1" in
   -h|--help)
-    shift
     show_help
+    return 1
     ;;
   -m|--nfsmount)
     opt_nfsmount=${2:-1}
-    shift 2
-    ;;
-  -t|--test)
-    shift
-    opt_test=1
-    ;;
-  --applet)
-    opt_applet=${2}
     shift 2
     ;;
   --)
@@ -617,11 +564,16 @@ if [ -n "$opt_nfsmount" ]; then
   case "$opt_nfsmount" in
   0)
     nfsumount || exit
-    nfsumount "${_pri_nfsdw}" || exit
+    for i in ${_pri_nfsdw} /media/mmcblk0p1 /media/mmcblk0p2 /media/mmcblk1p1; do 
+      nfsumount "$i" || exit
+    done
     ;;
   2)
     nfsmount || exit
     nfsmount /home/joelai/Downloads "${_pri_nfsdw}"  || exit
+    for i in /dev/mmcblk0p1 /dev/mmcblk0p2 /dev/mmcblk1p1; do 
+      devmount $i || exit
+    done
     ;;
   *)
     nfsmount || exit
@@ -631,78 +583,81 @@ fi
 
 log_d "args: $*"
 
-if [ "$opt_applet" = "wifi_conn" ]; then
-  cmd_run wifi_conn 1 "$@"
-  exit
-elif [ -n "$opt_applet" ]; then
-  cmd_run "${opt_applet}" "$@"
-  exit
-fi
-
-for opt1 in "$@"; do
+while test -n "$1"; do
+  opt1="$1"
+  shift
+  
   case "$opt1" in
-  test1)
-    false && {
-      log_d "ok1"
-      log_d "ok2"
-    } || {
-      log_d "false1"
-      log_d "false2"
-    }
+  test)
+    cmd_run "do_${opt1}" "${opt1}" "$@"
+    exit
     ;;
-  "$(basename $self)")
-    nfsmount || exit
-
-    nfsget_x "${_pri_nfsalgaebp}/builder/$(basename $self)"
+  wifi_conn)
+    cmd_run "$opt1" "" "$@"
+    exit
     ;;
-  bootpart)
-    devmount /dev/mmcblk0p1 || exit
-    devmount /dev/mmcblk0p2 || exit
-    devmount /dev/mmcblk1p1 || exit
-    ;;
-  sh1)
-    nfsmount || exit
-
-  	tgt="etc/init.d/func_involved"
-  	tgt="${tgt} etc/init.d/rcS"
-  	tgt="${tgt} etc/init.d/start"
-  	tgt="${tgt} etc/init.d/persist"
-    for i in $tgt; do
-      nfsget_x "${_pri_nfsalgaebp}/prebuilt/common/${i}" "/${i}"
-    done
-
-  	tgt="etc/init.d/refactory"
-  	tgt="${tgt} etc/init.d/restmon"
-  	tgt="${tgt} etc/init.d/sysemb"
-    for i in $tgt; do
-      nfsget_x "${_pri_nfsalgaebp}/prebuilt/bp/common/${i}" "/${i}"
-    done
-    ;;
-  admin)
-    if [ -n "$_pri_dbg" ]; then
-      admin_dir="algae-bp/build/admin-bp"
-    else
-      admin_dir="build/admin-bp"
-    fi
-    nfsmount || exit 1
-    nfsget_x "${_pri_nfsalgaews}/${admin_dir}/.libs/libadmin.so.0.0.0" \
-      "/lib/libadmin.so.0.0.0"
-    nfsget_n "${_pri_nfsalgaews}/${admin_dir}/.libs/libadmin.so.0" \
-      "/lib/libadmin.so.0"
-    nfsget_n "${_pri_nfsalgaews}/${admin_dir}/.libs/libadmin.so.0" \
-      "/lib/libadmin.so.0"
-    nfsget_n "${_pri_nfsalgaews}/${admin_dir}/.libs/libadmin.so" \
-      "/lib/libadmin.so"
-    nfsget_x "${_pri_nfsalgaews}/${admin_dir}/.libs/admin" \
-      "/bin/admin"
-    nfsget_x "${_pri_nfsalgaews}/${admin_dir}/.libs/test1"
-    nfsget_x "${_pri_nfsalgaews}/${admin_dir}/.libs/testi2c1"
-    nfsget_x "${_pri_nfsalgaews}/${admin_dir}/.libs/testnl1"
-    nfsget_n "${_pri_nfsalgaews}/air192/package/admin/test/admin2.html" \
-      "/var/www/admin2.html"
+  wpa_conf|flash_tiboot3|flash_tispl|flash_uboot)
+    cmd_run "$opt1" "$@"
+    exit
     ;;
   esac
-done
+
+  case "$opt1" in
+  "$(basename "$self")")
+    nfsmount || exit
+    nfsget_x "${_pri_nfsalgaebp}/builder/$(basename "$self")"
+    ;;
+  locale)
+    nfsmount || exit
+    if nfsget_n "${_pri_nfsalgaebp}/build/locale-aarch64-destpkg.tar.xz"; then
+      rm -rf /usr/share/i18n/i18n/charmaps/
+      tar -Jxvf locale-aarch64-destpkg.tar.xz --strip-components=1 -C /
+    fi
+    ;;
+  sh|sh[2-3])
+    nfsmount || exit
+    lo_tgt="func_involved network"
+    lo_tgt="${lo_tgt} S??_network sysemb S??_sysemb persist S??_persist"
+    for i in $lo_tgt; do
+      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/etc/init.d/${i} ]; then
+        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/etc/init.d/${i} /etc/init.d/
+      else
+        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/etc/init.d/${i} /etc/init.d/
+      fi
+    done
+    ;;
+  bl|bl[2-3])
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+
+    # flash_tispl "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" || exit
+    # flash_uboot "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" || exit
+
+    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" \
+        /media/mmcblk0p1/tispl.bin \
+      || { log_e "Failed"; return 1; }
+
+    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" \
+        /media/mmcblk0p1/u-boot.img \
+      || { log_e "Failed"; return 1; }
+
+    cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+        /media/mmcblk0p1/uboot.env \
+      && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+        /media/mmcblk0p1/uboot-redund.env \
+      || { log_e "Failed"; return 1; }
+
+    if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 2 ]; then
+      flash_tiboot3 "${_pri_nfsalgaews}/build/uboot-bp-r5/tiboot3-am62x-gp-evm.bin" || exit
+    fi
+    ;;
+  ota)
+    nfsmount || exit
+    cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" of=/dev/mmcblk0p2 \
+      || { log_e "Failed"; return 1; }
+    ;;
+  esac
+done  
 
 if [ -n "$_pri_listfailed" ]; then
   log_d "Failed list:"

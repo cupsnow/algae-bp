@@ -26,6 +26,8 @@ export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
+else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
+APP_BUILD=arm
 else
 APP_BUILD=$(APP_PLATFORM)
 endif
@@ -70,6 +72,7 @@ LDFLAGS+=
 GENDIR:=
 GENPYVENV:=
 
+# ref CLIARGS_VERBOSE for example
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
 
 CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
@@ -256,43 +259,51 @@ $(addprefix uboot_,menuconfig htmldocs tools tools_install):
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
 
 ubootenv:
+	$(MAKE) APP_PLATFORM=bp-a53-emmc $@
+	cp -v $(BUILDDIR)/uboot.env $(BUILDDIR)/uboot-bp-a53-emmc.env
 	$(MAKE) APP_PLATFORM=bp-a53 $@
+	cp -v $(BUILDDIR)/uboot.env $(BUILDDIR)/uboot-bp-a53.env
 
+uboot: APP_uboot_DEFCONFIG_USER=1
+# uboot: APP_uboot_DEFCONFIG_PATCH=1
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
-	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
-	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-defconfig*.patch)" \
-	    uboot
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
-	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-defconfig*.patch)" \
+	    optee_BUILDDIR=$(optee_BUILDDIR) \
+		APP_uboot_DEFCONFIG_USER=$(APP_uboot_DEFCONFIG_USER) \
+	    uboot
+	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) \
+		APP_uboot_DEFCONFIG_USER=$(APP_uboot_DEFCONFIG_USER) \
 	    uboot
 
+uboot_%: APP_uboot_DEFCONFIG_USER=1
+# uboot_%: APP_uboot_DEFCONFIG_PATCH=1
 uboot_%:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot_$(@:uboot_%=%)
-	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
-	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-emmc-defconfig*.patch)" \
-	    uboot_$(@:uboot_%=%)
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
-	    optee_BUILDDIR=$(optee_BUILDDIR) REPO_DEFCONFIG=1 \
-	    REPO_DEFCONFIG_PATCH="$(wildcard $(PROJDIR)/uboot-bp-a53-defconfig*.patch)" \
+	    optee_BUILDDIR=$(optee_BUILDDIR) \
+		APP_uboot_DEFCONFIG_USER=$(APP_uboot_DEFCONFIG_USER) \
 	    uboot_$(@:uboot_%=%)
-
+	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
+	    optee_BUILDDIR=$(optee_BUILDDIR) \
+		APP_uboot_DEFCONFIG=$(APP_uboot_DEFCONFIG) \
+	    uboot_$(@:uboot_%=%)
 else
 # normal case
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
-	if [ "$(REPO_DEFCONFIG)" != "1" ] && [ -f uboot-$(APP_PLATFORM).defconfig ]; then \
+	if [ "$(APP_uboot_DEFCONFIG_USER)" = "1" ] && [ -f "uboot-$(APP_PLATFORM).defconfig" ]; then \
 	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config \
-	    && ( yes "" | $(uboot_MAKE) oldconfig ); \
+	    && ( yes "" | $(uboot_MAKE) olddefconfig ); \
 	else \
 	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
-	  cd $(uboot_BUILDDIR) \
-	    && for i in $$($(call CMD_SORT_WS_SEP,$(REPO_DEFCONFIG_PATCH))); do \
-	      patch -p1 --verbose <$${i}; \
-	    done; \
+	fi
+	if [ "$(APP_uboot_DEFCONFIG_PATCH)" = "1" ]; then \
+		cd $(uboot_BUILDDIR) \
+		&& for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/uboot-$(APP_PLATFORM)-defconfig*.patch))); do \
+			patch -p1 --verbose <$${i}; \
+		done; \
 	fi
 
 $(addprefix uboot_,help):
@@ -339,7 +350,7 @@ GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 endif
 
 CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
-    $$([ x"$$($(call CMD_SED_KEYVAL1,CONFIG_SYS_REDUNDAND_ENVIRONMENT) $(uboot_BUILDDIR)/.config)"=x"y" ] && echo -r) \
+    $$([ x"$$($(call CMD_SED_KEYVAL1,CONFIG_SYS_REDUNDAND_ENVIRONMENT) $(uboot_BUILDDIR)/.config)" = x"y" ] && echo -r) \
     -s $$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config) \
     -o $(or $(2),$(DESTDIR)/uboot.env) \
 	$(or $(1),ubootenv-$(APP_PLATFORM).txt) \
@@ -957,6 +968,7 @@ pcre2_%: | $(pcre2_BUILDDIR)/Makefile
 	$(pcre2_MAKE) $(PARALLEL_BUILD) $(@:pcre2_%=%)
 
 #------------------------------------
+# dep apt: texinfo
 #
 libffi_DIR?=$(PKGDIR2)/libffi
 libffi_BUILDDIR?=$(BUILDDIR2)/libffi-$(APP_BUILD)
@@ -1347,10 +1359,64 @@ GENPYVENV+=meson ninja
 
 #------------------------------------
 #
+hostap_DIR=$(PKGDIR2)/hostap
+
+wpasup_DEP=openssl libnl
+wpasup_BUILDDIR=$(BUILDDIR2)/wpasup-$(APP_BUILD)
+
+wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC -I$(BUILD_SYSROOT)/include
+wpasup_MAKEPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib -L$(BUILD_SYSROOT)/lib64 -lm
+
+ifneq ($(strip $(filter release1,$(APP_ATTR))),)
+wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-O3
+else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
+wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-g
+endif
+
+wpasup_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM)+=-lm
+
+wpasup_MAKEPARAM_$(APP_PLATFORM)+= \
+    EXTRA_CFLAGS="$(wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM))" \
+    EXTRALIBS="$(wpasup_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM))" \
+    LDFLAGS="$(wpasup_MAKEPARAM_LDFLAGS_$(APP_PLATFORM))"
+
+wpasup_MAKE=$(MAKE) CC=$(CC) LIBNL_INC="$(BUILD_SYSROOT)/include/libnl3" \
+    LIBDIR=/lib BINDIR=/sbin INCDIR=/include CONFIG_BUILD_WPA_CLIENT_SO=y \
+    $(wpasup_MAKEPARAM_$(APP_PLATFORM)) -C $(wpasup_BUILDDIR)/wpa_supplicant
+
+GENDIR+=$(wpasup_BUILDDIR)
+
+wpasup_defconfig $(wpasup_BUILDDIR)/wpa_supplicant/.config: | $(wpasup_BUILDDIR)
+	[ -d $(wpasup_BUILDDIR) ] || $(MKDIR) $(wpasup_BUILDDIR)
+	rsync -a $(RSYNC_VERBOSE) $(hostap_DIR)/* $(wpasup_BUILDDIR)/
+	rsync -aL $(RSYNC_VERBOSE) wpa_supplicant.config \
+	    $(wpasup_BUILDDIR)/wpa_supplicant/.config
+
+wpasup_install: DESTDIR=$(BUILD_SYSROOT)
+wpasup_install: wpasup_all
+	$(wpasup_MAKE) DESTDIR=$(DESTDIR) $(PARALLEL_BUILD) install
+
+$(eval $(call DEF_DESTDEP,wpasup))
+
+wpasup: $(wpasup_BUILDDIR)/wpa_supplicant/.config
+	$(wpasup_MAKE) $(PARALLEL_BUILD)
+
+wpasup_%: $(wpasup_BUILDDIR)/wpa_supplicant/.config
+	$(wpasup_MAKE) $(PARALLEL_BUILD) $(@:wpasup_%=%)
+
+#------------------------------------
+#
 dummy_DIR=$(PROJDIR)/package/dummy1
 
 dummy1:
 	$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) -C $(dummy_DIR)
+
+#------------------------------------
+#
+cmake_test1_DIR=$(PROJDIR)/package/cmake_test1
+
+cmake_test1:
+	$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) -C $(cmake_test1_DIR)
 
 #------------------------------------
 #
@@ -1378,7 +1444,19 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 CMD_GENROOT_EXT4= \
   $(RMTREE) $(2) \
     && truncate -s 255M $(2) \
-    && fakeroot mkfs.ext4 -d $(1) $(2)
+    && fakeroot mkfs.ext4 -Fq -d $(1) $(2)
+
+# dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk
+# dist_partdisk_phase1:
+# 	truncate -s 1G $(DIST_PARTDISK_PHASE1_IMG)
+# 	{ echo "label:gpt"; \
+# 	echo "size=50MiB,type=uefi,name=\"esp\""; \
+# 	echo "size=400MiB,type=linux,name=\"rootfs1\""; \
+# 	echo "size=400MiB,type=linux,name=\"rootfs2\""; \
+# 	echo "size=+,type=linux,name=\"persist\""; } \
+# 	  >$(@).script
+# 	<$(@).script fakeroot sfdisk --no-reread --no-tell-kernel $(DIST_PARTDISK_PHASE1_IMG)
+# 	sfdisk -d $(DIST_PARTDISK_PHASE1_IMG)
 
 dist_rootfs_phase1:
 # build package and install to sysroot
@@ -1386,7 +1464,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    tmux mmcutils mtdutils glib)
+	    tmux mmcutils mtdutils glib wpasup)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
@@ -1495,10 +1573,13 @@ dist-bp_phase1:
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
 
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
+	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/uboot.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/uboot-redund.env
+	rsync -L $(RSYNC_VERBOSE) ubootenv-bp-a53.txt $(dist_DIR)/$(APP_PLATFORM)/boot/uEnv.txt
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
@@ -1509,12 +1590,12 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
-	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb dist-bp_dtb
-	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
-	    $(BUILD_SYSROOT)/root/tispl-emmc.bin
-	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
-	    $(BUILD_SYSROOT)/root/u-boot-emmc.img
+	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti dist-bp_dtb
+	# rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
+	#     $(BUILD_SYSROOT)/root/tispl-emmc.bin
+	# rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
+	#     $(BUILD_SYSROOT)/root/u-boot-emmc.img
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
@@ -1536,11 +1617,11 @@ dist-bp_depmod:
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
 	    -F $(linux_BUILDDIR)/System.map
 
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 GENDIR+=$(BUILD_SYSROOT)/root
 
-dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
@@ -1549,6 +1630,9 @@ dist-bp:
 	$(MAKE) dist-bp_phase1
 	$(MAKE) dist-bp_phase2
 	$(MAKE) dist-bp_phase3
+	truncate -s 300M $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
+	fakeroot mkfs.ext4 -Fq -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
 
 dist-bp_sd_phase1: | $(SD_BOOT)/dtb
 	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/* $(SD_BOOT)/

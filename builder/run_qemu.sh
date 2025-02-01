@@ -22,6 +22,9 @@ _lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=ra
 _lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.bin,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
 
 _lo_qemuargs_nic="-net nic,vlan=0,macaddr=52:53:00:11:12:13,model=e1000,addr=08 -net user"
+_lo_qemuargs_nic2="-nic user,model=virtio-net-pci"
+_lo_qemuargs_nic3="-netdev user,id=net0,dhcpstart=10.0.2.30 -device virtio-net-pci,netdev=net0"
+_lo_qemuargs_nic4="-netdev type=tap,id=net0 -device virtio-net-device,netdev=net0"
 
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
