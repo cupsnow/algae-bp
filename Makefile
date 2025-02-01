@@ -254,7 +254,7 @@ ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 # bp runs uboot for 2 different core, pass APP_PLATFORM for specified core to else
 #
 
-$(addprefix uboot_,menuconfig htmldocs tools tools_install):
+$(addprefix uboot_,menuconfig htmldocs tools tools_install envtools envtools_install):
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
 
@@ -314,12 +314,18 @@ $(addprefix uboot_,htmldocs): | $(PYVENVDIR) $(uboot_BUILDDIR)
 	  && $(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
 
 uboot_tools_install: DESTDIR=$(PROJDIR)/tool
-uboot_tools_install:
+uboot_tools_install: uboot_tools
 	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
-	$(MAKE) uboot_tools
 	for i in $(UBOOT_TOOLS); do \
 	  cp -v $(uboot_BUILDDIR)/tools/$$i $(DESTDIR)/bin/; \
 	done
+
+uboot_envtools_install: DESTDIR=$(BUILD_SYSROOT)
+uboot_envtools_install: uboot_envtools
+	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
+	rsync -a $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tools/env/fw_printenv
+	  $(DESTDIR)/bin/
+	ln -sfn fw_printenv $(DESTDIR)/bin/fw_setenv
 
 $(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
@@ -1461,6 +1467,7 @@ CMD_GENROOT_EXT4= \
 dist_rootfs_phase1:
 # build package and install to sysroot
 # packages are higher priority then busybox
+	$(MAKE) uboot_envtools
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
@@ -1579,7 +1586,7 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/uboot.env \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/uboot-redund.env
-	rsync -L $(RSYNC_VERBOSE) ubootenv-bp-a53.txt $(dist_DIR)/$(APP_PLATFORM)/boot/uEnv.txt
+	rsync -L $(RSYNC_VERBOSE) ubootenv-bp-a53.txt $(dist_DIR)/$(APP_PLATFORM)/uEnv.txt
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \

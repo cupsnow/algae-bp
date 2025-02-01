@@ -506,6 +506,10 @@ flash_tiboot3 () {
     || { log_e "Failed"; return 1; }
 }
 
+rootfs_cmdline () {
+  sed -nE "s/.*root=\/dev\/(mmcblk[0-9]p[0-9]).*/\1/p" /proc/cmdline
+}
+
 show_help () {
 cat <<-EOHELP
 USAGE
@@ -600,6 +604,82 @@ while test -n "$1"; do
     cmd_run "$opt1" "$@"
     exit
     ;;
+  uenv)
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+
+    cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+        /media/mmcblk0p1/uboot.env \
+      && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+        /media/mmcblk0p1/uboot-redund.env \
+      || { log_e "Failed"; exit 1; }
+
+    sync; sync
+    exit
+    ;;
+  bl|bl[2-3])
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+
+    # flash_tispl "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" || exit
+    # flash_uboot "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" || exit
+
+    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" \
+        /media/mmcblk0p1/tispl.bin \
+      || { log_e "Failed"; exit 1; }
+
+    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" \
+        /media/mmcblk0p1/u-boot.img \
+      || { log_e "Failed"; exit 1; }
+
+    cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+        /media/mmcblk0p1/uboot.env \
+      && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+        /media/mmcblk0p1/uboot-redund.env \
+      || { log_e "Failed"; exit 1; }
+
+    if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 2 ]; then
+      flash_tiboot3 "${_pri_nfsalgaews}/build/uboot-bp-r5/tiboot3-am62x-gp-evm.bin" || exit
+    fi
+    sync; sync
+    exit
+    ;;
+  ota|ota[1-3])
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+    
+    if [ -z "${opt1#ota}" ]; then
+      _lo_rootfs="$(rootfs_cmdline)"
+      if [ "${_lo_rootfs}" = "mmcblk0p2" ]; then
+        opt1=ota3
+      else
+        opt1=ota2
+      fi
+      log_d "_lo_rootfs ${_lo_rootfs} -> $opt1"
+    fi
+
+    if [ "${opt1#ota}" = "3" ]; then
+      pri_rootfs=mmcblk0p3
+    elif [ "${opt1#ota}" = "2" ]; then
+      pri_rootfs=mmcblk0p2
+    elif [ "${opt1#ota}" = "1" ]; then
+      pri_rootfs=mmcblk1p2
+    else
+      log_e "Invalid argument"
+      exit 1
+    fi
+    
+    cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" of=/dev/$pri_rootfs \
+      || { log_e "Failed"; exit 1; }
+
+    if [ "${opt1#ota}" = "2" ]; then
+      cmd_run eval "echo bootset=2 > /media/mmcblk0p1/uenv.txt"
+    elif [ "${opt1#ota}" = "3" ]; then
+      cmd_run eval "echo bootset=3 > /media/mmcblk0p1/uenv.txt"
+    fi
+    sync; sync
+    exit
+    ;;
   esac
 
   case "$opt1" in
@@ -625,36 +705,6 @@ while test -n "$1"; do
         nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/etc/init.d/${i} /etc/init.d/
       fi
     done
-    ;;
-  bl|bl[2-3])
-    nfsmount || exit
-    devmount /dev/mmcblk0p1 || exit
-
-    # flash_tispl "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" || exit
-    # flash_uboot "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" || exit
-
-    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" \
-        /media/mmcblk0p1/tispl.bin \
-      || { log_e "Failed"; return 1; }
-
-    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" \
-        /media/mmcblk0p1/u-boot.img \
-      || { log_e "Failed"; return 1; }
-
-    cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
-        /media/mmcblk0p1/uboot.env \
-      && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
-        /media/mmcblk0p1/uboot-redund.env \
-      || { log_e "Failed"; return 1; }
-
-    if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 2 ]; then
-      flash_tiboot3 "${_pri_nfsalgaews}/build/uboot-bp-r5/tiboot3-am62x-gp-evm.bin" || exit
-    fi
-    ;;
-  ota)
-    nfsmount || exit
-    cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" of=/dev/mmcblk0p2 \
-      || { log_e "Failed"; return 1; }
     ;;
   esac
 done  

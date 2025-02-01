@@ -11,7 +11,7 @@ _pri_eth0=eth0
 ifce_start () {
   [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
   _lo_ifce=$1
-  ifconfig "${_lo_ifce}" up
+  ifce_reset1 "${_lo_ifce}"
   ifconfig "${_lo_ifce}" 192.168.16.26
 }
 
