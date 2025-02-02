@@ -258,11 +258,12 @@ $(addprefix uboot_,menuconfig htmldocs tools tools_install envtools envtools_ins
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
 
+ubootenv: DESTDIR=$(BUILDDIR)
 ubootenv:
 	$(MAKE) APP_PLATFORM=bp-a53-emmc $@
-	cp -v $(BUILDDIR)/uboot.env $(BUILDDIR)/uboot-bp-a53-emmc.env
+	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53-emmc.env
 	$(MAKE) APP_PLATFORM=bp-a53 $@
-	cp -v $(BUILDDIR)/uboot.env $(BUILDDIR)/uboot-bp-a53.env
+	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53.env
 
 uboot: APP_uboot_DEFCONFIG_USER=1
 # uboot: APP_uboot_DEFCONFIG_PATCH=1
@@ -1583,10 +1584,11 @@ dist-bp_phase1:
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 dist-bp_phase2: | $(BUILD_SYSROOT)/root
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
+	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
+	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/uboot.env
 	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/uboot.env \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/uboot-redund.env
-	rsync -L $(RSYNC_VERBOSE) ubootenv-bp-a53.txt $(dist_DIR)/$(APP_PLATFORM)/uEnv.txt
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
@@ -1599,12 +1601,16 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
 	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti/
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti dist-bp_dtb
-	# rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
-	#     $(BUILD_SYSROOT)/root/tispl-emmc.bin
-	# rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
-	#     $(BUILD_SYSROOT)/root/u-boot-emmc.img
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
+ifeq (1,1)
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/root/tispl-emmc.bin
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/root/u-boot-emmc.img
+	rsync -L $(RSYNC_VERBOSE) $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53-emmc.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/root/
+endif
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a
