@@ -146,7 +146,7 @@ DEPDOT_NAME=$(firstword $(1))$(words $(1))
 depdot: depdot_name=$(call DEPDOT_NAME,$(DEPDOT_PKGS))
 depdot:
 	@if [ -z "$(DEPDOT_PKGS)" ]; then \
-	  echo "USAGE: make -s \"DEPDOT_PKGS=<PKGS>\" $@"; \
+	  echo "USAGE: make -s --no-print-directory \"DEPDOT_PKGS=<PKGS>\" $@"; \
 	  echo ""; \
 	  false; \
 	fi
@@ -157,13 +157,19 @@ depdot:
 depdotshow: depdot_name=$(call DEPDOT_NAME,$(DEPDOT_PKGS))
 depdotshow:
 	@if [ -z "$(DEPDOT_PKGS)" ]; then \
-	  echo "USAGE: make -s \"DEPDOT_PKGS=<PKGS>\" $@"; \
+	  echo "USAGE: make -s --no-print-directory \"DEPDOT_PKGS=<PKGS>\" $@"; \
 	  echo ""; \
 	  false; \
 	fi
-	$(MAKE) -s DEPDOT_PKGS="$(DEPDOT_PKGS)" depdot >$(BUILDDIR)/dep-$(depdot_name).dot
+	$(MAKE) -s --no-print-directory DEPDOT_PKGS="$(DEPDOT_PKGS)" depdot \
+	    >$(BUILDDIR)/dep-$(depdot_name).dot
 	dot -Tsvg $(BUILDDIR)/dep-$(depdot_name).dot >$(BUILDDIR)/dep-$(depdot_name).svg
 	xdg-open $(BUILDDIR)/dep-$(depdot_name).svg
+
+depgraph: DEPDOT_PKGS+=glib tmux mmcutils mtdutils wpasup
+depgraph: depdot_name=depgraph
+depgraph:
+	$(MAKE) DEPDOT_PKGS="$(DEPDOT_PKGS)" depdotshow
 
 #------------------------------------
 #
@@ -1450,7 +1456,7 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 
 CMD_GENROOT_EXT4= \
   $(RMTREE) $(2) \
-    && truncate -s 255M $(2) \
+    && truncate -s $(or $(3),255M) $(2) \
     && fakeroot mkfs.ext4 -Fq -d $(1) $(2)
 
 # dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk
@@ -1539,7 +1545,7 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.bin)
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img)
 
 dist-qemuarm64_locale:
 	$(RMTREE) $(locale_BUILDDIR)*
@@ -1636,6 +1642,11 @@ GENDIR+=$(BUILD_SYSROOT)/root
 
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+#	truncate -s 300M $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
+#	fakeroot mkfs.ext4 -Fq -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
+#	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
+	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 300M)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
@@ -1643,9 +1654,6 @@ dist-bp:
 	$(MAKE) dist-bp_phase1
 	$(MAKE) dist-bp_phase2
 	$(MAKE) dist-bp_phase3
-	truncate -s 300M $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
-	fakeroot mkfs.ext4 -Fq -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
 
 dist-bp_sd_phase1: | $(SD_BOOT)/dtb
 	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/* $(SD_BOOT)/

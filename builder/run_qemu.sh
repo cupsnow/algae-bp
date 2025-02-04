@@ -19,7 +19,7 @@ cmd_run () {
 _pri_destdir="destdir/qemuarm64"
 
 _lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,media=disk"
-_lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.bin,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
+_lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
 
 _lo_qemuargs_nic="-net nic,vlan=0,macaddr=52:53:00:11:12:13,model=e1000,addr=08 -net user"
 _lo_qemuargs_nic2="-nic user,model=virtio-net-pci"
