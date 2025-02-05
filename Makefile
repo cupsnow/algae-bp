@@ -479,6 +479,29 @@ busybox_%: $(busybox_BUILDDIR)/.config
 
 #------------------------------------
 #
+cjson_DIR=$(PKGDIR2)/cjson
+cjson_BUILDDIR=$(BUILDDIR2)/cjson-$(APP_BUILD)
+cjson_MAKE=$(MAKE) CC=$(CC) -C $(cjson_BUILDDIR)
+
+GENDIR+=$(cjson_BUILDDIR)
+
+cjson_defconfig $(cjson_BUILDDIR)/Makefile: | $(cjson_BUILDDIR)
+	rsync -a $(RSYNC_VERBOSE) $(cjson_DIR)/* $(cjson_BUILDDIR)/
+
+cjson_install: DESTDIR=$(BUILD_SYSROOT)
+cjson_install: | $(cjson_BUILDDIR)/Makefile
+	$(cjson_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
+
+$(eval $(call DEF_DESTDEP,cjson))
+
+cjson: | $(cjson_BUILDDIR)/Makefile
+	$(cjson_MAKE) $(PARALLEL_BUILD) shared static
+
+cjson_%: | $(cjson_BUILDDIR)/Makefile
+	$(cjson_MAKE) $(PARALLEL_BUILD) $(@:cjson_%=%)
+
+#------------------------------------
+#
 attr_DIR=$(PKGDIR2)/attr
 attr_BUILDDIR=$(BUILDDIR2)/attr-$(APP_BUILD)
 attr_MAKE=$(MAKE) -C $(attr_BUILDDIR)
@@ -1369,6 +1392,37 @@ glib: | $(glib_BUILDDIR)/build.ninja
 	$(glib_MESON) compile -C $(glib_BUILDDIR)
 
 GENPYVENV+=meson ninja
+
+#------------------------------------
+#
+mosquitto_DEP=openssl cjson
+mosquitto_DIR=$(PKGDIR2)/mosquitto
+mosquitto_BUILDDIR=$(BUILDDIR2)/mosquitto-$(APP_BUILD)
+mosquitto_MAKE=$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) \
+    CC=gcc CXX=g++ \
+    CPPFLAGS=-I$(BUILD_SYSROOT)/include \
+    LDFLAGS="-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib" \
+    -C $(mosquitto_BUILDDIR)
+
+GENDIR+=$(mosquitto_BUILDDIR)
+
+mosquitto_defconfig $(mosquitto_BUILDDIR)/Makefile: | $(mosquitto_BUILDDIR)
+	rsync -a $(RSYNC_VERBOSE) $(mosquitto_DIR)/* $(mosquitto_BUILDDIR)/
+ifneq ($(strip $(wildcard mosquitto-$(APP_PLATFORM)-config.mk)),)
+	rsync -a $(RSYNC_VERBOSE) mosquitto-$(APP_PLATFORM)-config.mk $(mosquitto_BUILDDIR)/
+endif
+
+mosquitto_install: DESTDIR=$(BUILD_SYSROOT)
+mosquitto_install: | $(mosquitto_BUILDDIR)/Makefile
+	$(mosquitto_MAKE) DESTDIR=$(DESTDIR) prefix= install
+
+$(eval $(call DEF_DESTDEP,mosquitto))
+
+mosquitto: | $(mosquitto_BUILDDIR)/Makefile
+	$(mosquitto_MAKE) $(PARALLEL_BUILD)
+
+mosquitto_%: | $(mosquitto_BUILDDIR)/Makefile
+	$(mosquitto_MAKE) $(PARALLEL_BUILD) $(@:mosquitto_%=%)
 
 #------------------------------------
 #
