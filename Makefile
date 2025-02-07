@@ -1417,6 +1417,11 @@ endif
 mosquitto_install: DESTDIR=$(BUILD_SYSROOT)
 mosquitto_install: | $(mosquitto_BUILDDIR)/Makefile
 	$(mosquitto_MAKE) DESTDIR=$(DESTDIR) prefix= install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+	    libmosquitto*)
+endif
+	$(call CMD_RM_EMPTYDIR,--ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,mosquitto))
 
@@ -1534,7 +1539,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    tmux mmcutils mtdutils glib wpasup)
+	    tmux mmcutils mtdutils glib wpasup mosquitto)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:

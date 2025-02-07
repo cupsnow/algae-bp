@@ -21,10 +21,7 @@ _pri_destdir="destdir/qemuarm64"
 _lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,media=disk"
 _lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
 
-_lo_qemuargs_nic="-net nic,vlan=0,macaddr=52:53:00:11:12:13,model=e1000,addr=08 -net user"
-_lo_qemuargs_nic2="-nic user,model=virtio-net-pci"
-_lo_qemuargs_nic3="-netdev user,id=net0,dhcpstart=10.0.2.30 -device virtio-net-pci,netdev=net0"
-_lo_qemuargs_nic4="-netdev type=tap,id=net0 -device virtio-net-device,netdev=net0"
+_lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net -device virtio-net-device,netdev=my-shrd-net"
 
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
@@ -32,6 +29,7 @@ cmd_qemu_base1="${cmd_qemu_base1} -machine virt,virtualization=on,secure=off"
 cmd_qemu_base1="${cmd_qemu_base1} -nographic"
 
 cmd_qemu_bootroot1="${cmd_qemu_base1} ${_lo_qemuargs_bootdisk} ${_lo_qemuargs_rootdisk}"
+cmd_qemu_bootroot2="${cmd_qemu_bootroot1} ${_lo_qemuargs_nic1}"
 
 run_qemu () {
   _lo_cmd_qemu="${cmd_qemu_base1}"
@@ -61,7 +59,7 @@ start_uboot1 () {
 
 start_kernel1 () {
   # shellcheck disable=SC2086
-  _lo_cmd_qemu="${cmd_qemu_bootroot1}"
+  _lo_cmd_qemu="${cmd_qemu_bootroot2}"
   _lo_kernel="${_pri_destdir}/boot/Image"
   _lo_bootargs="console=ttyAMA0 root=/dev/vda rw rootwait"
   
