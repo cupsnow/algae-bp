@@ -1406,10 +1406,12 @@ mosquitto_MAKE=$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) \
 
 GENDIR+=$(mosquitto_BUILDDIR)
 
+mosquitto_config_mk=$(firstword $(wildcard mosquitto-$(APP_PLATFORM)-config.mk mosquitto-config.mk))
+
 mosquitto_defconfig $(mosquitto_BUILDDIR)/Makefile: | $(mosquitto_BUILDDIR)
 	rsync -a $(RSYNC_VERBOSE) $(mosquitto_DIR)/* $(mosquitto_BUILDDIR)/
-ifneq ($(strip $(wildcard mosquitto-$(APP_PLATFORM)-config.mk)),)
-	rsync -a $(RSYNC_VERBOSE) mosquitto-$(APP_PLATFORM)-config.mk $(mosquitto_BUILDDIR)/
+ifneq ($(strip $(mosquitto_config_mk)),)
+	rsync -a $(RSYNC_VERBOSE) $(mosquitto_config_mk) $(mosquitto_BUILDDIR)/config.mk
 endif
 
 mosquitto_install: DESTDIR=$(BUILD_SYSROOT)
