@@ -118,7 +118,6 @@ help1:
 	@echo "AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
-	$(call CMD_RM_EMPTYDIR,abc def)
 
 meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.ini
 	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/meson-aarch64.ini \
@@ -479,6 +478,29 @@ busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
 #------------------------------------
+#
+cjson_DIR=$(PKGDIR2)/cjson
+cjson_BUILDDIR=$(BUILDDIR2)/cjson-$(APP_BUILD)
+cjson_MAKE=$(MAKE) CC=$(CC) -C $(cjson_BUILDDIR)
+
+GENDIR+=$(cjson_BUILDDIR)
+
+cjson_defconfig $(cjson_BUILDDIR)/Makefile: | $(cjson_BUILDDIR)
+	rsync -a $(RSYNC_VERBOSE) $(cjson_DIR)/* $(cjson_BUILDDIR)/
+
+cjson_install: DESTDIR=$(BUILD_SYSROOT)
+cjson_install: | $(cjson_BUILDDIR)/Makefile
+	$(cjson_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
+
+$(eval $(call DEF_DESTDEP,cjson))
+
+cjson: | $(cjson_BUILDDIR)/Makefile
+	$(cjson_MAKE) $(PARALLEL_BUILD) shared static
+
+cjson_%: | $(cjson_BUILDDIR)/Makefile
+	$(cjson_MAKE) $(PARALLEL_BUILD) $(@:cjson_%=%)
+
+#------------------------------------
 # WIP
 #
 json-c_BUILDDIR=$(BUILDDIR)/json-c
@@ -524,29 +546,6 @@ json-c%:
 	$(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%))
 
 CLEAN+=json-c
-
-#------------------------------------
-#
-cjson_DIR=$(PKGDIR2)/cjson
-cjson_BUILDDIR=$(BUILDDIR2)/cjson-$(APP_BUILD)
-cjson_MAKE=$(MAKE) CC=$(CC) -C $(cjson_BUILDDIR)
-
-GENDIR+=$(cjson_BUILDDIR)
-
-cjson_defconfig $(cjson_BUILDDIR)/Makefile: | $(cjson_BUILDDIR)
-	rsync -a $(RSYNC_VERBOSE) $(cjson_DIR)/* $(cjson_BUILDDIR)/
-
-cjson_install: DESTDIR=$(BUILD_SYSROOT)
-cjson_install: | $(cjson_BUILDDIR)/Makefile
-	$(cjson_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
-
-$(eval $(call DEF_DESTDEP,cjson))
-
-cjson: | $(cjson_BUILDDIR)/Makefile
-	$(cjson_MAKE) $(PARALLEL_BUILD) shared static
-
-cjson_%: | $(cjson_BUILDDIR)/Makefile
-	$(cjson_MAKE) $(PARALLEL_BUILD) $(@:cjson_%=%)
 
 #------------------------------------
 #
@@ -1448,56 +1447,6 @@ CLEAN += bzip2
 #------------------------------------
 # WIP
 #
-json-c_DIR = $(PROJDIR)/package/json-c
-json-c_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(json-c_DIR)
-json-c_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes \
-    --with-pic \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-
-json-c: json-c_;
-
-json-c_dir:
-	git clone --depth=1 https://github.com/json-c/json-c.git $(json-c_DIR)
-	cd $(dir $(json-c_DIR)) && \
-	  tar -jcvf json-c.tar.bz2 $(notdir $(json-c_DIR))
-
-json-c_clean:
-	if [ -e $(json-c_DIR)/Makefile ]; then \
-	  $(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%)); \
-	fi
-
-json-c_distclean:
-	$(RM) $(json-c_DIR)
-	cd $(dir $(json-c_DIR)) && \
-	  tar -jxvf json-c.tar.bz2
-
-json-c_configure:
-	cd $(json-c_DIR) && \
-	  ./autogen.sh;
-
-json-c_makefile:
-	cd $(json-c_DIR) && \
-	  $(json-c_CFGENV) ./configure $(json-c_CFGPARAM)
-
-json-c%:
-	if [ ! -d $(json-c_DIR) ]; then \
-	  $(MAKE) json-c_dir; \
-	fi
-	if [ ! -x $(json-c_DIR)/configure ]; then \
-	  $(MAKE) json-c_configure; \
-	fi
-	if [ ! -e $(json-c_DIR)/Makefile ]; then \
-	  $(MAKE) json-c_makefile; \
-	fi
-	$(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%))
-
-CLEAN += json-c
-
-#------------------------------------
-# WIP
-#
 expat_DIR = $(PROJDIR)/package/expat
 expat_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(expat_DIR)
 expat_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
@@ -1532,44 +1481,6 @@ expat%:
 	$(expat_MAKE) $(patsubst _%,%,$(@:expat%=%))
 
 CLEAN += expat
-
-#------------------------------------
-# WIP
-#
-libffi_DIR = $(PROJDIR)/package/libffi
-libffi_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(libffi_DIR)
-libffi_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    --with-pic \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-
-libffi: libffi_;
-
-libffi_dir:
-	cd $(dir $(libffi_DIR)) && \
-	  wget ftp://sourceware.org/pub/libffi/libffi-3.2.1.tar.gz && \
-	  tar -zxvf libffi-3.2.1.tar.gz && \
-	  ln -sf libffi-3.2.1 $(libffi_DIR)
-
-$(addprefix libffi_,clean distclean): ;
-	if [ -e $(libffi_DIR)/Makefile ]; then \
-	  $(libffi_MAKE) $(patsubst _%,%,$(@:libffi%=%)); \
-	fi
-
-libffi_makefile:
-	cd $(libffi_DIR) && \
-	  $(libffi_CFGENV) ./configure $(libffi_CFGPARAM)
-
-libffi%:
-	if [ ! -d $(libffi_DIR) ]; then \
-	  $(MAKE) libffi_dir; \
-	fi
-	if [ ! -f $(libffi_DIR)/Makefile ]; then \
-	  $(MAKE) libffi_makefile; \
-	fi
-	$(libffi_MAKE) $(patsubst _%,%,$(@:libffi%=%))
-
-CLEAN += libffi
 
 #------------------------------------
 # WIP
