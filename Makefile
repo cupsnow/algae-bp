@@ -127,7 +127,8 @@ meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.
 	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64.ini
 
 CMD_DEPSHOW_RULE=echo "$(1): $(2)";
-CMD_DEPSHOW_DOT=$(foreach iter,$(2),echo "  $(iter) -> $(1)";)
+# CMD_DEPSHOW_DOT=$(foreach iter,$(2),echo "  $(iter) -> $(1)";)
+CMD_DEPSHOW_DOT=$(if $(2),$(foreach iter,$(2),echo "  $(iter) -> $(1)";),echo "  $(1)";)
 CMD_DEPSHOW=$(if $($(1)_DEP), \
   $(foreach iter,$($(1)_DEP),$(call CMD_DEPSHOW,$(iter),$(2))) \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1),$($(1)_DEP)), \
@@ -166,7 +167,7 @@ depdotshow:
 	dot -Tsvg $(BUILDDIR)/dep-$(depdot_name).dot >$(BUILDDIR)/dep-$(depdot_name).svg
 	xdg-open $(BUILDDIR)/dep-$(depdot_name).svg
 
-depgraph: DEPDOT_PKGS+=glib tmux mmcutils mtdutils wpasup
+depgraph: DEPDOT_PKGS+=glib tmux mmcutils mtdutils wpasup mosquitto
 depgraph: depdot_name=depgraph
 depgraph:
 	$(MAKE) DEPDOT_PKGS="$(DEPDOT_PKGS)" depdotshow
@@ -478,6 +479,53 @@ busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
 
 #------------------------------------
+# WIP
+#
+json-c_BUILDDIR=$(BUILDDIR)/json-c
+json-c_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(json-c_BUILDDIR)
+
+json-c_download:
+	$(MKDIR) $(PKGDIR)
+	git clone https://github.com/json-c/json-c.git $(PKGDIR)/json-c
+
+json-c_patch:
+	cd $(PKGDIR)/json-c && \
+	  patch -c -p2 <$(PROJDIR)/ext/json-c.patch
+
+json-c_distclean:
+	$(RM) $(json-c_BUILDDIR)
+
+json-c_configure:
+	cd $(PKGDIR)/json-c && ./autogen.sh
+
+json-c_makefile:
+	$(MKDIR) $(json-c_BUILDDIR)
+	cd $(json-c_BUILDDIR) && $(PKGDIR)/json-c/configure --prefix= \
+	    --host=`$(CC) -dumpmachine` $(json-c_CFGPARAM) --with-pic \
+	    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+	    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+json-c_clean:
+	if [ -e $(json-c_BUILDDIR)/Makefile ]; then \
+	  $(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%)); \
+	fi
+
+json-c: json-c_;
+json-c%:
+	if [ ! -d $(PKGDIR)/json-c ]; then \
+	  $(MAKE) json-c_download; \
+	fi
+	if [ ! -x $(PKGDIR)/json-c/configure ]; then \
+	  $(MAKE) json-c_configure; \
+	fi
+	if [ ! -e $(json-c_BUILDDIR)/Makefile ]; then \
+	  $(MAKE) json-c_makefile; \
+	fi
+	$(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%))
+
+CLEAN+=json-c
+
+#------------------------------------
 #
 cjson_DIR=$(PKGDIR2)/cjson
 cjson_BUILDDIR=$(BUILDDIR2)/cjson-$(APP_BUILD)
@@ -538,6 +586,41 @@ attr_%: | $(attr_BUILDDIR)/Makefile
 	$(attr_MAKE) $(PARALLEL_BUILD) $(@:attr_%=%)
 
 #------------------------------------
+# WIP
+# 
+libcap_BUILDDIR = $(BUILDDIR)/libcap
+# CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
+# LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
+# BUILD_CFLAGS=""
+
+libcap_MAKE = $(MAKE) CC=$(CC) BUILD_CC=gcc AR=$(AR) RANLIB=$(RANLIB) \
+    prefix=/ lib=lib RAISE_SETFCAP=no PAM_CAP=no \
+    DESTDIR=$(DESTDIR) -C $(libcap_BUILDDIR)
+
+libcap_download:
+	$(MKDIR) $(PKGDIR)
+	git clone git://git.kernel.org/pub/scm/linux/kernel/git/morgan/libcap.git $(PKGDIR)/libcap
+
+libcap_makefile:
+	$(MKDIR) $(dir $(libcap_BUILDDIR))
+	cd $(dir $(libcap_BUILDDIR)) && git clone $(PKGDIR)/libcap $(libcap_BUILDDIR)
+
+libcap_distclean:
+	$(RM) $(libcap_BUILDDIR)
+
+libcap: libcap_;
+libcap%:
+	if [ ! -d $(PKGDIR)/libcap ]; then \
+	  $(MAKE) libcap_download; \
+	fi
+	if [ ! -f $(libcap_BUILDDIR)/Makefile ]; then \
+	  $(MAKE) libcap_makefile; \
+	fi
+	$(libcap_MAKE) $(patsubst _%,%,$(@:libcap%=%))
+
+CLEAN += libcap
+
+#------------------------------------
 #
 acl_DEP=attr
 acl_DIR=$(PKGDIR2)/acl
@@ -579,6 +662,46 @@ acl: | $(acl_BUILDDIR)/Makefile
 
 acl_%: | $(acl_BUILDDIR)/Makefile
 	$(acl_MAKE) $(PARALLEL_BUILD) $(@:acl_%=%)
+
+#------------------------------------
+# WIP
+# dep: libcap
+#
+coreutils_BUILDDIR=$(BUILDDIR)/coreutils
+coreutils_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(coreutils_BUILDDIR)
+
+coreutils_download:
+	$(MKDIR) $(PKGDIR)
+	cd $(PKGDIR) && \
+	  wget -N http://ftp.gnu.org/gnu/coreutils/coreutils-8.26.tar.xz && \
+	  tar -Jxvf $(PKGDIR)/coreutils-8.26.tar.xz
+
+coreutils_distclean:
+	$(RM) $(coreutils_BUILDDIR)
+
+coreutils_makefile:
+	$(MKDIR) $(coreutils_BUILDDIR)
+	cd $(coreutils_BUILDDIR) && $(PKGCONFIG_ENV) $(PKGDIR)/coreutils-8.26/configure \
+	    --prefix= --host=`$(CC) -dumpmachine` \
+	    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+	    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+coreutils_clean:
+	if [ -f $(coreutils_BUILDDIR)/Makefile ]; then \
+	  $(coreutils_MAKE) $(patsubst _%,%,$(@:coreutils%=%))
+	fi
+
+coreutils: coreutils_;
+coreutils%:
+	if [ ! -d $(PKGDIR)/coreutils-8.26 ]; then \
+	  $(MAKE) coreutils_download; \
+	fi
+	if [ ! -f $(coreutils_BUILDDIR)/Makefile ]; then \
+	  $(MAKE) coreutils_makefile; \
+	fi
+	$(coreutils_MAKE) $(patsubst _%,%,$(@:coreutils%=%))
+
+CLEAN += coreutils
 
 #------------------------------------
 # apply utilinux libuuid, libblkid
@@ -830,6 +953,52 @@ $(addprefix $(PROJDIR)/tool/bin/,tic):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool APP_PLATFORM=ub20 ncursesw_destdep_install
 
 #------------------------------------
+# WIP
+# dependency: ncurses
+# ftp://ftp.cwru.edu/pub/bash/readline-6.3.tar.gz
+#
+readline_DIR = $(PROJDIR)/package/readline
+readline_MAKE = $(MAKE) DESTDIR=$(DESTDIR) SHLIB_LIBS=-lncurses -C $(readline_DIR)
+readline_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    bash_cv_wcwidth_broken=yes \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+readline: readline_;
+
+readline_dir:
+	cd $(dir $(readline_DIR)) && \
+	wget http://ftp.gnu.org/gnu/readline/readline-6.3.tar.gz && \
+	    tar -zxvf readline-6.3.tar.gz && \
+	    ln -sf readline-6.3 readline
+
+readline_clean readline_distclean:
+	if [ -e $(readline_DIR)/Makefile ]; then \
+	  $(readline_MAKE) $(patsubst _%,%,$(@:readline%=%)); \
+	fi
+
+readline_makefile:
+	echo "Makefile *** Generate Makefile by configure..."
+	cd $(readline_DIR) && ./configure $(readline_CFGPARAM)
+
+readline%:
+	if [ ! -d $(readline_DIR) ]; then \
+	  $(MAKE) readline_dir; \
+	fi
+	if [ ! -e $(readline_DIR)/Makefile ]; then \
+	  $(MAKE) readline_makefile; \
+	fi
+	$(readline_MAKE) $(patsubst _%,%,$(@:readline%=%))
+	if [ "$(patsubst _%,%,$(@:readline%=%))" = "install" ]; then \
+	  for i in libhistory.old libhistory.so.6.3.old \
+	      libreadline.old libreadline.so.6.3.old; do \
+	    $(RM) $(DESTDIR)/lib/$$i; \
+	  done; \
+	fi
+
+CLEAN += readline
+
+#------------------------------------
 #
 TOOLCHAIN_I18NPATH=$(TOOLCHAIN_SYSROOT)/usr/share/i18n
 CMD_LOCALE_BASE=I18NPATH=$(TOOLCHAIN_I18NPATH) localedef
@@ -1041,6 +1210,50 @@ libffi: | $(libffi_BUILDDIR)/Makefile
 libffi_%: | $(libffi_BUILDDIR)/Makefile
 	$(libffi_MAKE) $(PARALLEL_BUILD) $(@:libffi_%=%)
 
+
+#------------------------------------
+# WIP
+# patch configure.ac
+#   marked AC_TRY_RUN
+# dependent: ncurses 
+# 
+screen_DIR = $(PROJDIR)/package/screen
+screen_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(screen_DIR)/src
+screen_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+screen: screen_;
+
+screen_dir:
+	git clone git://git.savannah.gnu.org/screen.git $(screen_DIR)_hot
+	ln -sf $(screen_DIR)_hot $(screen_DIR)
+
+screen_clean screen_distclean:
+	if [ -e $(screen_DIR)/src/Makefile ]; then \
+	  $(screen_MAKE) $(patsubst _%,%,$(@:screen%=%)); \
+	fi
+
+screen_configure:
+	cd $(screen_DIR)/src && ./autogen.sh
+
+screen_makefile:
+	cd $(screen_DIR)/src && ./configure $(screen_CFGPARAM)
+
+screen%:
+	if [ ! -d $(screen_DIR) ]; then \
+	  $(MAKE) screen_dir; \
+	fi
+	if [ ! -e $(screen_DIR)/src/configure ]; then \
+	  $(MAKE) screen_configure; \
+	fi
+	if [ ! -e $(screen_DIR)/src/Makefile ]; then \
+	  $(MAKE) screen_makefile; \
+	fi
+	$(screen_MAKE) $(patsubst _%,%,$(@:screen%=%))
+
+CLEAN += screen
+
 #------------------------------------
 #
 libevent_DIR?=$(PKGDIR2)/libevent
@@ -1185,6 +1398,220 @@ bash_%: | $(bash_BUILDDIR)/Makefile
 	$(bash_MAKE) $(PARALLEL_BUILD) $(@:bash_%=%)
 
 #------------------------------------
+# Work in progress (WIP)
+#
+mbedtls_DIR = $(PROJDIR)/package/mbedtls
+mbedtls_MAKE = $(MAKE) DESTDIR=$(DESTDIR) CC=$(CC) \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fomit-frame-pointer" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
+    -C $(mbedtls_DIR)
+
+mbedtls_dir:
+	cd $(dir $(mbedtls_DIR)) && \
+	  wget https://tls.mbed.org/download/mbedtls-2.2.1-apache.tgz && \
+	  tar -zxvf mbedtls-2.2.1-apache.tgz && \
+	  ln -sf mbedtls-2.2.1 $(notdir $(mbedtls_DIR))
+
+mbedtls: mbedtls_;
+
+mbedtls%:
+	if [ ! -d $(mbedtls_DIR) ]; then \
+	  $(MAKE) mbedtls_dir; \
+	fi
+	$(mbedtls_MAKE) $(patsubst _%,%,$(@:mbedtls%=%))
+
+#------------------------------------
+# WIP
+#
+bzip2_DIR = $(PROJDIR)/package/bzip2
+bzip2_MAKE = $(MAKE) DESTDIR=$(DESTDIR) CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) \
+    CFLAGS+="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
+    LDFLAGS+="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
+    PREFIX=$(DESTDIR) -C $(bzip2_DIR)
+
+bzip2: bzip2_;
+
+bzip2_dir:
+	cd $(dir $(bzip2_DIR)) && \
+	  wget "http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz" && \
+	  tar -zxvf bzip2-1.0.6.tar.gz && \
+	  ln -sf bzip2-1.0.6 $(bzip2_DIR)
+
+bzip2%:
+	if [ ! -d $(bzip2_DIR) ]; then \
+	  $(MAKE) bzip2_dir; \
+	fi
+	$(bzip2_MAKE) $(patsubst _%,%,$(@:bzip2%=%))
+
+CLEAN += bzip2
+
+#------------------------------------
+# WIP
+#
+json-c_DIR = $(PROJDIR)/package/json-c
+json-c_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(json-c_DIR)
+json-c_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes \
+    --with-pic \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+json-c: json-c_;
+
+json-c_dir:
+	git clone --depth=1 https://github.com/json-c/json-c.git $(json-c_DIR)
+	cd $(dir $(json-c_DIR)) && \
+	  tar -jcvf json-c.tar.bz2 $(notdir $(json-c_DIR))
+
+json-c_clean:
+	if [ -e $(json-c_DIR)/Makefile ]; then \
+	  $(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%)); \
+	fi
+
+json-c_distclean:
+	$(RM) $(json-c_DIR)
+	cd $(dir $(json-c_DIR)) && \
+	  tar -jxvf json-c.tar.bz2
+
+json-c_configure:
+	cd $(json-c_DIR) && \
+	  ./autogen.sh;
+
+json-c_makefile:
+	cd $(json-c_DIR) && \
+	  $(json-c_CFGENV) ./configure $(json-c_CFGPARAM)
+
+json-c%:
+	if [ ! -d $(json-c_DIR) ]; then \
+	  $(MAKE) json-c_dir; \
+	fi
+	if [ ! -x $(json-c_DIR)/configure ]; then \
+	  $(MAKE) json-c_configure; \
+	fi
+	if [ ! -e $(json-c_DIR)/Makefile ]; then \
+	  $(MAKE) json-c_makefile; \
+	fi
+	$(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%))
+
+CLEAN += json-c
+
+#------------------------------------
+# WIP
+#
+expat_DIR = $(PROJDIR)/package/expat
+expat_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(expat_DIR)
+expat_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    --with-pic \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+expat: expat_;
+
+$(addprefix expat_,clean distclean): ;
+	if [ -e $(expat_DIR)/Makefile ]; then \
+	  $(expat_MAKE) $(patsubst _%,%,$(@:expat%=%)); \
+	fi
+
+expat_dir:
+	cd $(dir $(expat_DIR)) && \
+	  wget http://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz && \
+	  tar -zxvf expat-2.1.0.tar.gz && \
+	  ln -sf expat-2.1.0 $(expat_DIR)
+
+expat_makefile:
+	echo "Makefile *** Generate Makefile by configure..."
+	cd $(expat_DIR) && $(expat_CFGENV) ./configure $(expat_CFGPARAM)
+
+expat%:
+	if [ ! -d $(expat_DIR) ]; then \
+	  $(MAKE) expat_dir; \
+	fi
+	if [ ! -f $(expat_DIR)/Makefile ]; then \
+	  $(MAKE) expat_makefile; \
+	fi
+	$(expat_MAKE) $(patsubst _%,%,$(@:expat%=%))
+
+CLEAN += expat
+
+#------------------------------------
+# WIP
+#
+libffi_DIR = $(PROJDIR)/package/libffi
+libffi_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(libffi_DIR)
+libffi_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    --with-pic \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+libffi: libffi_;
+
+libffi_dir:
+	cd $(dir $(libffi_DIR)) && \
+	  wget ftp://sourceware.org/pub/libffi/libffi-3.2.1.tar.gz && \
+	  tar -zxvf libffi-3.2.1.tar.gz && \
+	  ln -sf libffi-3.2.1 $(libffi_DIR)
+
+$(addprefix libffi_,clean distclean): ;
+	if [ -e $(libffi_DIR)/Makefile ]; then \
+	  $(libffi_MAKE) $(patsubst _%,%,$(@:libffi%=%)); \
+	fi
+
+libffi_makefile:
+	cd $(libffi_DIR) && \
+	  $(libffi_CFGENV) ./configure $(libffi_CFGPARAM)
+
+libffi%:
+	if [ ! -d $(libffi_DIR) ]; then \
+	  $(MAKE) libffi_dir; \
+	fi
+	if [ ! -f $(libffi_DIR)/Makefile ]; then \
+	  $(MAKE) libffi_makefile; \
+	fi
+	$(libffi_MAKE) $(patsubst _%,%,$(@:libffi%=%))
+
+CLEAN += libffi
+
+#------------------------------------
+# WIP
+# dependent: expat
+#
+dbus_DIR = $(PROJDIR)/package/dbus
+dbus_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(dbus_DIR)
+dbus_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    --with-pic --enable-abstract-sockets \
+    $(addprefix --disable-,tests) \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+dbus: dbus_;
+
+dbus_dir:
+	cd $(dir $(dbus_DIR)) && \
+	  wget http://dbus.freedesktop.org/releases/dbus/dbus-1.11.0.tar.gz && \
+	  tar -zxvf dbus-1.11.0.tar.gz && \
+	  ln -sf dbus-1.11.0 $(dbus_DIR)
+
+$(addprefix dbus_,clean distclean): ;
+	if [ -e $(dbus_DIR)/Makefile ]; then \
+	  $(dbus_MAKE) $(patsubst _%,%,$(@:dbus%=%)); \
+	fi
+
+dbus_makefile:
+	echo "Makefile *** Generate Makefile by configure..."
+	cd $(dbus_DIR) && $(dbus_CFGENV) ./configure $(dbus_CFGPARAM)
+
+dbus%:
+	if [ ! -d $(dbus_DIR) ]; then \
+	  $(MAKE) dbus_dir; \
+	fi
+	if [ ! -f $(dbus_DIR)/Makefile ]; then \
+	  $(MAKE) dbus_makefile; \
+	fi
+	$(dbus_MAKE) $(patsubst _%,%,$(@:dbus%=%))
+
+CLEAN += dbus
+
+#------------------------------------
 # openssl-3.3
 #
 openssl_DEP=zlib
@@ -1224,6 +1651,45 @@ openssl: $(openssl_BUILDDIR)/configdata.pm
 
 openssl_%: $(openssl_BUILDDIR)/configdata.pm
 	$(openssl_MAKE) $(PARALLEL_BUILD) $(@:openssl_%=%)
+
+#------------------------------------
+# WIP
+# dependent: libffi
+#
+p11-kit_DIR = $(PROJDIR)/package/p11-kit
+p11-kit_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(p11-kit_DIR)
+p11-kit_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    LIBFFI_CFLAGS="-I$(dir $(wildcard $(DESTDIR)/lib/libffi-*/include/ffi.h))" \
+    LIBFFI_LIBS="-L$(DESTDIR)/lib -lffi" \
+    CPPFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+p11-kit: p11-kit_;
+
+p11-kit_dir:
+	git clone git://anongit.freedesktop.org/p11-glue/p11-kit $(p11-kit_DIR)
+
+p11-kit_clean p11-kit_distclean:
+	if [ -f $(p11-kit_DIR)/Makefile ]; then \
+	  $(p11-kit_MAKE) $(patsubst _%,%,$(@:p11-kit%=%)); \
+	fi
+
+p11-kit_makefile:
+	if [ ! -e $(p11-kit_DIR)/configure ]; then \
+	  cd $(p11-kit_DIR) && ./autogen.sh; \
+	fi
+	cd $(p11-kit_DIR) && $(p11-kit_CFGENV) ./configure $(p11-kit_CFGPARAM)
+
+p11-kit%:
+	if [ ! -d $(p11-kit_DIR) ]; then \
+	  $(MAKE) p11-kit_dir; \
+	fi
+	if [ ! -e $(p11-kit_DIR)/Makefile ]; then \
+	  $(MAKE) p11-kit_makefile; \
+	fi
+	$(p11-kit_MAKE) $(patsubst _%,%,$(@:p11-kit%=%))
+
+CLEAN += p11-kit
 
 #------------------------------------
 #
@@ -1266,6 +1732,108 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD) $(@:libnl_%=%)
 
 #------------------------------------
+# WIP
+#
+iperf_DIR = $(PROJDIR)/package/iperf
+iperf_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(iperf_DIR)
+iperf_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    CPPFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+iperf: iperf_;
+
+iperf_dir:
+	cd $(dir $(iperf_DIR)) && \
+	  wget https://iperf.fr/download/source/iperf-3.1.2-source.tar.gz && \
+	  tar -zxvf iperf-3.1.2-source.tar.gz && \
+	  ln -sf iperf-3.1.2 $(iperf_DIR)
+
+iperf_clean iperf_distclean:
+	if [ -f $(iperf_DIR)/Makefile ]; then \
+	  $(iperf_MAKE) $(patsubst _%,%,$(@:iperf%=%)); \
+	fi
+
+iperf_makefile:
+	cd $(iperf_DIR) && $(iperf_CFGENV) ./configure $(iperf_CFGPARAM)
+
+iperf%:
+	if [ ! -d $(iperf_DIR) ]; then \
+	  $(MAKE) iperf_dir; \
+	fi
+	if [ ! -e $(iperf_DIR)/Makefile ]; then \
+	  $(MAKE) iperf_makefile; \
+	fi
+	$(iperf_MAKE) $(patsubst _%,%,$(@:iperf%=%))
+
+CLEAN += iperf
+
+#------------------------------------
+# WIP
+#
+rfkill_BUILDDIR=$(BUILDDIR)/rfkill
+rfkill_MAKE=$(MAKE) PREFIX=/ DESTDIR=$(DESTDIR) CC=$(CC) \
+    -C $(rfkill_BUILDDIR)
+
+rfkill_download:
+	$(MKDIR) $(PKGDIR)
+	cd $(PKGDIR) && \
+	  wget -N https://www.kernel.org/pub/software/network/rfkill/rfkill-0.5.tar.xz
+
+rfkill_dir:
+	$(MKDIR) $(dir $(rfkill_BUILDDIR))
+	cd $(dir $(rfkill_BUILDDIR)) && \
+	  tar -Jxvf $(PKGDIR)/rfkill-0.5.tar.xz && \
+	  mv rfkill-0.5 $(rfkill_BUILDDIR)
+
+rfkill_distclean:
+	$(RM) $(rfkill_BUILDDIR)
+
+rfkill: rfkill_;
+rfkill%:
+	if [ ! -e $(PKGDIR)/rfkill-0.5.tar.xz ]; then \
+	  $(MAKE) rfkill_download; \
+	fi
+	if [ ! -d $(rfkill_BUILDDIR) ]; then \
+	  $(MAKE) rfkill_dir; \
+	fi
+	$(rfkill_MAKE) $(patsubst _%,%,$(@:rfkill%=%))
+
+CLEAN+=rfkill
+
+#------------------------------------
+# WIP
+#
+wt_BUILDDIR=$(BUILDDIR)/wireless-tools
+wt_MAKE=$(MAKE) PREFIX=$(DESTDIR) LDCONFIG=true CC=$(CC) AR=$(AR) RANLIB=$(RANLIB) \
+    -C $(wt_BUILDDIR)
+
+wt_download:
+	$(MKDIR) $(PKGDIR)
+	cd $(PKGDIR) && \
+	  wget -N https://hewlettpackard.github.io/wireless-tools/wireless_tools.29.tar.gz
+
+wt_dir:
+	$(MKDIR) $(dir $(wt_BUILDDIR))
+	cd $(dir $(wt_BUILDDIR)) && \
+	  tar -zxvf $(PKGDIR)/wireless_tools.29.tar.gz && \
+	  mv wireless_tools.29 $(wt_BUILDDIR)
+
+wt_distclean:
+	$(RM) $(wt_BUILDDIR)
+
+wt: wt_;
+wt%:
+	if [ ! -e $(PKGDIR)/wireless_tools.29.tar.gz ]; then \
+	  $(MAKE) wt_download; \
+	fi
+	if [ ! -d $(wt_BUILDDIR) ]; then \
+	  $(MAKE) wt_dir; \
+	fi
+	$(wt_MAKE) $(patsubst _%,%,$(@:wt%=%))
+
+CLEAN+=wt
+
+#------------------------------------
 #
 iw_DEP=libnl
 iw_DIR=$(PKGDIR2)/iw
@@ -1294,6 +1862,121 @@ iw: | $(iw_BUILDDIR)/Makefile
 
 iw_%: | $(iw_BUILDDIR)/Makefile
 	$(iw_MAKE) $(PARALLEL_BUILD) $(@:iw_%=%)
+
+#------------------------------------
+# WIP
+# dependent: openssl
+#
+curl_DIR = $(PROJDIR)/package/curl
+curl_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(curl_DIR)
+curl_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` --with-ssl \
+    CFLAGS="$(PLATFORM_CFLAGS)" CPPFLAGS="-I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
+    LIBS="-lcrypto -lssl"
+
+curl: curl_;
+
+curl_dir:
+	cd $(dir $(curl_DIR)) && \
+	  wget https://curl.haxx.se/download/curl-7.49.0.tar.bz2 && \
+	  tar -jxvf curl-7.49.0.tar.bz2 && \
+	  ln -sf curl-7.49.0 $(curl_DIR) && \
+	  $(RM) $(curl_DIR)/Makefile
+
+curl_clean curl_distclean:
+	if [ -e $(curl_DIR)/Makefile ]; then \
+	  $(curl_MAKE) $(patsubst _%,%,$(@:curl%=%)); \
+	fi
+
+curl_makefile:
+	cd $(curl_DIR) && $(curl_CFGENV) ./configure $(curl_CFGPARAM)
+
+curl%:
+	if [ ! -d $(curl_DIR) ]; then \
+	  $(MAKE) curl_dir; \
+	fi
+	if [ ! -e $(curl_DIR)/Makefile ]; then \
+	  $(MAKE) curl_makefile; \
+	fi
+	$(curl_MAKE) $(patsubst _%,%,$(@:curl%=%))
+
+CLEAN += curl
+
+
+#------------------------------------
+# WIP
+# dependent: zlib, openssl
+#
+openssh_DIR = $(PROJDIR)/package/openssh
+openssh_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(openssh_DIR)
+openssh_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    --disable-strip --disable-etc-default-login \
+    CPPFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+openssh: openssh_;
+
+openssh_dir:
+	git clone git://anongit.mindrot.org/openssh.git $(openssh_DIR)
+
+openssh_clean openssh_distclean:
+	if [ -f $(openssh_DIR)/Makefile ]; then \
+	  $(openssh_MAKE) $(patsubst _%,%,$(@:openssh%=%)); \
+	fi
+
+openssh_makefile:
+	if [ ! -e $(openssh_DIR)/configure ]; then \
+	  cd $(openssh_DIR) && autoreconf -fiv; \
+	fi
+	cd $(openssh_DIR) && $(openssh_CFGENV) ./configure $(openssh_CFGPARAM)
+
+openssh%:
+	if [ ! -d $(openssh_DIR) ]; then \
+	  $(MAKE) openssh_dir; \
+	fi
+	if [ ! -e $(openssh_DIR)/Makefile ]; then \
+	  $(MAKE) openssh_makefile; \
+	fi
+	$(openssh_MAKE) $(patsubst _%,%,$(@:openssh%=%))
+
+CLEAN += openssh
+
+#------------------------------------
+# WIP
+# dependent: openssl
+#
+socat_DIR = $(PROJDIR)/package/socat
+socat_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(socat_DIR)
+socat_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    CPPFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+socat: socat_;
+
+socat_dir:
+	cd $(dir $(socat_DIR)) && \
+	  wget http://www.dest-unreach.org/socat/download/socat-2.0.0-b8.tar.bz2 && \
+	  tar -jxvf socat-2.0.0-b8.tar.bz2 && \
+	  ln -sf socat-2.0.0-b8 $(socat_DIR)
+
+socat_clean socat_distclean:
+	if [ -f $(socat_DIR)/Makefile ]; then \
+	  $(socat_MAKE) $(patsubst _%,%,$(@:socat%=%)); \
+	fi
+
+socat_makefile:
+	cd $(socat_DIR) && $(socat_CFGENV) ./configure $(socat_CFGPARAM)
+
+socat%:
+	if [ ! -d $(socat_DIR) ]; then \
+	  $(MAKE) socat_dir; \
+	fi
+	if [ ! -e $(socat_DIR)/Makefile ]; then \
+	  $(MAKE) socat_makefile; \
+	fi
+	$(socat_MAKE) $(patsubst _%,%,$(@:socat%=%))
+
+CLEAN += socat
 
 #------------------------------------
 # apt: gettext
@@ -1394,6 +2077,69 @@ glib: | $(glib_BUILDDIR)/build.ninja
 GENPYVENV+=meson ninja
 
 #------------------------------------
+# WIP
+# dependent: libcap util-linux
+# remove *.la in library before build 
+# 
+systemd_DIR = $(PROJDIR)/package-dev/systemd
+systemd_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(systemd_DIR)
+systemd_CFGPARAM = --prefix=/ --host=`$(CC) -dumpmachine` \
+    --with-default-dnssec=no \
+    $(addprefix --without-,python kill-user-processes) \
+    $(addprefix --disable-,nls dbus xkbcommon seccomp ima selinux apparmor) \
+    $(addprefix --disable-,adm-group wheel-group xz zlib lz4 pam acl) \
+    $(addprefix --disable-,smack gcrypt audit elfutils libcryptsetup qrencode) \
+    $(addprefix --disable-,gnutls microhttpd libcurl libidn libiptc binfmt) \
+    $(addprefix --disable-,vconsole quotacheck tmpfiles sysusers firstboot) \
+    $(addprefix --disable-,randomseed backlight rfkill logind machined importd) \
+    $(addprefix --disable-,hostnamed timedated timesyncd localed coredump) \
+    $(addprefix --disable-,polkit resolved networkd efi kdbus myhostname hwdb) \
+    $(addprefix --disable-,manpages hibernate ldconfig) \
+    --enable-split-usr \
+    PYTHON=python3 $(PKG_CONFIG_ENV) \
+    BLKID_LIBS="-luuid -lblkid" \
+    MOUNT_LIBS="-luuid -lblkid -lmount" \
+    LIBS="-lcap -luuid -lblkid -lmount" \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -I$(DESTDIR)/usr/include -fPIC" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -L$(DESTDIR)/usr/lib"
+
+systemd: systemd_;
+
+systemd_dir:
+	cd $(dir $(systemd_DIR)) && \
+	  wget --progress=bar -N https://github.com/systemd/systemd/archive/v230.tar.gz \
+	      -O systemd-v230.tar.gz && \
+	  tar -zxvf systemd-v230.tar.gz && \
+	  ln -sf systemd-230 $(systemd_DIR)
+
+systemd_clean systemd_distclean:
+	if [ -e $(systemd_DIR)/Makefile ]; then \
+	  $(systemd_MAKE) $(patsubst _%,%,$(@:systemd%=%)); \
+	fi
+
+systemd_configure:
+	cd $(systemd_DIR) && \
+	  ./autogen.sh
+
+systemd_makefile:
+	if [ ! -e $(systemd_DIR)/configure ]; then \
+	  $(MAKE) systemd_configure; \
+	fi
+	cd $(systemd_DIR) && \
+	  $(systemd_CFGENV) ./configure $(systemd_CFGPARAM)
+
+systemd%:
+	if [ ! -d $(systemd_DIR) ]; then \
+	  $(MAKE) systemd_dir; \
+	fi
+	if [ ! -e $(systemd_DIR)/Makefile ]; then \
+	  $(MAKE) systemd_makefile; \
+	fi
+	$(systemd_MAKE) $(patsubst _%,%,$(@:systemd%=%))
+
+CLEAN += systemd
+
+#------------------------------------
 #
 mosquitto_DEP=openssl cjson
 mosquitto_DIR=$(PKGDIR2)/mosquitto
@@ -1479,6 +2225,168 @@ wpasup_%: $(wpasup_BUILDDIR)/wpa_supplicant/.config
 	$(wpasup_MAKE) $(PARALLEL_BUILD) $(@:wpasup_%=%)
 
 #------------------------------------
+# WIP
+#
+libical_DIR = $(PROJDIR)/package/libical
+libical_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(libical_DIR)/build
+libical_CFGENV = CC=$(CC) CXX=$(C++) \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+libical_CFGPARAM = -DCMAKE_INSTALL_PREFIX=/
+
+libical: libical_;
+
+libical_dir:
+	git clone https://github.com/libical/libical.git $(libical_DIR)
+
+libical_clean:
+	if [ -e $(libical_DIR)/build/Makefile ]; then \
+	  $(libical_MAKE) $(patsubst _%,%,$(@:libical%=%)); \
+	fi
+
+libical_distclean:
+	$(RM) $(libical_DIR)/build
+
+libical_makefile:
+	$(MKDIR) $(libical_DIR)/build && cd $(libical_DIR)/build && \
+	  $(libical_CFGENV) cmake $(libical_CFGPARAM) ..
+
+libical%:
+	if [ ! -d $(libical_DIR) ]; then \
+	  $(MAKE) libical_dir; \
+	fi
+	if [ ! -e $(libical_DIR)/build/Makefile ]; then \
+	  $(MAKE) libical_makefile; \
+	fi
+	$(libical_MAKE) $(patsubst _%,%,$(@:libical%=%))
+
+CLEAN += libical
+
+#------------------------------------
+# WIP
+# dependent: glib readline, libical, dbus
+#
+bluez_DIR = $(PROJDIR)/package/bluez
+bluez_MAKE = $(MAKE) DESTDIR=$(DESTDIR) V=1 -C $(bluez_DIR)
+bluez_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    --with-pic $(addprefix --enable-,static threads pie) \
+    $(addprefix --disable-,test udev cups systemd) \
+    --enable-library \
+    --with-dbusconfdir=/etc \
+    --with-dbussystembusdir=/share/dbus-1/system-services \
+    --with-dbussessionbusdir=/share/dbus-1/services \
+    GLIB_CFLAGS="-I$(DESTDIR)/include/glib-2.0 -I$(DESTDIR)/lib/glib-2.0/include" \
+    GLIB_LIBS="-L$(DESTDIR)/lib -lglib-2.0" \
+    GTHREAD_CFLAGS="-I$(DESTDIR)/include/glib-2.0" \
+    GTHREAD_LIBS="-L$(DESTDIR)/lib -lgthread-2.0" \
+    DBUS_CFLAGS="-I$(DESTDIR)/include/dbus-1.0 -I$(DESTDIR)/lib/dbus-1.0/include" \
+    DBUS_LIBS="-L$(DESTDIR)/lib -ldbus-1" \
+    ICAL_CFLAGS="-I$(DESTDIR)/include" \
+    ICAL_LIBS="-L$(DESTDIR)/lib -lical -licalss -licalvcal -lpthread" \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -lncurses"
+
+bluez: bluez_;
+
+bluez_dir:
+	cd $(dir $(bluez_DIR)) && \
+	  wget http://www.kernel.org/pub/linux/bluetooth/bluez-5.37.tar.xz && \
+	  tar -Jxvf bluez-5.37.tar.xz && \
+	  ln -sf bluez-5.37 $(bluez_DIR)
+
+$(addprefix bluez_,clean distclean): ;
+	if [ -e $(bluez_DIR)/Makefile ]; then \
+	  $(bluez_MAKE) $(patsubst _%,%,$(@:bluez%=%)); \
+	fi
+
+bluez_makefile:
+	cd $(bluez_DIR) && ./configure $(bluez_CFGPARAM)
+
+bluez%:
+	if [ ! -d $(bluez_DIR) ]; then \
+	  $(MAKE) bluez_dir; \
+	fi
+	if [ ! -e $(bluez_DIR)/Makefile ]; then \
+	  $(MAKE) bluez_makefile; \
+	fi
+	$(bluez_MAKE) $(patsubst _%,%,$(@:bluez%=%))
+	if [ "$(patsubst _%,%,$(@:bluez%=%))" = "install" ]; then \
+	  [ -d $(DESTDIR)/etc/bluetooth ] || $(MKDIR) $(DESTDIR)/etc/bluetooth; \
+	  $(CP) $(bluez_DIR)/src/main.conf $(DESTDIR)/etc/bluetooth/; \
+	fi
+
+CLEAN += bluez
+
+#------------------------------------
+# WIP
+#
+python_DIR = $(PROJDIR)/package/python
+python_MAKE = $(MAKE) DESTDIR=$(DESTDIR) \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
+    -C $(python_DIR)
+python_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+    --build=`gcc -dumpmachine` --disable-ipv6 ac_cv_file__dev_ptmx=yes \
+    ac_cv_file__dev_ptc=no \
+    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
+    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+
+python: python_;
+
+$(addprefix python_,clean distclean): ;
+	if [ -e $(python_DIR)/Makefile ]; then \
+	  $(python_MAKE) $(patsubst _%,%,$(@:python%=%)); \
+	fi
+
+python_dir: ;
+	cd $(dir $(python_DIR)) && \
+	  wget https://www.python.org/ftp/python/3.5.1/Python-3.5.1.tar.xz && \
+	  tar -Jxvf Python-3.5.1.tar.xz && \
+	  ln -sf Python-3.5.1 $(notdir $(python_DIR))
+
+python_makefile:
+	$(CP) $(PROJDIR)/config/python/Makefile.pre.in $(python_DIR)/
+	cd $(python_DIR) && \
+	  $(python_CFGENV) ./configure $(python_CFGPARAM)
+
+python-host = $(PROJDIR)/tool/bin/python $(PROJDIR)/tool/bin/pgen \
+    $(PROJDIR)/tool/bin/_freeze_importlib
+
+python-host: $(python-host);
+
+$(python-host):
+	if [ ! -d $(python_DIR) ]; then \
+	  $(MAKE) python_dir; \
+	fi
+	if [ -e $(python_DIR)/Makefile ]; then \
+	  $(MAKE) -C $(python_DIR) distclean; \
+	fi
+	cd $(python_DIR) && ./configure --prefix=
+	$(MAKE) DESTDIR=$(PWD)/tool -C $(python_DIR) Parser/pgen \
+	    Programs/_freeze_importlib install
+	$(MAKE) CROSS_COMPILE= SRCFILE="pgen" SRCDIR="$(python_DIR)/Parser" \
+	    DESTDIR=$(PROJDIR)/tool/bin dist-cp
+	$(MAKE) CROSS_COMPILE= SRCDIR="$(python_DIR)/Programs" \
+	    SRCFILE="_freeze_importlib _testembed" \
+	    DESTDIR=$(PROJDIR)/tool/bin dist-cp
+	ln -sf python3 $(PROJDIR)/tool/bin/python
+	$(MAKE) -C $(python_DIR) distclean
+
+python%: $(python-host)
+	echo "in python"
+	if [ ! -d $(python_DIR) ]; then \
+	  $(MAKE) python_dir; \
+	fi
+	if [ ! -f $(python_DIR)/Makefile ]; then \
+	  $(MAKE) python_makefile; \
+	fi
+	$(python_MAKE) PGEN=$(PWD)/tool/bin/pgen \
+	    PFRZIMP=$(PWD)/tool/bin/_freeze_importlib \
+	    $(patsubst _%,%,$(@:python%=%))
+
+CLEAN += python
+
+#------------------------------------
 #
 dummy_DIR=$(PROJDIR)/package/dummy1
 
@@ -1539,7 +2447,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    tmux mmcutils mtdutils glib wpasup mosquitto)
+	    glib tmux mmcutils mtdutils wpasup mosquitto)
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
