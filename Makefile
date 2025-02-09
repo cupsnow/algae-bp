@@ -489,7 +489,7 @@ cjson_defconfig $(cjson_BUILDDIR)/Makefile: | $(cjson_BUILDDIR)
 	rsync -a $(RSYNC_VERBOSE) $(cjson_DIR)/* $(cjson_BUILDDIR)/
 
 cjson_install: DESTDIR=$(BUILD_SYSROOT)
-cjson_install: | $(cjson_BUILDDIR)/Makefile
+cjson_install: cjson | $(cjson_BUILDDIR)/Makefile
 	$(cjson_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
 
 $(eval $(call DEF_DESTDEP,cjson))
@@ -2411,7 +2411,7 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 
 CMD_GENROOT_EXT4= \
   $(RMTREE) $(2) \
-    && truncate -s $(or $(3),255M) $(2) \
+    && truncate -s $(or $(3),300M) $(2) \
     && fakeroot mkfs.ext4 -Fq -d $(1) $(2)
 
 # dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk

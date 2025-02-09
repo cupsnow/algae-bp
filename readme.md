@@ -15,6 +15,7 @@
   - [write uboot to emmc](#write-uboot-to-emmc)
 - [yocto](#yocto)
   - [step](#step)
+- [todo](#todo)
 - [Garage](#garage)
 
 ## beagleplay Ready Source
@@ -189,6 +190,11 @@ Reference
    bitbake core-image-minimal --runall=fetch
    ```
 
+## todo
+
+- RPi NoIR Camera V2 based on IMX219
+- Waveshare 2.9inch e-Paper
+- hdmi framebuffer
 
 ## Garage
 
