@@ -1,20 +1,10 @@
-# Set the minimum required version of CMake
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required([[VERSION]] [[3.10]])
+project([[cmake01]] [[VERSION]] [[1.0.0]] [[LANGUAGES]] [[CXX]])
+set([[CMAKE_CXX_STANDARD_17]])
+set([[CMAKE_CXX_STANDARD_REQUIRED]] [[True]])
 
-# Project name
-project(cm01 VERSION 1.0 LANGUAGES CXX)
+include_directories([[include]])
+add_library(libcmake01 STATIC SHARED utils.cpp utils.h)
 
-# Enable C++11 or a later standard
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
-
-# Include directories (if any)
-include_directories(include)
-
-add_library(libcm01 SHARED STATIC utils.cpp utils.h)
-
-# Define the executable and specify source files
-add_executable(cm01 main.cpp utils.cpp utils.h)
-
-# Optionally, link against libraries if needed
-target_link_libraries(cm01 libcm01)
+add_executable(cmake01 main.cpp utils.cpp utils.h)
+# target_link_libries(cmake01 libcmake01)

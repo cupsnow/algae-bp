@@ -14,10 +14,10 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
 
-# ti_linux
-APP_ATTR_bp?=bp
+# ti_linux wl18xx
+APP_ATTR_bp?=bp wl18xx
 
-APP_ATTR_qemuarm64?=qemuarm64
+APP_ATTR_qemuarm64?=qemuarm64 wl18xx
 
 APP_PLATFORM?=bp
 
@@ -495,7 +495,8 @@ cjson_install: | $(cjson_BUILDDIR)/Makefile
 $(eval $(call DEF_DESTDEP,cjson))
 
 cjson: | $(cjson_BUILDDIR)/Makefile
-	$(cjson_MAKE) $(PARALLEL_BUILD) shared static
+	$(cjson_MAKE) $(PARALLEL_BUILD) static
+	$(cjson_MAKE) $(PARALLEL_BUILD) shared
 
 cjson_%: | $(cjson_BUILDDIR)/Makefile
 	$(cjson_MAKE) $(PARALLEL_BUILD) $(@:cjson_%=%)
@@ -586,7 +587,7 @@ attr_%: | $(attr_BUILDDIR)/Makefile
 
 #------------------------------------
 # WIP
-# 
+#
 libcap_BUILDDIR = $(BUILDDIR)/libcap
 # CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
 # LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
@@ -1214,8 +1215,8 @@ libffi_%: | $(libffi_BUILDDIR)/Makefile
 # WIP
 # patch configure.ac
 #   marked AC_TRY_RUN
-# dependent: ncurses 
-# 
+# dependent: ncurses
+#
 screen_DIR = $(PROJDIR)/package/screen
 screen_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(screen_DIR)/src
 screen_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
@@ -1643,6 +1644,72 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD) $(@:libnl_%=%)
 
 #------------------------------------
+#
+wl18xx_DIR=$(PKGDIR2)/18xx-ti-utils
+wl18xx_BUILDDIR=$(BUILDDIR2)/18xx-ti-utils
+wl18xx_DEP+=libnl
+wl18xx_CFLAGS+=-DCONFIG_LIBNL32 -I$(BUILD_SYSROOT)/include/libnl3 -Wall
+wl18xx_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib
+wl18xx_LIBS+=-lm -lnl-3 -lnl-genl-3
+wl18xx_fw_DIR=$(PKGDIR2)/wl18xx_fw
+
+wl18xx_MAKE_ARGS+=CFLAGS="$(wl18xx_CFLAGS)" LDFLAGS="$(wl18xx_LDFLAGS)" \
+	LIBS="$(wl18xx_LIBS)"
+
+wl18xx_MAKE=$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) $(wl18xx_MAKE_ARGS) \
+    -C $(wl18xx_BUILDDIR)
+
+wl18xx_wlconf_MAKE=$(MAKE) CC=$(CC) $(wl18xx_MAKE_ARGS) \
+    -C $(wl18xx_BUILDDIR)/wlconf
+
+wl18xx_defconfig $(wl18xx_BUILDDIR)/Makefile:
+	git clone --depth=1 $(wl18xx_DIR) $(wl18xx_BUILDDIR)
+	cd $(wl18xx_BUILDDIR) \
+	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/wl18xx-*.patch))); do \
+	      patch -p1 --verbose <$${i}; \
+	  done
+
+wl18xx_install: DESTDIR=$(BUILD_SYSROOT)
+wl18xx_install: wl18xx
+	$(MKDIR) $(DESTDIR)/root/wl18xx/wlconf/official_inis \
+	  $(DESTDIR)/lib/firmware/ti-connectivity
+	rsync -a $(RSYNC_VERBOSE) \
+	  $(wl18xx_BUILDDIR)/calibrator \
+	  $(wl18xx_BUILDDIR)/uim \
+	  $(DESTDIR)/root/wl18xx/
+	rsync -a $(RSYNC_VERBOSE) \
+	  $(wl18xx_BUILDDIR)/wlconf/wlconf \
+	  $(wl18xx_BUILDDIR)/wlconf/dictionary.txt \
+	  $(wl18xx_BUILDDIR)/wlconf/struct.bin \
+	  $(wl18xx_BUILDDIR)/wlconf/default.conf \
+	  $(wl18xx_BUILDDIR)/wlconf/wl18xx-conf-default.bin \
+	  $(wl18xx_BUILDDIR)/wlconf/example.conf \
+	  $(wl18xx_BUILDDIR)/wlconf/example.ini \
+	  $(wl18xx_BUILDDIR)/wlconf/configure-device.sh \
+	  $(DESTDIR)/root/wl18xx/wlconf/
+	rsync -a $(RSYNC_VERBOSE) \
+	  $(wl18xx_BUILDDIR)/wlconf/official_inis/* \
+	  $(DESTDIR)/root/wl18xx/wlconf/official_inis/
+	rsync -a $(RSYNC_VERBOSE) \
+	  $(wl18xx_BUILDDIR)/wlconf/wl18xx-conf-default.bin \
+	  $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-conf.bin
+	rsync -a $(RSYNC_VERBOSE) \
+	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw.bin \
+	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-2.bin \
+	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-3.bin \
+	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-4.bin \
+	  $(DESTDIR)/lib/firmware/ti-connectivity/
+	rsync -a $(RSYNC_VERBOSE) \
+	  $(wl18xx_fw_DIR)/wl18xx-fw-4.bin \
+	  $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin_2
+
+$(eval $(call DEF_DESTDEP,wl18xx))
+
+wl18xx: | $(wl18xx_BUILDDIR)/Makefile
+	$(wl18xx_MAKE) static uim
+	$(wl18xx_wlconf_MAKE)
+
+#------------------------------------
 # WIP
 #
 iperf_DIR = $(PROJDIR)/package/iperf
@@ -1990,8 +2057,8 @@ GENPYVENV+=meson ninja
 #------------------------------------
 # WIP
 # dependent: libcap util-linux
-# remove *.la in library before build 
-# 
+# remove *.la in library before build
+#
 systemd_DIR = $(PROJDIR)/package-dev/systemd
 systemd_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(systemd_DIR)
 systemd_CFGPARAM = --prefix=/ --host=`$(CC) -dumpmachine` \
@@ -2301,15 +2368,29 @@ CLEAN += python
 #
 dummy_DIR=$(PROJDIR)/package/dummy1
 
+host_dummy1:
+	$(MAKE) APP_PLATFORM=ub20 $(@:host_%=%)
+
 dummy1:
-	$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) -C $(dummy_DIR)
+	$(MAKE) $(foreach var, \
+	    PROJDIR CROSS_COMPILE APP_PLATFORM APP_ATTR, \
+		$(var)="$($(var))") -C $(dummy_DIR)
 
 #------------------------------------
 #
-cmake_test1_DIR=$(PROJDIR)/package/cmake_test1
+cmake01_DIR=$(PROJDIR)/package/cmake01
+cmake01_BUILDDIR=$(BUILDDIR)/cmake01
+cmake01_MAKE=$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) \
+    -C $(cmake01_BUILDDIR)
 
-cmake_test1:
-	$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) -C $(cmake_test1_DIR)
+cmake01_defconfig $(cmake01_BUILDDIR)/Makefile: | $(cmake01_BUILDDIR)
+	cd $(cmake01_BUILDDIR) && \
+	  cmake $(cmake01_DIR)
+
+GENDIR+=$(cmake01_BUILDDIR)
+
+cmake01: | $(cmake01_BUILDDIR)/Makefile
+	$(cmake01_MAKE)
 
 #------------------------------------
 #
@@ -2359,6 +2440,10 @@ dist_rootfs_phase1:
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
 	    glib tmux mmcutils mtdutils wpasup mosquitto)
+ifneq ($(strip $(filter wl18xx,$(APP_ATTR))),)
+	$(MAKE) $(addsuffix _destdep_install, \
+	    wl18xx)
+endif
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
@@ -2380,10 +2465,11 @@ dist_rootfs_phase2:
 	ln -sfn /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
 	ln -sfn /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
 	rsync -L $(RSYNC_VERBOSE) $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
-ifeq (1,1)
-	$(MAKE) dummy1
-	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/dummy1/tester_syslog $(DESTDIR)/root/
-endif
+	{ \
+	  $(foreach var, \
+	    APP_PLATFORM APP_ATTR, \
+	    echo "$(var)=$($(var))";) \
+	} >$(DESTDIR)/etc/algae.conf
 
 dist-qemuarm64_phase1:
 	$(MAKE) uboot linux $(kernelrelease)
@@ -2578,6 +2664,17 @@ pyvenv $(PYVENVDIR):
 	python3 -m venv $@
 	. $(PYVENVDIR)/bin/activate \
 	  && pip3 install $(sort $(GENPYVENV))
+
+ENVSH_VAR+=PROJDIR BUILDDIR PKGDIR PKGDIR2 BUILDDIR2 APP_BUILD
+ENVSH_VAR+=TOOLCHAIN_PATH CROSS_COMPILE TOOLCHAIN_SYSROOT BUILD_SYSROOT
+ENVSH_VAR+=PYVENVDIR
+
+.PHONY: env
+envsh: ENVSH?=env.sh
+envsh:
+	@{ \
+	  $(foreach i,$(ENVSH_VAR),echo $i=$($i) &&) \
+	  echo ""; } >$(ENVSH)
 
 #------------------------------------
 #

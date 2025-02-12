@@ -8,12 +8,14 @@
  *
  * @author joelai
  *
- * @file /algae-bp/package/dummy1/priv.h
- * @brief priv
+ * @file /algae-bp/package/aloe/include/aloe/log.h
+ * @brief log
  */
 
-#ifndef PRIV_H_
-#define PRIV_H_
+#ifndef LOG_H_
+#define LOG_H_
+
+#include <time.h>
 
 #include <aloe/sys.h>
 
@@ -21,7 +23,7 @@
 extern "C" {
 #endif
 
-#  define log_m(_lvl, _msg, _args...) do { \
+#  define aloe_log_m(_lvl, _msg, _args...) do { \
 	struct timespec ts; \
 	struct tm tm; \
 	clock_gettime(CLOCK_REALTIME, &ts); \
@@ -32,8 +34,8 @@ extern "C" {
 			_lvl, __func__, __LINE__, ##_args); \
 	fflush(stdout); \
 } while(0)
-#  define log_d(...) log_m("Debug", __VA_ARGS__)
-#  define log_e(...) log_m("ERROR", __VA_ARGS__)
+#  define aloe_log_d(...) aloe_log_m("Debug", __VA_ARGS__)
+#  define aloe_log_e(...) aloe_log_m("ERROR", __VA_ARGS__)
 
 #ifdef __cplusplus
 } /* extern "C" */
@@ -42,4 +44,4 @@ extern "C" {
 
 
 
-#endif /* PRIV_H_ */
+#endif /* LOG_H_ */

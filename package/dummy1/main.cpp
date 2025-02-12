@@ -14,11 +14,12 @@
 
 int main(int argc, const char **argv) {
 
-	log_d("%s\n", algae_version(NULL));
+	log_d("%s\n", aloe_version(NULL, 0));
 
 	for (int i = 0; i < argc; i++) {
-		std::cout << "argv[" << i + 1 << "/" << argc << "]: " << argv[i]
-			  << std::endl;
+//		std::cout << "argv[" << i + 1 << "/" << argc << "]: " << argv[i]
+//			  << std::endl;
+		log_d("argv[%d/%d]: %s\n", i + 1, argc, argv[i]);
 	}
 	return 0;
 }
