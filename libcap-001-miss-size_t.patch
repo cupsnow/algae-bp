@@ -1,0 +1,12 @@
+diff --git a/psx/psx_calls.c b/psx/psx_calls.c
+index f48d068..3801f34 100644
+--- a/psx/psx_calls.c
++++ b/psx/psx_calls.c
+@@ -7,6 +7,7 @@
+  * because its use of kernel headers conflicts badly with the more
+  * traditional *libc provided headers.
+  */
++#include <stddef.h>
+ #include <linux/signal.h>
+ #include <string.h>
+ #include <sys/syscall.h>

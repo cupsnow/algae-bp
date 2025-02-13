@@ -586,39 +586,34 @@ attr_%: | $(attr_BUILDDIR)/Makefile
 	$(attr_MAKE) $(PARALLEL_BUILD) $(@:attr_%=%)
 
 #------------------------------------
-# WIP
 #
-libcap_BUILDDIR = $(BUILDDIR)/libcap
-# CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
-# LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
-# BUILD_CFLAGS=""
+libcap_DIR=$(PKGDIR2)/libcap
+libcap_BUILDDIR = $(BUILDDIR2)/libcap-$(APP_BUILD)
+libcap_MAKE=$(MAKE) prefix="" lib=lib GOLANG="" CROSS_COMPILE=$(CROSS_COMPILE) \
+    BUILD_CC=gcc -C $(libcap_BUILDDIR)
 
-libcap_MAKE = $(MAKE) CC=$(CC) BUILD_CC=gcc AR=$(AR) RANLIB=$(RANLIB) \
-    prefix=/ lib=lib RAISE_SETFCAP=no PAM_CAP=no \
-    DESTDIR=$(DESTDIR) -C $(libcap_BUILDDIR)
+libcap_defconfig $(libcap_BUILDDIR)/Makefile:
+	git clone --depth=1 $(libcap_DIR) $(libcap_BUILDDIR)
+	cd $(libcap_BUILDDIR) \
+	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/libcap-*.patch))); do \
+	      patch -p1 --verbose <$${i}; \
+	  done
 
-libcap_download:
-	$(MKDIR) $(PKGDIR)
-	git clone git://git.kernel.org/pub/scm/linux/kernel/git/morgan/libcap.git $(PKGDIR)/libcap
+libcap_install: DESTDIR=$(BUILD_SYSROOT)
+libcap_install: | $(libcap_BUILDDIR)/Makefile
+	$(libcap_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libcap libpsx)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
-libcap_makefile:
-	$(MKDIR) $(dir $(libcap_BUILDDIR))
-	cd $(dir $(libcap_BUILDDIR)) && git clone $(PKGDIR)/libcap $(libcap_BUILDDIR)
+$(eval $(call DEF_DESTDEP,libcap))
 
-libcap_distclean:
-	$(RM) $(libcap_BUILDDIR)
+libcap: | $(libcap_BUILDDIR)/Makefile
+	$(libcap_MAKE)
 
-libcap: libcap_;
-libcap%:
-	if [ ! -d $(PKGDIR)/libcap ]; then \
-	  $(MAKE) libcap_download; \
-	fi
-	if [ ! -f $(libcap_BUILDDIR)/Makefile ]; then \
-	  $(MAKE) libcap_makefile; \
-	fi
-	$(libcap_MAKE) $(patsubst _%,%,$(@:libcap%=%))
-
-CLEAN += libcap
+libcap_%: | $(libcap_BUILDDIR)/Makefile
+	$(libcap_MAKE) $(@:libcap_%=%)
 
 #------------------------------------
 #
@@ -665,43 +660,42 @@ acl_%: | $(acl_BUILDDIR)/Makefile
 
 #------------------------------------
 # WIP
+# dep: apt gperf
 # dep: libcap
 #
-coreutils_BUILDDIR=$(BUILDDIR)/coreutils
-coreutils_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(coreutils_BUILDDIR)
+coreutils_DIR=$(PKGDIR2)/coreutils
+coreutils_BUILDDIR=$(BUILDDIR2)/coreutils-$(APP_PLATFORM)
+coreutils_MAKE=$(MAKE) -C $(coreutils_BUILDDIR)
 
-coreutils_download:
-	$(MKDIR) $(PKGDIR)
-	cd $(PKGDIR) && \
-	  wget -N http://ftp.gnu.org/gnu/coreutils/coreutils-8.26.tar.xz && \
-	  tar -Jxvf $(PKGDIR)/coreutils-8.26.tar.xz
+coreutils_INCDIR+=$(BUILD_SYSROOT)/include
+coreutils_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 
-coreutils_distclean:
-	$(RM) $(coreutils_BUILDDIR)
+GENDIR+=$(coreutils_BUILDDIR)
 
-coreutils_makefile:
-	$(MKDIR) $(coreutils_BUILDDIR)
-	cd $(coreutils_BUILDDIR) && $(PKGCONFIG_ENV) $(PKGDIR)/coreutils-8.26/configure \
-	    --prefix= --host=`$(CC) -dumpmachine` \
-	    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-	    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+$(coreutils_DIR)/configure:
+	cd $(coreutils_DIR) \
+	  && ./bootstrap --gen
 
-coreutils_clean:
-	if [ -f $(coreutils_BUILDDIR)/Makefile ]; then \
-	  $(coreutils_MAKE) $(patsubst _%,%,$(@:coreutils%=%))
-	fi
+coreutils_defconfig $(coreutils_BUILDDIR)/Makefile: | $(coreutils_DIR)/configure $(coreutils_BUILDDIR)
+	cd $(coreutils_BUILDDIR) \
+	  && $(coreutils_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      CPPFLAGS="$(addprefix -I,$(coreutils_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(coreutils_LIBDIR)) $(addprefix -l,$(coreutils_LIBS))" \
+	      $(coreutils_ACARGS_$(APP_PLATFORM))
 
-coreutils: coreutils_;
-coreutils%:
-	if [ ! -d $(PKGDIR)/coreutils-8.26 ]; then \
-	  $(MAKE) coreutils_download; \
-	fi
-	if [ ! -f $(coreutils_BUILDDIR)/Makefile ]; then \
-	  $(MAKE) coreutils_makefile; \
-	fi
-	$(coreutils_MAKE) $(patsubst _%,%,$(@:coreutils%=%))
+coreutils_install: DESTDIR=$(DESTDIR)
+coreutils_install: | $(coreutils_BUILDDIR)/Makefile
+	$(coreutils_MAKE) DESTDIR=$(DESTDIR) $(PARALLEL_BUILD) install
 
-CLEAN += coreutils
+$(eval $(call DEF_DESTDEP,coreutils))
+
+coreutils: | $(coreutils_BUILDDIR)/Makefile
+	$(coreutils_MAKE) $(PARALLEL_BUILD)
+
+coreutils_%: | $(coreutils_BUILDDIR)/Makefile
+	$(coreutils_MAKE) $(PARALLEL_BUILD) $(@:coreutils_%=%)
+
 
 #------------------------------------
 # apply utilinux libuuid, libblkid
@@ -1646,7 +1640,7 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 #------------------------------------
 #
 wl18xx_DIR=$(PKGDIR2)/18xx-ti-utils
-wl18xx_BUILDDIR=$(BUILDDIR2)/18xx-ti-utils
+wl18xx_BUILDDIR=$(BUILDDIR2)/18xx-ti-utils-$(APP_BUILD)
 wl18xx_DEP+=libnl
 wl18xx_CFLAGS+=-DCONFIG_LIBNL32 -I$(BUILD_SYSROOT)/include/libnl3 -Wall
 wl18xx_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib
