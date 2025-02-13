@@ -6,7 +6,7 @@ _pri_tag="udhcpc-default[$$]"
 
 log_d "$0 $*"
 
-# _pri_udhcpc_log="/var/run/udhcpc-default.log"
+_pri_udhcpc_log="/var/run/udhcpc-default.log"
 # [ -f "$_pri_udhcpc_log" ] && rm $_pri_udhcpc_log
 
 _pri_udhcpc_log=${_pri_udhcpc_log:-/dev/null}

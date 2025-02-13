@@ -11,3 +11,16 @@ index 8b534a9..43d5dbc 100644
  
  int get_mac_addr(int ifc_num, unsigned char *mac_addr);
  
+diff --git a/uim_rfkill/uim.c b/uim_rfkill/uim.c
+index 9fd42bf..2844a3c 100644
+--- a/uim_rfkill/uim.c
++++ b/uim_rfkill/uim.c
+@@ -27,6 +27,8 @@
+ #include <stdlib.h>
+ #include <sys/stat.h>
+ #include <sys/utsname.h>
++#include <unistd.h>
++#include <time.h>
+ #ifdef ANDROID
+ #include <private/android_filesystem_config.h>
+ #include <cutils/log.h>

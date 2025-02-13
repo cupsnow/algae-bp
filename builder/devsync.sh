@@ -78,6 +78,12 @@ wpa_wait () {
 gen_wpa_def () {
   _lo_wpacfg="${1:-wpa_supplicant.conf}"
 
+  # shellcheck disable=SC2154
+  if [ -f "$_pri_wpa_base" ]; then
+    cp "$_pri_wpa_base" "$_lo_pri_wpa_conf"
+    return
+  fi
+
   cat <<EOWPADEF > "$_lo_wpacfg"
 country=US
 ctrl_interface=/var/run/wpa_supplicant
@@ -85,7 +91,7 @@ update_config=1
 EOWPADEF
 }
 
-gen_wpa_net () {
+gen_wpa_conf () {
   _lo_netcfg=${1:-wpa_network.txt}
   _lo_ssid=$2
   _lo_pw=$3
@@ -696,13 +702,13 @@ while test -n "$1"; do
     ;;
   sh|sh[2-3])
     nfsmount || exit
-    lo_tgt="func_involved network"
-    lo_tgt="${lo_tgt} S??_network sysemb S??_sysemb persist S??_persist"
+    lo_tgt="etc/init.d/func_involved"
+    lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
     for i in $lo_tgt; do
-      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/etc/init.d/${i} ]; then
-        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/etc/init.d/${i} /etc/init.d/
+      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/${i} ]; then
+        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/${i} /${i}
       else
-        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/etc/init.d/${i} /etc/init.d/
+        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/${i} /${i}
       fi
     done
     ;;

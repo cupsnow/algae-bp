@@ -1644,7 +1644,7 @@ wl18xx_BUILDDIR=$(BUILDDIR2)/18xx-ti-utils-$(APP_BUILD)
 wl18xx_DEP+=libnl
 wl18xx_CFLAGS+=-DCONFIG_LIBNL32 -I$(BUILD_SYSROOT)/include/libnl3 -Wall
 wl18xx_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib
-wl18xx_LIBS+=-lm -lnl-3 -lnl-genl-3
+wl18xx_LIBS+=-lm -lnl-3 -lnl-genl-3 #-lrt -lgcc_s
 wl18xx_fw_DIR=$(PKGDIR2)/wl18xx_fw
 
 wl18xx_MAKE_ARGS+=CFLAGS="$(wl18xx_CFLAGS)" LDFLAGS="$(wl18xx_LDFLAGS)" \
@@ -1666,42 +1666,46 @@ wl18xx_defconfig $(wl18xx_BUILDDIR)/Makefile:
 wl18xx_install: DESTDIR=$(BUILD_SYSROOT)
 wl18xx_install: wl18xx
 	$(MKDIR) $(DESTDIR)/root/wl18xx/wlconf/official_inis \
-	  $(DESTDIR)/lib/firmware/ti-connectivity
+	    $(DESTDIR)/lib/firmware/ti-connectivity
 	rsync -a $(RSYNC_VERBOSE) \
-	  $(wl18xx_BUILDDIR)/calibrator \
-	  $(wl18xx_BUILDDIR)/uim \
-	  $(DESTDIR)/root/wl18xx/
+	    $(wl18xx_BUILDDIR)/calibrator \
+	    $(wl18xx_BUILDDIR)/uim \
+	    $(DESTDIR)/root/wl18xx/
 	rsync -a $(RSYNC_VERBOSE) \
-	  $(wl18xx_BUILDDIR)/wlconf/wlconf \
-	  $(wl18xx_BUILDDIR)/wlconf/dictionary.txt \
-	  $(wl18xx_BUILDDIR)/wlconf/struct.bin \
-	  $(wl18xx_BUILDDIR)/wlconf/default.conf \
-	  $(wl18xx_BUILDDIR)/wlconf/wl18xx-conf-default.bin \
-	  $(wl18xx_BUILDDIR)/wlconf/example.conf \
-	  $(wl18xx_BUILDDIR)/wlconf/example.ini \
-	  $(wl18xx_BUILDDIR)/wlconf/configure-device.sh \
-	  $(DESTDIR)/root/wl18xx/wlconf/
+	    $(wl18xx_BUILDDIR)/wlconf/wlconf \
+	    $(wl18xx_BUILDDIR)/wlconf/dictionary.txt \
+	    $(wl18xx_BUILDDIR)/wlconf/struct.bin \
+	    $(wl18xx_BUILDDIR)/wlconf/default.conf \
+	    $(wl18xx_BUILDDIR)/wlconf/wl18xx-conf-default.bin \
+	    $(wl18xx_BUILDDIR)/wlconf/example.conf \
+	    $(wl18xx_BUILDDIR)/wlconf/example.ini \
+	    $(wl18xx_BUILDDIR)/wlconf/configure-device.sh \
+	    $(DESTDIR)/root/wl18xx/wlconf/
 	rsync -a $(RSYNC_VERBOSE) \
-	  $(wl18xx_BUILDDIR)/wlconf/official_inis/* \
-	  $(DESTDIR)/root/wl18xx/wlconf/official_inis/
+	    $(wl18xx_BUILDDIR)/wlconf/official_inis/* \
+	    $(DESTDIR)/root/wl18xx/wlconf/official_inis/
 	rsync -a $(RSYNC_VERBOSE) \
-	  $(wl18xx_BUILDDIR)/wlconf/wl18xx-conf-default.bin \
-	  $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-conf.bin
+	    $(wl18xx_BUILDDIR)/wlconf/wl18xx-conf-default.bin \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-conf.bin
 	rsync -a $(RSYNC_VERBOSE) \
-	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw.bin \
-	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-2.bin \
-	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-3.bin \
-	  $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-4.bin \
-	  $(DESTDIR)/lib/firmware/ti-connectivity/
+	    $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw.bin \
+	    $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-2.bin \
+	    $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-3.bin \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/
 	rsync -a $(RSYNC_VERBOSE) \
-	  $(wl18xx_fw_DIR)/wl18xx-fw-4.bin \
-	  $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin_2
+	    $(ti-linux-fw_DIR)/ti-connectivity/wl18xx-fw-4.bin \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin-ti-linux-fw
+	rsync -a $(RSYNC_VERBOSE) \
+	    $(wl18xx_fw_DIR)/wl18xx-fw-4.bin \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin-wl18xx_fw
+	ln -sf wl18xx-fw-4.bin-wl18xx_fw \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin
 
 $(eval $(call DEF_DESTDEP,wl18xx))
 
 wl18xx: | $(wl18xx_BUILDDIR)/Makefile
-	$(wl18xx_MAKE) static uim
-	$(wl18xx_wlconf_MAKE)
+	$(wl18xx_MAKE) all uim
+	$(wl18xx_wlconf_MAKE) -j1
 
 #------------------------------------
 # WIP
