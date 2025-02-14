@@ -10,6 +10,7 @@
  *
  * @file aloe/util.h
  * @brief util
+ *
  */
 
 #ifndef _H_ALOE_UTIL
@@ -17,25 +18,20 @@
 
 /** @mainpage
  *
- * -  Library status
- *    -  [x] Startup
- *    -  [ ] List2
+ * -  Overview
+ *    -  Meet the subsystem. `CPPFLAGS+=-DALOE_SYS_LINUX=1`
+ *    -  `#include <aloe/sys.h>`
+ *    -  include another aloe header.
  *
- * -  TODO
- *    -  ub20
- *    -  freertos
+ * -  Development
+ *    -  Project layout
+ *    -  API docs
  *
- * @defgroup ALOE ALOE
- * @brief Function out of specific function.
+ * @defgroup ALOE aloe
+ * @brief Function without specified section.
  *
- * desc for aloe
- *
- * @defgroup ALOE_SYS SYSTEM
- * @brief Function for system
- *
- * @defgroup ALOE_LINUX LINUX
- * @ingroup ALOE_SYS
- * @brief Function for linux
+ * @defgroup ALOE_SYS System
+ * @brief System specified function.
  *
  */
 
@@ -102,6 +98,7 @@ aloe_buf_t* aloe_buf_rewind(aloe_buf_t *buf);
 		(_ss) %= (_scale); \
 	}
 
+/** A - B . */
 #define ALOE_TIMESEC_CMP(_a_sec, _a_ss, _b_sec, _b_ss) ( \
 	((_a_sec) > (_b_sec)) ? 1 : \
 	((_a_sec) < (_b_sec)) ? -1 : \
@@ -109,6 +106,10 @@ aloe_buf_t* aloe_buf_rewind(aloe_buf_t *buf);
 	((_a_ss) < (_b_ss)) ? -1 : \
 	0)
 
+/** C = A - B .
+ *
+ * Expect A >= B
+ */
 #define ALOE_TIMESEC_SUB(_a_sec, _a_ss, _b_sec, _b_ss, _c_sec, _c_ss, _scale) \
 	if ((_a_ss) < (_b_ss)) { \
 		(_c_sec) = (_a_sec) - (_b_sec) - 1; \
@@ -118,6 +119,11 @@ aloe_buf_t* aloe_buf_rewind(aloe_buf_t *buf);
 		(_c_ss) = (_a_ss) - (_b_ss); \
 	}
 
+/** C = A + B .
+ *
+ * Expect normalized A and B.
+ * Output will be normalized.
+ */
 #define ALOE_TIMESEC_ADD(_a_sec, _a_ss, _b_sec, _b_ss, _c_sec, _c_ss, _scale) \
 	do { \
 		(_c_sec) = (_a_sec) + (_b_sec); \

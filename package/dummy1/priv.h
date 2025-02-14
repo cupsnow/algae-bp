@@ -40,6 +40,4 @@ extern "C" {
 #endif
 
 
-
-
 #endif /* PRIV_H_ */

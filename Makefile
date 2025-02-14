@@ -14,15 +14,15 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
 
-# ti_linux wl18xx
-APP_ATTR_bp?=bp wl18xx
+# ti_linux
+APP_ATTR_bp?=bp
 
-APP_ATTR_qemuarm64?=qemuarm64 wl18xx
+APP_ATTR_qemuarm64?=qemuarm64 
 
 APP_PLATFORM?=bp
 
-# locale_posix2c
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM))
+# locale_posix2c coreutils wl18xx
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils wl18xx
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -133,43 +133,22 @@ CMD_DEPSHOW=$(if $($(1)_DEP), \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1),$($(1)_DEP)), \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1)))
 
-depshow:
-	@echo "USAGE: make [-s] [$(@)_<PKG> | depdot_<PKG>]"
-
-depshow_%:
-	@$(call CMD_DEPSHOW,$(@:depshow_%=%))
-
-# DEPDOT_NAME=$(subst $(SPACE),,$(firstword $(1)) $(words $(1)))
-DEPDOT_NAME=$(firstword $(1))$(words $(1))
-
-# depdot: DEPDOT_PKGS=glib mtdutils
-depdot: depdot_name=$(call DEPDOT_NAME,$(DEPDOT_PKGS))
-depdot:
-	@if [ -z "$(DEPDOT_PKGS)" ]; then \
-	  echo "USAGE: make -s --no-print-directory \"DEPDOT_PKGS=<PKGS>\" $@"; \
-	  echo ""; \
-	  false; \
-	fi
-	@echo "digraph $(depdot_name) {"
-	@$(foreach iter,$(DEPDOT_PKGS),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT))
-	@echo "}"
-
-depdotshow: depdot_name=$(call DEPDOT_NAME,$(DEPDOT_PKGS))
-depdotshow:
-	@if [ -z "$(DEPDOT_PKGS)" ]; then \
-	  echo "USAGE: make -s --no-print-directory \"DEPDOT_PKGS=<PKGS>\" $@"; \
-	  echo ""; \
-	  false; \
-	fi
-	$(MAKE) -s --no-print-directory DEPDOT_PKGS="$(DEPDOT_PKGS)" depdot \
-	    >$(BUILDDIR)/dep-$(depdot_name).dot
-	dot -Tsvg $(BUILDDIR)/dep-$(depdot_name).dot >$(BUILDDIR)/dep-$(depdot_name).svg
-	xdg-open $(BUILDDIR)/dep-$(depdot_name).svg
+DEPDOT_ID=$(firstword $(1))$(if $(word 2,$(1)),_$(words $(1))more)
 
 depgraph: DEPDOT_PKGS+=glib tmux mmcutils mtdutils wpasup mosquitto
-depgraph: depdot_name=depgraph
+depgraph: DEPDOT_PKGS+=coreutils
+depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(DEPDOT_PKGS))
 depgraph:
-	$(MAKE) DEPDOT_PKGS="$(DEPDOT_PKGS)" depdotshow
+	@{ \
+	  echo "digraph $(DEPDOT_ID2) {" \
+	  && $(foreach iter,$(DEPDOT_PKGS),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT)) \
+	  echo "}"; \
+	} >$(BUILDDIR)/dep-$(DEPDOT_ID2).dot
+	dot -Tsvg $(BUILDDIR)/dep-$(DEPDOT_ID2).dot >$(BUILDDIR)/dep-$(DEPDOT_ID2).svg
+	xdg-open $(BUILDDIR)/dep-$(DEPDOT_ID2).svg
+
+depgraph_%:
+	$(MAKE) DEPDOT_PKGS="$(@:depgraph_%=%)" depgraph
 
 #------------------------------------
 #
@@ -502,51 +481,37 @@ cjson_%: | $(cjson_BUILDDIR)/Makefile
 	$(cjson_MAKE) $(PARALLEL_BUILD) $(@:cjson_%=%)
 
 #------------------------------------
-# WIP
 #
-json-c_BUILDDIR=$(BUILDDIR)/json-c
-json-c_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(json-c_BUILDDIR)
+jsonc_DIR=$(PKGDIR2)/json-c
+jsonc_BUILDDIR=$(BUILDDIR2)/json-c
+jsonc_MAKE=$(MAKE) -C $(jsonc_BUILDDIR)
 
-json-c_download:
-	$(MKDIR) $(PKGDIR)
-	git clone https://github.com/json-c/json-c.git $(PKGDIR)/json-c
+jsonc_defconfig $(jsonc_BUILDDIR)/Makefile:
+	$(MKDIR) $(jsonc_BUILDDIR)
+	cd $(jsonc_BUILDDIR) \
+	  && cmake \
+	      -DCMAKE_TOOLCHAIN_FILE=$(BUILDDIR)/corss_aarch64.cmake \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
+		  $(jsonc_DIR)
 
-json-c_patch:
-	cd $(PKGDIR)/json-c && \
-	  patch -c -p2 <$(PROJDIR)/ext/json-c.patch
+jsonc_install: DESTDIR=$(BUILD_SYSROOT)
+jsonc_install: jsonc
+	$(MKDIR) $(jsonc_BUILDDIR)
+	cd $(jsonc_BUILDDIR) \
+	  && cmake \
+	      -DCMAKE_TOOLCHAIN_FILE=$(BUILDDIR)/corss_aarch64.cmake \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
+		  $(jsonc_DIR)
+	$(jsonc_MAKE) DESTDIR= install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+	
+$(eval $(call DEF_DESTDEP,jsonc))
 
-json-c_distclean:
-	$(RM) $(json-c_BUILDDIR)
-
-json-c_configure:
-	cd $(PKGDIR)/json-c && ./autogen.sh
-
-json-c_makefile:
-	$(MKDIR) $(json-c_BUILDDIR)
-	cd $(json-c_BUILDDIR) && $(PKGDIR)/json-c/configure --prefix= \
-	    --host=`$(CC) -dumpmachine` $(json-c_CFGPARAM) --with-pic \
-	    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-	    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-
-json-c_clean:
-	if [ -e $(json-c_BUILDDIR)/Makefile ]; then \
-	  $(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%)); \
-	fi
-
-json-c: json-c_;
-json-c%:
-	if [ ! -d $(PKGDIR)/json-c ]; then \
-	  $(MAKE) json-c_download; \
-	fi
-	if [ ! -x $(PKGDIR)/json-c/configure ]; then \
-	  $(MAKE) json-c_configure; \
-	fi
-	if [ ! -e $(json-c_BUILDDIR)/Makefile ]; then \
-	  $(MAKE) json-c_makefile; \
-	fi
-	$(json-c_MAKE) $(patsubst _%,%,$(@:json-c%=%))
-
-CLEAN+=json-c
+jsonc: | $(jsonc_BUILDDIR)/Makefile
+	$(jsonc_MAKE) 
 
 #------------------------------------
 #
@@ -659,12 +624,12 @@ acl_%: | $(acl_BUILDDIR)/Makefile
 	$(acl_MAKE) $(PARALLEL_BUILD) $(@:acl_%=%)
 
 #------------------------------------
-# WIP
+# build released tar file
 # dep: apt gperf
-# dep: libcap
 #
+coreutils_DEP+=libcap
 coreutils_DIR=$(PKGDIR2)/coreutils
-coreutils_BUILDDIR=$(BUILDDIR2)/coreutils-$(APP_PLATFORM)
+coreutils_BUILDDIR=$(BUILDDIR2)/coreutils-$(APP_BUILD)
 coreutils_MAKE=$(MAKE) -C $(coreutils_BUILDDIR)
 
 coreutils_INCDIR+=$(BUILD_SYSROOT)/include
@@ -2371,7 +2336,7 @@ host_dummy1:
 
 dummy1:
 	$(MAKE) $(foreach var, \
-	    PROJDIR CROSS_COMPILE APP_PLATFORM APP_ATTR, \
+	    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR, \
 		$(var)="$($(var))") -C $(dummy_DIR)
 
 #------------------------------------
@@ -2437,7 +2402,11 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    glib tmux mmcutils mtdutils wpasup mosquitto)
+	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc)
+ifneq ($(strip $(filter coreutils,$(APP_ATTR))),)
+	$(MAKE) $(addsuffix _destdep_install, \
+	    coreutils)
+endif
 ifneq ($(strip $(filter wl18xx,$(APP_ATTR))),)
 	$(MAKE) $(addsuffix _destdep_install, \
 	    wl18xx)

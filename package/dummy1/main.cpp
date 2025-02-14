@@ -13,8 +13,21 @@
 #include "priv.h"
 
 int main(int argc, const char **argv) {
+	char *mm;
 
 	log_d("%s\n", aloe_version(NULL, 0));
+
+	mm = (char*)aloe_calloc(3, 2);
+	if (aloe_free(mm) != 0) {
+		log_e("Sanity check unexpected aloe_free\n");
+	}
+
+	mm = (char*)aloe_calloc(3, 2);
+	mm[6] = 'c';
+	log_d("expect report overflow\n");
+	if (aloe_free(mm) == 0) {
+		log_e("Sanity check unexpected aloe_free\n");
+	}
 
 	for (int i = 0; i < argc; i++) {
 //		std::cout << "argv[" << i + 1 << "/" << argc << "]: " << argv[i]

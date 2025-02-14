@@ -3,7 +3,7 @@
 PROJDIR?=$(PWD)
 include $(PROJDIR)/builder/proj.mk
 
-CPPFLAGS+=
+CPPFLAGS+=-g
 CFLAGS+=
 CXXFLAGS+=
 LDFLAGS+=
@@ -18,7 +18,7 @@ ARTIFACT_INSTALL:=
 #------------------------------------
 #
 dummy_DIR=.
-dummy_BUILDDIR=$(BUILDDIR)/dummy1-$(APP_PLATFORM)
+dummy_BUILDDIR=$(BUILDDIR)/dummy1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
 dummy_BIN=dummy1
 dummy_SRCS=main.cpp \
   $(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c)) \
@@ -49,13 +49,14 @@ $(dummy_BUILDDIR)/%.cpp.o: %.cpp
 	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(dummy_CPPFLAGS),$(CPPFLAGS)) \
 	    $(or $(dummy_CXXFLAGS),$(CXXFLAGS))
 
+doxygen: OUTPUT_DIRECTORY=$(BUILDDIR)/aloe-docs
 doxygen:
-	[ -d "$(dummy_BUILDDIR)/docs" ] || $(MKDIR) $(dummy_BUILDDIR)/docs
+	[ -d "$(OUTPUT_DIRECTORY)" ] || $(MKDIR) $(OUTPUT_DIRECTORY)
 	cd $(PROJDIR)/package/aloe && \
 	  { cat Doxyfile && \
 	  echo "PROJECT_NUMBER=0.0.1" && \
 	  echo "INPUT=include" &&  \
-	  echo "OUTPUT_DIRECTORY=$(dummy_BUILDDIR)/docs" && \
+	  echo "OUTPUT_DIRECTORY=$(OUTPUT_DIRECTORY)" && \
 	  echo ""; } | doxygen -
 
 #------------------------------------
