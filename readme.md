@@ -20,7 +20,8 @@
 
 ## beagleplay Ready Source
 
-linux-upstream: de0a9f4486337d0eabacc23bd67ff73146eacdc0
+<!-- linux-upstream: de0a9f4486337d0eabacc23bd67ff73146eacdc0 -->
+linux-upstream: 98f7e32f20d28ec452afb208f9cffc08448a2652 or v6.11
 ti-linux-firmware: 3987d170fc522565c5e4a9293aba1db75951b8c0
 u-boot-upstream: 8937bb265a7f2251c1bd999784a4ef10e9c6080d
 optee_os-upstream: 5e26ef8f6a9ced63160f8db93c38bb397603036b

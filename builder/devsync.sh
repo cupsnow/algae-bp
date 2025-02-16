@@ -77,6 +77,7 @@ wpa_wait () {
 
 gen_wpa_def () {
   _lo_wpacfg="${1:-wpa_supplicant.conf}"
+  _lo_country="${2:-US}"
 
   # shellcheck disable=SC2154
   if [ -f "$_pri_wpa_base" ]; then
@@ -85,7 +86,7 @@ gen_wpa_def () {
   fi
 
   cat <<EOWPADEF > "$_lo_wpacfg"
-country=US
+country=${_lo_country}
 ctrl_interface=/var/run/wpa_supplicant
 update_config=1
 EOWPADEF
@@ -222,8 +223,10 @@ wpa_conf () {
   _lo_netcfg="wpa_network.txt"
 
   gen_wpa_def "${_lo_wpacfg}" || { log_e "Failed generate $_lo_wpacfg"; return 1; }
-  gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_lo_netcfg"; return 1; }
-  cat "$_lo_netcfg" >> "$_lo_wpacfg"
+  if [ -n "${_lo_opt_ssid}" ]; then
+    gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_lo_netcfg"; return 1; }
+    cat "$_lo_netcfg" >> "$_lo_wpacfg"
+  fi
 }
 
 find_mount () {
@@ -532,6 +535,7 @@ OPTIONS
 COMMANDS
   wifi_conn <SSID> <PW> [open|wpa3-only]
   wpa_conf <SSID> <PW> [open|wpa3-only]
+  gen_wpa_def [country]
   flash_tiboot3 <tiboot3.bin>
   flash_tispl <tispl.bin>
   flash_uboot <u-boot.img>
@@ -702,7 +706,7 @@ while test -n "$1"; do
     ;;
   sh|sh[2-3])
     nfsmount || exit
-    lo_tgt="etc/init.d/func_involved"
+    lo_tgt="etc/init.d/func_involved etc/init.d/network"
     lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
     for i in $lo_tgt; do
       if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/${i} ]; then

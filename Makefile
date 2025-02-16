@@ -2390,7 +2390,7 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 
 CMD_GENROOT_EXT4= \
   $(RMTREE) $(2) \
-    && truncate -s $(or $(3),300M) $(2) \
+    && truncate -s $(or $(3),400M) $(2) \
     && fakeroot mkfs.ext4 -Fq -d $(1) $(2)
 
 # dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk
@@ -2589,7 +2589,7 @@ dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 #	fakeroot mkfs.ext4 -Fq -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
 #	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 300M)
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 

@@ -8,16 +8,25 @@ log_d "$0 $*"
 
 _pri_eth0=eth0
 
-ifce_start () {
+eth_start () {
   [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
   _lo_ifce=$1
   ifce_reset1 "${_lo_ifce}"
   ifconfig "${_lo_ifce}" 192.168.16.26
 }
 
+wlan_start () {
+  _lo_wpacfg="/media/persist/wpa_supplicant.conf"
+  _lo_country="US"
+
+  modprobe wl18xx || { echo "Failure modprobe wl18xx"; return 1; }
+  modprobe wlcore-sdio || { echo "Failure modprobe wlcore-sdio"; return 1; }
+}
+
 case "$1" in
 "start")
-  cmd_run ifce_start ${_pri_eth0}
+  cmd_run eth_start ${_pri_eth0}
+  cmd_run wlan_start
   ;;
 "stop")
   cmd_run ifce_down1 ${_pri_eth0}
