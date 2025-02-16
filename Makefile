@@ -17,7 +17,7 @@ APP_ATTR_ub20?=ub20
 # ti_linux
 APP_ATTR_bp?=bp
 
-APP_ATTR_qemuarm64?=qemuarm64 
+APP_ATTR_qemuarm64?=qemuarm64
 
 APP_PLATFORM?=bp
 
@@ -124,6 +124,13 @@ meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.
 	    $(BUILDDIR)/meson-aarch64.ini
 	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-aarch64.ini
 	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64.ini
+
+cmake_aarch64 $(BUILDDIR)/cross-aarch64.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
+	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/cross-aarch64.cmake \
+	    $(BUILDDIR)/cross-aarch64.cmake
+	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/cross-aarch64.cmake
+	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/cross-aarch64.cmake
+
 
 CMD_DEPSHOW_RULE=echo "$(1): $(2)";
 # CMD_DEPSHOW_DOT=$(foreach iter,$(2),echo "  $(iter) -> $(1)";)
@@ -483,23 +490,26 @@ cjson_%: | $(cjson_BUILDDIR)/Makefile
 #------------------------------------
 #
 jsonc_DIR=$(PKGDIR2)/json-c
-jsonc_BUILDDIR=$(BUILDDIR2)/json-c
+jsonc_BUILDDIR=$(BUILDDIR2)/json-c-$(APP_BUILD)
 jsonc_MAKE=$(MAKE) -C $(jsonc_BUILDDIR)
 
-jsonc_defconfig $(jsonc_BUILDDIR)/Makefile:
+jsonc_cross_cmake_bp=$(BUILDDIR)/cross-aarch64.cmake
+
+jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: $(jsonc_cross_cmake_$(APP_PLATFORM))
 	$(MKDIR) $(jsonc_BUILDDIR)
+	$(MAKE) jsonc_fingerprint
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
-	      -DCMAKE_TOOLCHAIN_FILE=$(BUILDDIR)/corss_aarch64.cmake \
+	      $(jsonc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE=%) \
 		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
 		  $(jsonc_DIR)
 
 jsonc_install: DESTDIR=$(BUILD_SYSROOT)
-jsonc_install: jsonc
+jsonc_install:
 	$(MKDIR) $(jsonc_BUILDDIR)
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
-	      -DCMAKE_TOOLCHAIN_FILE=$(BUILDDIR)/corss_aarch64.cmake \
+	      $(jsonc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE=%) \
 		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
 		  $(jsonc_DIR)
 	$(jsonc_MAKE) DESTDIR= install
@@ -507,11 +517,11 @@ ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
 endif
 	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
-	
+
 $(eval $(call DEF_DESTDEP,jsonc))
 
 jsonc: | $(jsonc_BUILDDIR)/Makefile
-	$(jsonc_MAKE) 
+	$(jsonc_MAKE)
 
 #------------------------------------
 #
