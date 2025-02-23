@@ -34,7 +34,7 @@ _pri_listok=""
 _pri_listfailed=""
 
 if [ -z "$_pri_ip" ]; then
-  _lo_ip="192.168.16.6"
+  _lo_ip="192.168.12.125"
   for i in $_lo_ip; do
     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
       _pri_ip=${i}
@@ -706,13 +706,14 @@ while test -n "$1"; do
     ;;
   sh|sh[2-3])
     nfsmount || exit
-    lo_tgt="etc/init.d/func_involved etc/init.d/network"
+    lo_tgt="etc/init.d/func_involved etc/init.d/eth etc/init.d/wifi"
+    lo_tgt="${lo_tgt} etc/init.d/persist"
     lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
     for i in $lo_tgt; do
-      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/${i} ]; then
-        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/${i} /${i}
+      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then
+        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" /"${i}"
       else
-        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/${i} /${i}
+        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/"${i}" /"${i}"
       fi
     done
     ;;

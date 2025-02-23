@@ -2,7 +2,7 @@
 
 . /etc/init.d/func
 
-_pri_tag="persist"
+_pri_tag="persist-initd"
 
 pri_persist_src=/dev/mmcblk0p4
 pri_persist_tgt=/media/persist

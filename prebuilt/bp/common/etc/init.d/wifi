@@ -1,0 +1,58 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="wifi-initd"
+
+log_d "$0 $*"
+
+_pri_ifce=wlan0
+_pri_udhcpc_pidfile=/var/run/udhcpc-${_pri_ifce}.pid
+_pri_wpasup_pidfile=/var/run/wpa_supplicant-${_pri_ifce}.pid
+_pri_wpacfg="/media/persist/wpa_supplicant.conf"
+_pri_country="US"
+
+wlan_start () {
+  cmd_run modprobe wl18xx || { echo "Failure modprobe wl18xx"; return 1; }
+  cmd_run modprobe wlcore-sdio || { echo "Failure modprobe wlcore-sdio"; return 1; }
+
+  if [ -f "$_pri_wpacfg" ]; then
+    cmd_run start-stop-daemon -S -n wpa_supplicant -b -m -p ${_pri_wpasup_pidfile} \
+        wpa_supplicant -- -Dnl80211 -i${_pri_ifce} -c${_pri_wpacfg}
+    cmd_run eval "sleep 5 && start-stop-daemon -S -n udhcpc -b -m -p ${_pri_udhcpc_pidfile} \
+        udhcpc -- -i ${_pri_ifce} -f &"
+  fi
+}
+
+wlan_stop () {
+  cmd_run start-stop-daemon -K -n wpa_supplicant -b -m -p ${_pri_wpasup_pidfile} \
+      wpa_supplicant -- -Dnl80211 -i${_pri_ifce} -c${_pri_wpacfg}
+  cmd_run start-stop-daemon -K -n udhcpc -b -m -p ${_pri_udhcpc_pidfile} \
+      udhcpc -- -i ${_pri_ifce} -f
+
+  # modprobe -r wl18xx
+  # modprobe -r wlcore-sdio
+}
+
+case "$1" in
+"start")
+  cmd_run wlan_start
+  ;;
+"stop")
+  cmd_run wlan_stop
+  ;;
+"restart")
+  $0 stop && $0 start
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    $(basename "$0") [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

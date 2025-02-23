@@ -1,0 +1,46 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="eth-initd"
+
+log_d "$0 $*"
+
+_pri_ifce=eth0
+_pri_udhcpc_pidfile=/var/run/udhcpc-${_pri_ifce}.pid
+
+eth_start () {
+  cmd_run ifce_reset1 "${_pri_ifce}"
+  # cmd_run start-stop-daemon -S -n udhcpc -b -m -p ${_pri_udhcpc_pidfile} \
+  #     udhcpc -- -i ${_pri_ifce} -f
+  cmd_run ifconfig "${_pri_ifce}" 192.168.16.26
+}
+
+eth_stop () {
+  cmd_run start-stop-daemon -K -n udhcpc -b -m -p ${_pri_udhcpc_pidfile} \
+        udhcpc -- -i ${_pri_ifce} -f
+  cmd_run ifce_down1 ${_pri_ifce}
+}
+
+case "$1" in
+"start")
+  cmd_run eth_start
+  ;;
+"stop")
+  cmd_run eth_stop
+  ;;
+"restart")
+  $0 stop && $0 start
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    $(basename "$0") [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac
