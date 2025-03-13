@@ -175,10 +175,31 @@ extern "C"
 int aloe_sem_wait(aloe_sem_t *sem, unsigned long dur_sec, unsigned long dur_us,
 		char from_isr) {
 	int r;
+	struct timespec ts, ts_due;
 
 	(void)from_isr;
 
 	aloe_mutex_lock_infinite(&sem->mutex);
+
+#if 0
+	// for timedwait
+	if (dur_sec != -1ul && dur_us != -1ul) {
+		if (clock_gettime(CLOCK_REALTIME, &ts_due) != 0) return errno;
+		dur_us *= 1000ul;
+		ALOE_TIMESEC_ADD(ts_due.tv_sec, ts_due.tv_nsec, dur_sec, dur_us,
+				ts_due.tv_sec, ts_due.tv_nsec, 1000000000ul);
+		do {
+			if (sem->cnt != 0) {
+				sem->cnt--;
+				r = 0;
+				goto finally;
+			}
+
+			wait_remain_time();
+		} while (!timeout());
+	}
+#endif
+
 	while (sem->cnt == 0) {
 		if ((r = aloe_cond_wait(&sem->not_empty, &sem->mutex,
 				dur_sec, dur_us)) != 0) {

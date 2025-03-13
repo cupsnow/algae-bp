@@ -96,6 +96,10 @@ _func_modifier int _name ## _lock (unsigned long dur_sec, unsigned long dur_us) 
 _func_modifier int _name ## _unlock (void) { return _name ## _lock(-2ul, -2ul); } \
 _func_modifier int _name ## _lock_infinite (void) { return _name ## _lock(-1ul, -1ul); }
 
+/** Condition wait. */
+int aloe_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex,
+		unsigned long dur_sec, unsigned long dur_us);
+
 /** Identify length. */
 #define ALOE_THREAD_NAME_SIZE 20
 

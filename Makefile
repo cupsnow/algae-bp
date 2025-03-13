@@ -44,10 +44,12 @@ ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
+$(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
 else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
+$(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
 else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
@@ -493,14 +495,13 @@ jsonc_DIR=$(PKGDIR2)/json-c
 jsonc_BUILDDIR=$(BUILDDIR2)/json-c-$(APP_BUILD)
 jsonc_MAKE=$(MAKE) -C $(jsonc_BUILDDIR)
 
-jsonc_cross_cmake_bp=$(BUILDDIR)/cross-aarch64.cmake
+jsonc_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
 
-jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: $(jsonc_cross_cmake_$(APP_PLATFORM))
+jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: $(jsonc_cross_cmake_$(APP_BUILD))
 	$(MKDIR) $(jsonc_BUILDDIR)
-	$(MAKE) jsonc_fingerprint
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
-	      $(jsonc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	      $(jsonc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
 		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
 		  $(jsonc_DIR)
 
@@ -509,7 +510,7 @@ jsonc_install:
 	$(MKDIR) $(jsonc_BUILDDIR)
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
-	      $(jsonc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	      $(jsonc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
 		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
 		  $(jsonc_DIR)
 	$(jsonc_MAKE) DESTDIR= install

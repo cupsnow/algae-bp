@@ -40,7 +40,7 @@ query_nic_model () {
   run_qemu -net nic,model=?  
 }
 
-start_uboot1 () {
+start_uboot () {
   _lo_cmd_qemu="${cmd_qemu_bootroot1}"
   _lo_dtb="${_pri_destdir}/boot/qemuarm64.dtb"
   _lo_ub="${_pri_destdir}/boot/u-boot.bin"
@@ -57,7 +57,7 @@ start_uboot1 () {
     "$@"
 }
 
-start_kernel1 () {
+start_kernel () {
   # shellcheck disable=SC2086
   _lo_cmd_qemu="${cmd_qemu_bootroot2}"
   _lo_kernel="${_pri_destdir}/boot/Image"
@@ -84,9 +84,9 @@ OPTIONS
 COMMAND
   run_qemu
     - Run: $_lo_cmd_qemu
-  start_uboot1
+  start_uboot
     - Start guest with uboot image
-  start_kernel1
+  start_kernel
     - Start guest with kernel image and rootfs
   query_nic_model
     - Query the guest support NIC model
