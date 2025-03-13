@@ -34,7 +34,7 @@ _pri_listok=""
 _pri_listfailed=""
 
 if [ -z "$_pri_ip" ]; then
-  _lo_ip="192.168.12.125"
+  _lo_ip="192.168.16.6 192.168.12.125"
   for i in $_lo_ip; do
     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
       _pri_ip=${i}
@@ -627,6 +627,18 @@ while test -n "$1"; do
     sync; sync
     exit
     ;;
+  spi|spioff)
+    if [ "${opt1#spi}" = "off" ]; then
+      for i in spi-omap2-mcspi spidev; do
+        modprobe -r $i
+      done
+      exit
+    fi
+    for i in spi-omap2-mcspi spidev; do
+      modprobe  $i
+    done
+    exit
+    ;;
   bl|bl[2-3])
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
@@ -634,38 +646,49 @@ while test -n "$1"; do
     # flash_tispl "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" || exit
     # flash_uboot "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" || exit
 
-    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" \
-        /media/mmcblk0p1/tispl.bin \
+    cmd_run cp -Hv "${_pri_nfsalgaebp}/destdir/bp/boot/boot/dtb/k3-am625-beagleplay.dtb" \
+        "/media/mmcblk0p1/boot/dtb/" \
       || { log_e "Failed"; exit 1; }
 
-    cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" \
-        /media/mmcblk0p1/u-boot.img \
-      || { log_e "Failed"; exit 1; }
-
-    cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
-        /media/mmcblk0p1/uboot.env \
-      && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
-        /media/mmcblk0p1/uboot-redund.env \
+    cmd_run cp -Hv "${_pri_nfsalgaews}/build/linux-bp/arch/arm64/boot/Image" \
+        "${_pri_nfsalgaews}/build/linux-bp/arch/arm64/boot/Image.gz" \
+        "/media/mmcblk0p1/boot/" \
       || { log_e "Failed"; exit 1; }
 
     if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 2 ]; then
+      cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" \
+          /media/mmcblk0p1/tispl.bin \
+        || { log_e "Failed"; exit 1; }
+
+      cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" \
+          /media/mmcblk0p1/u-boot.img \
+        || { log_e "Failed"; exit 1; }
+
+      { cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+          /media/mmcblk0p1/uboot.env \
+        && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+          /media/mmcblk0p1/uboot-redund.env; } \
+        || { log_e "Failed"; exit 1; }
+    fi
+    if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 3 ]; then
       flash_tiboot3 "${_pri_nfsalgaews}/build/uboot-bp-r5/tiboot3-am62x-gp-evm.bin" || exit
     fi
     sync; sync
     exit
     ;;
-  ota|ota[1-3])
+  ota|ota[0-9])
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
     
+    _lo_rootfs="$(rootfs_cmdline)"
+    log_d "Check running rootfs ${_lo_rootfs}"
+
     if [ -z "${opt1#ota}" ]; then
-      _lo_rootfs="$(rootfs_cmdline)"
       if [ "${_lo_rootfs}" = "mmcblk0p2" ]; then
         opt1=ota3
       else
         opt1=ota2
       fi
-      log_d "_lo_rootfs ${_lo_rootfs} -> $opt1"
     fi
 
     if [ "${opt1#ota}" = "3" ]; then
@@ -673,6 +696,7 @@ while test -n "$1"; do
     elif [ "${opt1#ota}" = "2" ]; then
       pri_rootfs=mmcblk0p2
     elif [ "${opt1#ota}" = "1" ]; then
+      # to sdcard
       pri_rootfs=mmcblk1p2
     else
       log_e "Invalid argument"
@@ -714,6 +738,16 @@ while test -n "$1"; do
         nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" /"${i}"
       else
         nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/"${i}" /"${i}"
+      fi
+    done
+
+    lo_tgt="etc/skel/.profile"
+    lo_tgt="${lo_tgt}"
+    for i in $lo_tgt; do
+      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then
+        nfsget_n "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" /"${i}"
+      else
+        nfsget_n "${_pri_nfsalgaebp}"/prebuilt/common/"${i}" /"${i}"
       fi
     done
     ;;

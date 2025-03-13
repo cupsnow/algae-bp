@@ -386,14 +386,14 @@ linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 linux_defconfig-qemuarm64=defconfig
 
-ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
+ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
 	$(linux_MAKE) defconfig ti_arm64_prune.config
 else
-linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	if [ -f "$(PROJDIR)/linux-$(APP_PLATFORM).config" ]; then \
 	  cp -v $(PROJDIR)/linux-$(APP_PLATFORM).config $(linux_BUILDDIR)/.config \
 	    && yes "" | $(linux_MAKE) oldconfig; \
+	  $(linux_MAKE) prepare; \
 	else \
 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
@@ -506,7 +506,7 @@ jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: $(jsonc_cross_cmake_$(APP_BUILD))
 		  $(jsonc_DIR)
 
 jsonc_install: DESTDIR=$(BUILD_SYSROOT)
-jsonc_install:
+jsonc_install: | $(jsonc_cross_cmake_$(APP_BUILD))
 	$(MKDIR) $(jsonc_BUILDDIR)
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
@@ -1589,8 +1589,9 @@ libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUI
 	cd $(libnl_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(libnl_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
-		  --disable-mbedtls --with-pic \
+		  --disable-mbedtls --with-pic --verbose \
 	      $(libnl_ACARGS_$(APP_PLATFORM))
+	cp $(libnl_DIR)/*.sym $(libnl_BUILDDIR)/
 
 libnl_install: DESTDIR=$(BUILD_SYSROOT)
 libnl_install: | $(libnl_BUILDDIR)/Makefile
@@ -2159,10 +2160,16 @@ wpasup_MAKE=$(MAKE) CC=$(CC) LIBNL_INC="$(BUILD_SYSROOT)/include/libnl3" \
 GENDIR+=$(wpasup_BUILDDIR)
 
 wpasup_defconfig $(wpasup_BUILDDIR)/wpa_supplicant/.config: | $(wpasup_BUILDDIR)
-	[ -d $(wpasup_BUILDDIR) ] || $(MKDIR) $(wpasup_BUILDDIR)
-	rsync -a $(RSYNC_VERBOSE) $(hostap_DIR)/* $(wpasup_BUILDDIR)/
+	# [ -d $(wpasup_BUILDDIR) ] || $(MKDIR) $(wpasup_BUILDDIR)
+	# rsync -a $(RSYNC_VERBOSE) $(hostap_DIR)/* $(wpasup_BUILDDIR)/
+	rm -rf $(wpasup_BUILDDIR)
+	git clone $(hostap_DIR) $(wpasup_BUILDDIR)
 	rsync -aL $(RSYNC_VERBOSE) wpa_supplicant.config \
 	    $(wpasup_BUILDDIR)/wpa_supplicant/.config
+	cd $(wpasup_BUILDDIR) \
+	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/wpasup-*.patch))); do \
+	    patch -p1 --verbose <$${i}; \
+	  done; \
 
 wpasup_install: DESTDIR=$(BUILD_SYSROOT)
 wpasup_install: wpasup_all
@@ -2392,7 +2399,7 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 CMD_GENROOT_EXT4= \
   $(RMTREE) $(2) \
     && truncate -s $(or $(3),400M) $(2) \
-    && fakeroot mkfs.ext4 -Fq -d $(1) $(2)
+    && fakeroot mkfs.ext4 -F -d $(1) $(2)
 
 # dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk
 # dist_partdisk_phase1:
@@ -2507,7 +2514,7 @@ ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 dist_DTINCDIR+=$(linux_DIR)/arch/arm64/boot/dts/ti
 endif
 
-dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/dtb
+dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 dist-bp_dtb: DTBFILE=k3-am625-beagleplay.dtb
 dist-bp_dtb:
 	if [ -f "linux-$(APP_PLATFORM).dts" ]; then \
@@ -2531,7 +2538,7 @@ dist-bp_phase1:
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
 
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
@@ -2549,8 +2556,8 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
-	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti dist-bp_dtb
+	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb dist-bp_dtb
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 ifeq (1,1)
@@ -2578,6 +2585,7 @@ endif
 dist-bp_depmod:
 	$(busybox_DIR)/examples/depmod.pl \
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
+		$(if $(filter 1,$(CLIARGS_VERBOSE)),-v) \
 	    -F $(linux_BUILDDIR)/System.map
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti

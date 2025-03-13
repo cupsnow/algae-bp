@@ -15,7 +15,7 @@ _pri_country="US"
 wlan_start () {
   cmd_run modprobe wl18xx || { echo "Failure modprobe wl18xx"; return 1; }
   cmd_run modprobe wlcore-sdio || { echo "Failure modprobe wlcore-sdio"; return 1; }
-
+  sleep 1
   if [ -f "$_pri_wpacfg" ]; then
     cmd_run start-stop-daemon -S -n wpa_supplicant -b -m -p ${_pri_wpasup_pidfile} \
         wpa_supplicant -- -Dnl80211 -i${_pri_ifce} -c${_pri_wpacfg}
@@ -30,8 +30,8 @@ wlan_stop () {
   cmd_run start-stop-daemon -K -n udhcpc -b -m -p ${_pri_udhcpc_pidfile} \
       udhcpc -- -i ${_pri_ifce} -f
 
-  # modprobe -r wl18xx
-  # modprobe -r wlcore-sdio
+  modprobe -r wl18xx
+  modprobe -r wlcore-sdio
 }
 
 case "$1" in
