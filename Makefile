@@ -2031,66 +2031,53 @@ GENPYVENV+=meson ninja
 
 #------------------------------------
 # WIP
-# dependent: libcap util-linux
-# remove *.la in library before build
+# dependent: libcap util-linux libiconv
 #
-systemd_DIR = $(PROJDIR)/package-dev/systemd
-systemd_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(systemd_DIR)
-systemd_CFGPARAM = --prefix=/ --host=`$(CC) -dumpmachine` \
-    --with-default-dnssec=no \
-    $(addprefix --without-,python kill-user-processes) \
-    $(addprefix --disable-,nls dbus xkbcommon seccomp ima selinux apparmor) \
-    $(addprefix --disable-,adm-group wheel-group xz zlib lz4 pam acl) \
-    $(addprefix --disable-,smack gcrypt audit elfutils libcryptsetup qrencode) \
-    $(addprefix --disable-,gnutls microhttpd libcurl libidn libiptc binfmt) \
-    $(addprefix --disable-,vconsole quotacheck tmpfiles sysusers firstboot) \
-    $(addprefix --disable-,randomseed backlight rfkill logind machined importd) \
-    $(addprefix --disable-,hostnamed timedated timesyncd localed coredump) \
-    $(addprefix --disable-,polkit resolved networkd efi kdbus myhostname hwdb) \
-    $(addprefix --disable-,manpages hibernate ldconfig) \
-    --enable-split-usr \
-    PYTHON=python3 $(PKG_CONFIG_ENV) \
-    BLKID_LIBS="-luuid -lblkid" \
-    MOUNT_LIBS="-luuid -lblkid -lmount" \
-    LIBS="-lcap -luuid -lblkid -lmount" \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -I$(DESTDIR)/usr/include -fPIC" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -L$(DESTDIR)/usr/lib"
+systemd_DEP=libcap utilinux
+systemd_DIR=$(PKGDIR2)/systemd
+systemd_BUILDDIR?=$(BUILDDIR2)/systemd-$(APP_BUILD)
+systemd_MESON=. $(PYVENVDIR)/bin/activate && meson
 
-systemd: systemd_;
+systemd_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
+    -I$(BUILD_SYSROOT)/include/libmount \
+	-I$(BUILD_SYSROOT)/include/blkid
+systemd_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
+    -L$(BUILD_SYSROOT)/lib
+# systemd_ACARGS_LDFLAGS+=-liconv
+systemd_ACARGS_$(APP_PLATFORM)+=-Dstatic-libsystemd=true \
+    -Dstatic-libudev=true
+$(systemd_ACARGS_$(APP_PLATFORM))+=-Dstandalone-binaries=true
 
-systemd_dir:
-	cd $(dir $(systemd_DIR)) && \
-	  wget --progress=bar -N https://github.com/systemd/systemd/archive/v230.tar.gz \
-	      -O systemd-v230.tar.gz && \
-	  tar -zxvf systemd-v230.tar.gz && \
-	  ln -sf systemd-230 $(systemd_DIR)
+systemd_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+    $(BUILD_SYSROOT)/share/pkgconfig
 
-systemd_clean systemd_distclean:
-	if [ -e $(systemd_DIR)/Makefile ]; then \
-	  $(systemd_MAKE) $(patsubst _%,%,$(@:systemd%=%)); \
-	fi
+GENPYVENV+=meson ninja
 
-systemd_configure:
-	cd $(systemd_DIR) && \
-	  ./autogen.sh
+systemd_defconfig $(systemd_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) meson setup \
+	      -Dprefix=/ \
+		  -Dc_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_CPPFLAGS))" \
+	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_LDFLAGS))" \
+		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_CPPFLAGS))" \
+	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_LDFLAGS))" \
+		  -Dpkg_config_path="$(subst $(SPACE),:,$(systemd_ACARGS_PKGDIR))" \
+		  -Dtests=false \
+		  -Dinstall-tests=false \
+		  -Dselinux=disabled \
+		  $(systemd_ACARGS_$(APP_PLATFORM)) \
+		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  $(systemd_BUILDDIR) $(systemd_DIR)
 
-systemd_makefile:
-	if [ ! -e $(systemd_DIR)/configure ]; then \
-	  $(MAKE) systemd_configure; \
-	fi
-	cd $(systemd_DIR) && \
-	  $(systemd_CFGENV) ./configure $(systemd_CFGPARAM)
+systemd_install: DESTDIR=$(BUILD_SYSROOT)
+systemd_install: | $(systemd_BUILDDIR)/build.ninja
+	$(systemd_MESON) compile -C $(systemd_BUILDDIR)
+	$(systemd_MESON) install -C $(systemd_BUILDDIR) --destdir=$(DESTDIR)
 
-systemd%:
-	if [ ! -d $(systemd_DIR) ]; then \
-	  $(MAKE) systemd_dir; \
-	fi
-	if [ ! -e $(systemd_DIR)/Makefile ]; then \
-	  $(MAKE) systemd_makefile; \
-	fi
-	$(systemd_MAKE) $(patsubst _%,%,$(@:systemd%=%))
+$(eval $(call DEF_DESTDEP,systemd))
 
-CLEAN += systemd
+systemd: | $(systemd_BUILDDIR)/build.ninja
+	$(systemd_MESON) compile -C $(systemd_BUILDDIR)
 
 #------------------------------------
 #

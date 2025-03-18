@@ -199,6 +199,9 @@ Reference
 
 ## Garage
 
+- Check the ELF interpreter (dynamic linker, ie. ld-linux.so)
+  readelf -l /sbin/init | grep interpreter
+
 - u-boot comand collection
 
    fatls mmc 1:1

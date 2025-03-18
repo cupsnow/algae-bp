@@ -62,7 +62,8 @@ start_kernel () {
   _lo_cmd_qemu="${cmd_qemu_bootroot2}"
   _lo_kernel="${_pri_destdir}/boot/Image"
   _lo_bootargs="console=ttyAMA0 root=/dev/vda rw rootwait"
-  
+  _lo_bootargs="${_lo_bootargs:+${_lo_bootargs} }init=/sbin/init rdinit=/bin/sh debug"
+
   # shellcheck disable=SC2086
   cmd_run ${_lo_cmd_qemu} \
     -kernel ${_lo_kernel} \
