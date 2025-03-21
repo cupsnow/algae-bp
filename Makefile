@@ -1016,6 +1016,39 @@ $(eval $(call DEF_DESTDEP,locale))
 # 	# @$(call CMD_LOCALE_LIST,$(DESTDIR))
 
 #------------------------------------
+#
+sqlite3_DIR?=$(PKGDIR2)/sqlite
+sqlite3_BUILDDIR?=$(BUILDDIR2)/sqlite3-$(APP_BUILD)
+sqlite3_MAKE=$(MAKE) -C $(sqlite3_BUILDDIR)
+
+GENDIR+=$(sqlite3_BUILDDIR)
+
+sqlite3_defconfig $(sqlite3_BUILDDIR)/Makefile: | $(sqlite3_BUILDDIR)
+	cd $(sqlite3_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(sqlite3_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(sqlite3_ACARGS_$(APP_PLATFORM))
+
+sqlite3_install: DESTDIR=$(BUILD_SYSROOT)
+sqlite3_install: | $(sqlite3_BUILDDIR)/Makefile
+	$(sqlite3_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib64,sqlite3)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,sqlite3)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,sqlite3))
+
+sqlite3: | $(sqlite3_BUILDDIR)/Makefile
+	$(sqlite3_MAKE) $(PARALLEL_BUILD)
+
+sqlite3_%: | $(sqlite3_BUILDDIR)/Makefile
+	$(sqlite3_MAKE) $(PARALLEL_BUILD) $(@:sqlite3_%=%)
+
+#------------------------------------
 # https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz
 #
 libiconv_DIR?=$(PKGDIR2)/libiconv
