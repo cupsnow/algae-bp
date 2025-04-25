@@ -15,14 +15,14 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 APP_ATTR_ub20?=ub20
 
 # ti_linux
-APP_ATTR_bp?=bp
+APP_ATTR_bp?=bp wl18xx
 
 APP_ATTR_qemuarm64?=qemuarm64
 
 APP_PLATFORM?=bp
 
-# locale_posix2c coreutils wl18xx
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils wl18xx
+# locale_posix2c coreutils systemd
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils systemd
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -2433,6 +2433,16 @@ CMD_GENROOT_EXT4= \
 # 	<$(@).script fakeroot sfdisk --no-reread --no-tell-kernel $(DIST_PARTDISK_PHASE1_IMG)
 # 	sfdisk -d $(DIST_PARTDISK_PHASE1_IMG)
 
+ifneq ($(strip $(filter coreutils,$(APP_ATTR))),)
+dist_rootfs_phase1_pkg+=coreutils
+endif
+ifneq ($(strip $(filter wl18xx,$(APP_ATTR))),)
+dist_rootfs_phase1_pkg+=wl18xx
+endif
+ifneq ($(strip $(filter systemd,$(APP_ATTR))),)
+dist_rootfs_phase1_pkg+=systemd
+endif
+
 dist_rootfs_phase1:
 # build package and install to sysroot
 # packages are higher priority then busybox
@@ -2440,15 +2450,8 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc)
-ifneq ($(strip $(filter coreutils,$(APP_ATTR))),)
-	$(MAKE) $(addsuffix _destdep_install, \
-	    coreutils)
-endif
-ifneq ($(strip $(filter wl18xx,$(APP_ATTR))),)
-	$(MAKE) $(addsuffix _destdep_install, \
-	    wl18xx)
-endif
+	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc \
+		$(dist_rootfs_phase1_pkg))
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
@@ -2515,6 +2518,9 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+	mv -v $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/* $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+	rm -rf $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
+	ln -sf lib $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img)
 
