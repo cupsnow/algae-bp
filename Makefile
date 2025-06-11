@@ -635,6 +635,43 @@ acl_%: | $(acl_BUILDDIR)/Makefile
 	$(acl_MAKE) $(PARALLEL_BUILD) $(@:acl_%=%)
 
 #------------------------------------
+#
+libxcrypt_DIR=$(PKGDIR2)/libxcrypt
+libxcrypt_BUILDDIR=$(BUILDDIR2)/libxcrypt-$(APP_BUILD)
+libxcrypt_MAKE=$(MAKE) -C $(libxcrypt_BUILDDIR)
+
+$(libxcrypt_DIR)/configure: | $(libxcrypt_DIR)/autogen.sh
+	cd $(libxcrypt_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(libxcrypt_BUILDDIR)
+
+libxcrypt_defconfig $(libxcrypt_BUILDDIR)/Makefile: | $(libxcrypt_DIR)/configure $(libxcrypt_BUILDDIR)
+	cd $(libxcrypt_BUILDDIR) \
+	  && $(libxcrypt_DIR)/configure \
+	  --host=`$(CC) -dumpmachine` --prefix=
+
+libxcrypt_install: DESTDIR=$(BUILD_SYSROOT)
+libxcrypt_install: | $(libxcrypt_BUILDDIR)/Makefile
+	$(libxcrypt_MAKE) DESTDIR=$(DESTDIR) install
+
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libcrypt)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libcrypt)
+endif
+	$(call CMD_RM_EMPTYDIR,--ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,libxcrypt))
+
+libxcrypt: | $(libxcrypt_BUILDDIR)/Makefile
+	$(libxcrypt_MAKE) $(PARALLEL_BUILD)
+
+libxcrypt_%: | $(libxcrypt_BUILDDIR)/Makefile
+	$(libxcrypt_MAKE) $(PARALLEL_BUILD) $(@:libxcrypt_%=%)
+
+#------------------------------------
 # build released tar file
 # dep: apt gperf
 #
@@ -2063,10 +2100,55 @@ glib: | $(glib_BUILDDIR)/build.ninja
 GENPYVENV+=meson ninja
 
 #------------------------------------
-# WIP
-# dependent: libcap util-linux libiconv
 #
-systemd_DEP=libcap utilinux
+kmod_DEP=
+kmod_DIR=$(PKGDIR2)/kmod
+kmod_BUILDDIR?=$(BUILDDIR2)/kmod-$(APP_BUILD)
+kmod_MESON=. $(PYVENVDIR)/bin/activate && meson
+
+kmod_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include
+kmod_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
+    -L$(BUILD_SYSROOT)/lib
+kmod_ACARGS_$(APP_PLATFORM)+=
+
+kmod_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+    $(BUILD_SYSROOT)/share/pkgconfig
+
+GENPYVENV+=meson ninja
+
+kmod_defconfig $(kmod_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) meson setup \
+	      -Dprefix=/ \
+		  -Dc_args="$(subst $(SPACE),$(SPACE),$(kmod_ACARGS_CPPFLAGS))" \
+	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(kmod_ACARGS_LDFLAGS))" \
+		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(kmod_ACARGS_CPPFLAGS))" \
+	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(kmod_ACARGS_LDFLAGS))" \
+		  -Dpkg_config_path="$(subst $(SPACE),:,$(kmod_ACARGS_PKGDIR))" \
+		  -Dzstd=disabled \
+		  -Dxz=disabled \
+		  -Dmanpages=false \
+		  -Ddocs=false \
+		  $(kmod_ACARGS_$(APP_PLATFORM)) \
+		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  $(kmod_BUILDDIR) $(kmod_DIR)
+
+kmod_install: DESTDIR=$(BUILD_SYSROOT)
+kmod_install: | $(kmod_BUILDDIR)/build.ninja
+	$(kmod_MESON) compile -C $(kmod_BUILDDIR)
+	$(kmod_MESON) install -C $(kmod_BUILDDIR) --destdir=$(DESTDIR)
+
+$(eval $(call DEF_DESTDEP,kmod))
+
+kmod: | $(kmod_BUILDDIR)/build.ninja
+	$(kmod_MESON) compile -C $(kmod_BUILDDIR)
+
+
+
+
+#------------------------------------
+#
+systemd_DEP=libcap utilinux libxcrypt
 systemd_DIR=$(PKGDIR2)/systemd
 systemd_BUILDDIR?=$(BUILDDIR2)/systemd-$(APP_BUILD)
 systemd_MESON=. $(PYVENVDIR)/bin/activate && meson
@@ -2079,7 +2161,7 @@ systemd_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
 # systemd_ACARGS_LDFLAGS+=-liconv
 systemd_ACARGS_$(APP_PLATFORM)+=-Dstatic-libsystemd=true \
     -Dstatic-libudev=true
-$(systemd_ACARGS_$(APP_PLATFORM))+=-Dstandalone-binaries=true
+systemd_ACARGS_$(APP_PLATFORM)+=-Dstandalone-binaries=true
 
 systemd_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig
@@ -2364,6 +2446,87 @@ python%: $(python-host)
 	    $(patsubst _%,%,$(@:python%=%))
 
 CLEAN += python
+
+#------------------------------------
+#
+lighttpd_DIR?=$(PROJDIR)/package/lighttpd
+lighttpd_BUILDDIR?=$(BUILDDIR)/lighttpd-$(APP_BUILD)
+lighttpd_MAKE=$(MAKE) -C $(lighttpd_BUILDDIR)
+
+GENDIR+=$(lighttpd_BUILDDIR)
+
+$(lighttpd_DIR)/configure:
+	cd $(lighttpd_DIR) && ./autogen.sh
+
+lighttpd_defconfig $(lighttpd_BUILDDIR)/Makefile: | $(lighttpd_BUILDDIR) $(lighttpd_DIR)/configure
+	cd $(lighttpd_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(lighttpd_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(lighttpd_ACARGS_$(APP_PLATFORM))
+
+lighttpd_install: DESTDIR=$(BUILD_SYSROOT)
+lighttpd_install: | $(lighttpd_BUILDDIR)/Makefile
+	$(lighttpd_MAKE) DESTDIR=$(DESTDIR) install
+
+lighttpd: | $(lighttpd_BUILDDIR)/Makefile
+	$(lighttpd_MAKE) $(PARALLEL_BUILD)
+
+lighttpd_%: | $(lighttpd_BUILDDIR)/Makefile
+	$(lighttpd_MAKE) $(PARALLEL_BUILD) $(@:lighttpd_%=%)
+
+#------------------------------------
+#
+fcgi2_DIR?=$(PROJDIR)/package/fcgi2
+fcgi2_BUILDDIR?=$(BUILDDIR)/fcgi2-$(APP_BUILD)
+fcgi2_MAKE=$(MAKE) -C $(fcgi2_BUILDDIR)
+
+GENDIR+=$(fcgi2_BUILDDIR)
+
+$(fcgi2_DIR)/configure:
+	cd $(fcgi2_DIR) && ./autogen.sh
+
+fcgi2_defconfig $(fcgi2_BUILDDIR)/Makefile: | $(fcgi2_BUILDDIR) $(fcgi2_DIR)/configure
+	cd $(fcgi2_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(fcgi2_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(fcgi2_ACARGS_$(APP_PLATFORM))
+
+fcgi2_install: DESTDIR=$(BUILD_SYSROOT)
+fcgi2_install: | $(fcgi2_BUILDDIR)/Makefile
+	$(fcgi2_MAKE) DESTDIR=$(DESTDIR) install
+
+fcgi2: | $(fcgi2_BUILDDIR)/Makefile
+	$(fcgi2_MAKE) $(PARALLEL_BUILD)
+
+fcgi2_%: | $(fcgi2_BUILDDIR)/Makefile
+	$(fcgi2_MAKE) $(PARALLEL_BUILD) $(@:fcgi2_%=%)
+
+#------------------------------------
+# use mod_setenv to set LD_LIBRARY_PATH for cgi
+# DESTDIR=`pwd`/build/sysroot-ub20 LD_LIBRARY_PATH=`pwd`/build/sysroot-ub20/lib `pwd`/build/sysroot-ub20/sbin/lighttpd -m `pwd`/build/sysroot-ub20/lib -f `pwd`/build/sysroot-ub20/etc/lighttpd.conf -D
+#
+testsite2_DIR=$(PROJDIR)/package/testsite2
+
+testsite2_install: DESTDIR=$(BUILD_SYSROOT)
+testsite2_install:
+	$(MKDIR) $(DESTDIR)/etc $(DESTDIR)/var/www $(DESTDIR)/var/cgi-bin \
+	    $(DESTDIR)/var/run $(DESTDIR)/media
+	ln -sfnv $(testsite2_DIR)/lighttpd.conf $(DESTDIR)/etc/
+	for i in $(testsite2_DIR)/admin2.html \
+	    ; do \
+	  ln -sfnv $$i $(DESTDIR)/var/www/; \
+	done
+	for i in $(testsite2_DIR)/admin_observer1.cgi \
+	    ; do \
+	  ln -sfnv $$i $(DESTDIR)/var/cgi-bin/; \
+	done
+	$(MAKE) DESTDIR=$(DESTDIR) testsite2_help
+
+testsite2_help: DESTDIR=$(BUILD_SYSROOT)
+testsite2_help:
+	@echo "==== Start lighttpd with this command ===="
+	@echo "DESTDIR=$(DESTDIR) LD_LIBRARY_PATH=$(DESTDIR)/lib $(DESTDIR)/sbin/lighttpd -m $(DESTDIR)/lib -f $(DESTDIR)/etc/lighttpd.conf -D"
+	@echo "=============================================="
 
 #------------------------------------
 #
