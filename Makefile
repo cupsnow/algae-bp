@@ -2506,27 +2506,13 @@ fcgi2_%: | $(fcgi2_BUILDDIR)/Makefile
 # DESTDIR=`pwd`/build/sysroot-ub20 LD_LIBRARY_PATH=`pwd`/build/sysroot-ub20/lib `pwd`/build/sysroot-ub20/sbin/lighttpd -m `pwd`/build/sysroot-ub20/lib -f `pwd`/build/sysroot-ub20/etc/lighttpd.conf -D
 #
 testsite2_DIR=$(PROJDIR)/package/testsite2
+testsite2_MAKE=$(MAKE) \
+    $(foreach i,PROJDIR DESTDIR CROSS_COMPILE,$(i)="$($(i))") \
+	-C $(testsite2_DIR)
 
 testsite2_install: DESTDIR=$(BUILD_SYSROOT)
 testsite2_install:
-	$(MKDIR) $(DESTDIR)/etc $(DESTDIR)/var/www $(DESTDIR)/var/cgi-bin \
-	    $(DESTDIR)/var/run $(DESTDIR)/media
-	ln -sfnv $(testsite2_DIR)/lighttpd.conf $(DESTDIR)/etc/
-	for i in $(testsite2_DIR)/admin2.html \
-	    ; do \
-	  ln -sfnv $$i $(DESTDIR)/var/www/; \
-	done
-	for i in $(testsite2_DIR)/admin_observer1.cgi \
-	    ; do \
-	  ln -sfnv $$i $(DESTDIR)/var/cgi-bin/; \
-	done
-	$(MAKE) DESTDIR=$(DESTDIR) testsite2_help
-
-testsite2_help: DESTDIR=$(BUILD_SYSROOT)
-testsite2_help:
-	@echo "==== Start lighttpd with this command ===="
-	@echo "DESTDIR=$(DESTDIR) LD_LIBRARY_PATH=$(DESTDIR)/lib $(DESTDIR)/sbin/lighttpd -m $(DESTDIR)/lib -f $(DESTDIR)/etc/lighttpd.conf -D"
-	@echo "=============================================="
+	$(testsite2_MAKE) install
 
 #------------------------------------
 #
