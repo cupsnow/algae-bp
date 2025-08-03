@@ -1,24 +1,8 @@
-<!-- omit from toc -->
-# Developer Note
+Developer Note
+====
 
-- [beagleplay Ready Source](#beagleplay-ready-source)
-- [Build](#build)
-- [host qemu](#host-qemu)
-- [nfs](#nfs)
-  - [Host](#host)
-  - [Client](#client)
-- [U-Boot](#u-boot)
-  - [Env for SDCard](#env-for-sdcard)
-  - [Env for EMMC](#env-for-emmc)
-  - [added commend to boot from sdcard](#added-commend-to-boot-from-sdcard)
-  - [kernel bootargs](#kernel-bootargs)
-  - [write uboot to emmc](#write-uboot-to-emmc)
-- [yocto](#yocto)
-  - [step](#step)
-- [todo](#todo)
-- [Garage](#garage)
-
-## beagleplay Ready Source
+beagleplay Ready Source
+----
 
 <!-- linux-upstream: de0a9f4486337d0eabacc23bd67ff73146eacdc0 -->
 linux-upstream: 98f7e32f20d28ec452afb208f9cffc08448a2652 or v6.11
@@ -28,13 +12,19 @@ optee_os-upstream: 5e26ef8f6a9ced63160f8db93c38bb397603036b
 arm-trusted-firmware-upstream: f2735ebccf5173f74c0458736ec526276106097e
 busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
 
-## Build
+Build
+----
 
-   ```sh
-   make dist && make dist_sd
-   ```
+    make dist && make dist_sd
 
-## host qemu
+Flash to SD Card
+----
+
+    dd if=destdir/bp/rootfs.img of=/dev/sddx conv=fdatasync bs=4M status=progress
+
+
+host qemu
+----
 
 `nm-connection-editor`
 
@@ -63,7 +53,8 @@ nmcli connection add type bridge-slave ifname wlx94186551a58a master algaebr0
 nmcli connection delete wlx94186551a58a
 ```
 
-## nfs
+nfs
+----
 
 ### Host
 
@@ -89,7 +80,8 @@ mkdir -p /media/lavender/02_dev
 mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
 ```
 
-## U-Boot
+U-Boot
+----
 
 For BP, currently upstream version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
 
@@ -134,7 +126,8 @@ sync
 ```
 
 
-## yocto
+yocto
+----
 
 Reference
 
@@ -191,13 +184,15 @@ Reference
    bitbake core-image-minimal --runall=fetch
    ```
 
-## todo
+todo
+----
 
 - RPi NoIR Camera V2 based on IMX219
 - Waveshare 2.9inch e-Paper
 - hdmi framebuffer
 
-## Garage
+Garage
+----
 
 - Check the ELF interpreter (dynamic linker, ie. ld-linux.so)
   readelf -l /sbin/init | grep interpreter

@@ -14,15 +14,15 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
 
-# ti_linux
-APP_ATTR_bp?=bp wl18xx
+# ti_linux bb_linux
+APP_ATTR_bp?=bp wl18xx bb_linux
 
 APP_ATTR_qemuarm64?=qemuarm64
 
 APP_PLATFORM?=bp
 
 # locale_posix2c coreutils systemd
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils systemd
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -371,6 +371,9 @@ wlregdb_DIR?=$(PKGDIR2)/wireless-regdb
 ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
 linux_DIR?=$(PKGDIR2)/ti-processor-sdk/board-support/ti-linux-kernel-6.1.83+gitAUTOINC+c1c2f1971f-ti
 linux_BUILDDIR?=$(BUILDDIR2)/ti-linux-$(APP_PLATFORM)
+else ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
+linux_DIR?=$(PKGDIR2)/linux-bb
+linux_BUILDDIR?=$(BUILDDIR2)/bb-linux-$(APP_PLATFORM)
 else
 linux_DIR?=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
@@ -380,18 +383,25 @@ linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
 
 linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
+ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
+linux_defconfig-site-bp=$(PROJDIR)/linux-$(APP_PLATFORM)-bb.config
+linux_defconfig-bp=bb.org_defconfig
+else
 linux_defconfig-bp=defconfig
+endif
 
 linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 linux_defconfig-qemuarm64=defconfig
 
+linux_defconfig-site=$(or $(linux_defconfig-site-$(APP_PLATFORM)),$(PROJDIR)/linux-$(APP_PLATFORM).config)
+
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
 	$(linux_MAKE) defconfig ti_arm64_prune.config
 else
-	if [ -f "$(PROJDIR)/linux-$(APP_PLATFORM).config" ]; then \
-	  cp -v $(PROJDIR)/linux-$(APP_PLATFORM).config $(linux_BUILDDIR)/.config \
+	if [ -f "$(linux_defconfig-site)" ]; then \
+	  cp -v $(linux_defconfig-site) $(linux_BUILDDIR) \
 	    && yes "" | $(linux_MAKE) oldconfig; \
 	  $(linux_MAKE) prepare; \
 	else \
@@ -2763,17 +2773,15 @@ dist-bp_depmod:
 		$(if $(filter 1,$(CLIARGS_VERBOSE)),-v) \
 	    -F $(linux_BUILDDIR)/System.map
 
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 GENDIR+=$(BUILD_SYSROOT)/root
 
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
 dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
-#	truncate -s 300M $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
-#	fakeroot mkfs.ext4 -Fq -d $(dist_DIR)/$(APP_PLATFORM)/rootfs \
-#	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img)
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 500M)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
@@ -2829,13 +2837,21 @@ pyvenv $(PYVENVDIR):
 ENVSH_VAR+=PROJDIR BUILDDIR PKGDIR PKGDIR2 BUILDDIR2 APP_BUILD
 ENVSH_VAR+=TOOLCHAIN_PATH CROSS_COMPILE TOOLCHAIN_SYSROOT BUILD_SYSROOT
 ENVSH_VAR+=PYVENVDIR
+ENVSH?=env.sh
 
-.PHONY: env
-envsh: ENVSH?=env.sh
-envsh:
-	@{ \
-	  $(foreach i,$(ENVSH_VAR),echo $i=$($i) &&) \
-	  echo ""; } >$(ENVSH)
+.PHONY: $(ENVSH)
+
+$(ENVSH):
+	{ \
+	  echo "do_setenv () {" \
+	    && $(foreach i,$(ENVSH_VAR),echo "  $i=$($i)" &&) true \
+	    && echo "}" \
+		&& echo "if ! command -v $(CC) >/dev/null 2>&1; then" \
+		&& echo "  do_setenv" \
+		&& echo "  export PATH=\$${TOOLCHAIN_PATH}/bin:\$$PATH" \
+		&& echo "fi" \
+		&& true; \
+	} >$@
 
 #------------------------------------
 #

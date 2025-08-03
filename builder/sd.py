@@ -1,30 +1,45 @@
 #!/usr/bin/env python3
-import sys
-import os
-import logging
+import sys, os, logging, datetime
 import argparse
 import re
 import shlex
 import subprocess
 import tempfile
 
-logging.basicConfig(level=logging.NOTSET,
-        format="[%(asctime)s][%(levelname)s][%(name)s][%(funcName)s][#%(lineno)d]%(message)s")
+# sys.path.append(os.path.dirname(__file__))
+from priv import *
 
-logger = logging.getLogger("sd")
 
-logger_level = logging.INFO
-logger.setLevel(logger_level)
+self_path = os.path.abspath(__file__)
+self_dirname = os.path.dirname(self_path)
+self_basename = os.path.basename(self_path)
+self_mainname = os.path.splitext(self_basename)[0]
 
-def logger_level_verbose(lvl, inc):
-    lut = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO,
-            logging.DEBUG, logging.NOTSET]
-    idx = lut.index(lvl)
-    if inc + idx >= len(lut):
-        idx = len(lut) - 1
-    elif inc + idx < 0:
-        idx = 0
-    return (lut[idx], idx)
+# logging.basicConfig(level=logging.NOTSET,
+#         format="[%(asctime)s][%(levelname)s][%(name)s][%(funcName)s][#%(lineno)d]%(message)s")
+
+# logger = logging.getLogger("sd")
+
+# logger_level = logging.INFO
+# logger.setLevel(logger_level)
+
+# def logger_level_verbose(lvl, inc):
+#     lut = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO,
+#             logging.DEBUG, logging.NOTSET]
+#     idx = lut.index(lvl)
+#     if inc + idx >= len(lut):
+#         idx = len(lut) - 1
+#     elif inc + idx < 0:
+#         idx = 0
+#     return (lut[idx], idx)
+
+logger_init(f"{os.path.splitext(__file__)[0]}.log")
+logger = logger_get("sd")
+
+cmd = "ls -l"
+pcs = subprocess.run(cmd, shell=True, text=True)
+logger.debug(f"{pcs.stdout}")
+
 
 def run_cmd(cmd, **kwargs):
     """Run command in shell
@@ -49,7 +64,7 @@ def run_cmd(cmd, **kwargs):
         if klst:
             env.update({k: os.pathsep.join(klst)})
     #  If you wish to capture and combine both streams into one, use stdout=PIPE and stderr=STDOUT instead of capture_output
-    resp = subprocess.run(cmd, shell=True, text=True, env=env                          # , capture_output=True
+    resp = subprocess.run(cmd, shell=True, text=True, env=env # , capture_output=True
                           , stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs)
     return resp
 
@@ -277,4 +292,5 @@ if __name__ == "__main__":
     #         "-n", "/dev/sdd"])
     # main(["sd.py", "--offset1=4",
     #         "-n", "/dev/sdd"])
-    main(sys.argv)
+    # main(sys.argv)
+    pass
