@@ -1,7 +1,7 @@
 Developer Note
 ====
 
-beagleplay Ready Source
+beagleplay source
 ----
 
 <!-- linux-upstream: de0a9f4486337d0eabacc23bd67ff73146eacdc0 -->
@@ -15,13 +15,25 @@ busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
 Build
 ----
 
-    make dist && make dist_sd
+    make dist
 
 Flash to SD Card
 ----
 
-    dd if=destdir/bp/rootfs.img of=/dev/sddx conv=fdatasync bs=4M status=progress
+    umount /dev/sddx
+    dd if=destdir/bp/rootfs.img of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock
+    cp -a destdir/bp/boot/* destdir/bp/boot_sd/* /media/joelai/BOOT/
 
+format emmc
+----
+
+      sfdisk /dev/mmcblk0 <<-EOSFDISK
+    label:gpt
+    -,200M,uefi,*
+    -,2G,linux,-
+    -,2G,linux,-
+    -,-,linux,-
+    EOSFDISK
 
 host qemu
 ----

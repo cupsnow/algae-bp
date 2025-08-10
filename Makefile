@@ -5,6 +5,10 @@ include builder/proj.mk
 
 export SHELL=/bin/bash
 
+ifeq ("$(MAKELEVEL)","20")
+$(error Maybe endless loop, MAKELEVEL: $(MAKELEVEL))
+endif
+
 PARALLEL_BUILD?=$(or $(1),-j)10
 
 PKGDIR=$(PROJDIR)/package
@@ -22,7 +26,7 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c coreutils systemd
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils locale_posix2c # systemd
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -240,9 +244,12 @@ uboot_defconfig-qemuarm64=qemu_arm64_defconfig
 UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
     mkenvimage mkimage proftool spl_size_limit
 
-ifeq ("$(MAKELEVEL)","20")
-$(error Maybe endless loop, MAKELEVEL: $(MAKELEVEL))
-endif
+CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
+    $$([ x"$$($(call CMD_SED_KEYVAL1,CONFIG_SYS_REDUNDAND_ENVIRONMENT) $(uboot_BUILDDIR)/.config)" = x"y" ] && echo -r) \
+    -s $$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config) \
+    -o $(or $(2),$(DESTDIR)/uboot.env) \
+	$(or $(1),ubootenv-$(APP_PLATFORM).txt) \
+  && chmod a+r $(or $(2),$(DESTDIR)/uboot.env)
 
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 # bp runs uboot for 2 different core, pass APP_PLATFORM for specified core to else
@@ -253,6 +260,7 @@ $(addprefix uboot_,menuconfig htmldocs tools tools_install envtools envtools_ins
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
 
 ubootenv: DESTDIR=$(BUILDDIR)
+ubootenv: $(PROJDIR)/tool/bin/mkenvimage
 ubootenv:
 	$(MAKE) APP_PLATFORM=bp-a53-emmc $@
 	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53-emmc.env
@@ -350,13 +358,6 @@ GENPYVENV+=sphinx sphinx_rtd_theme six sphinx-prompt
 # end of uboot APP_PLATFORM
 endif
 
-CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
-    $$([ x"$$($(call CMD_SED_KEYVAL1,CONFIG_SYS_REDUNDAND_ENVIRONMENT) $(uboot_BUILDDIR)/.config)" = x"y" ] && echo -r) \
-    -s $$($(call CMD_SED_KEYVAL1,CONFIG_ENV_SIZE) $(uboot_BUILDDIR)/.config) \
-    -o $(or $(2),$(DESTDIR)/uboot.env) \
-	$(or $(1),ubootenv-$(APP_PLATFORM).txt) \
-  && chmod a+r $(or $(2),$(DESTDIR)/uboot.env)
-
 $(addprefix $(PROJDIR)/tool/bin/,$(UBOOT_TOOLS)):
 	$(MAKE) DESTDIR=$(PROJDIR)/tool uboot_tools_install
 
@@ -401,7 +402,7 @@ ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp
 	$(linux_MAKE) defconfig ti_arm64_prune.config
 else
 	if [ -f "$(linux_defconfig-site)" ]; then \
-	  cp -v $(linux_defconfig-site) $(linux_BUILDDIR) \
+	  cp -v $(linux_defconfig-site) $(linux_BUILDDIR)/.config \
 	    && yes "" | $(linux_MAKE) oldconfig; \
 	  $(linux_MAKE) prepare; \
 	else \
@@ -955,7 +956,7 @@ TERMINFO_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
 CMD_TERMINFO= \
   { [ -d "$(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR)" ] || \
     $(MKDIR) $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR); } \
-  && $(TERMINFO_TIC) -s -r -I -x -e"$(TERMINFO_NAMES)" \
+  && $(TERMINFO_TIC) -s -r -I -x -r -e"$(TERMINFO_NAMES)" \
       $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src \
   && $(TERMINFO_TIC) -s -o $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR) \
       $(BUILDDIR)/terminfo.src
@@ -2556,9 +2557,6 @@ cmake01: | $(cmake01_BUILDDIR)/Makefile
 #
 dist_DIR=$(PROJDIR)/destdir
 
-SD_BOOT=$(firstword $(wildcard /media/$(USER)/BOOT /media/$(USER)/boot))
-SD_ROOTFS=$(firstword $(wildcard /media/$(USER)/rootfs))
-
 CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
   cd $(TOOLCHAIN_SYSROOT) \
     && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
@@ -2699,7 +2697,7 @@ ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 dist_DTINCDIR+=$(linux_DIR)/arch/arm64/boot/dts/ti
 endif
 
-dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_dtb: DTBFILE=k3-am625-beagleplay.dtb
 dist-bp_dtb:
 	if [ -f "linux-$(APP_PLATFORM).dts" ]; then \
@@ -2723,36 +2721,42 @@ dist-bp_phase1:
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
 
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
-	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53.env \
-	    $(dist_DIR)/$(APP_PLATFORM)/boot/uboot.env
-	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/uboot.env \
-	    $(dist_DIR)/$(APP_PLATFORM)/boot/uboot-redund.env
+	### serve sbl
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
+	# serve uboot boot from sdcard
+	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot.env
+	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot-redund.env
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tispl.bin_unsigned \
-	    $(dist_DIR)/$(APP_PLATFORM)/boot/tispl.bin
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_sd/tispl.bin
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/u-boot.img_unsigned \
-	    $(dist_DIR)/$(APP_PLATFORM)/boot/u-boot.img
-	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image \
-	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
-	    $(dist_DIR)/$(APP_PLATFORM)/boot/boot/
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_sd/u-boot.img
+	### serve uboot boot from emmc
+	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53-emmc.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_emmc/uboot.env
+	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot_emmc/uboot.env \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_emmc/uboot-redund.env
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_emmc/tispl.bin
+	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot_emmc/u-boot.img
+	### serve kernel image
+	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
+	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
-	#     $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb dist-bp_dtb
+	#     $(dist_DIR)/$(APP_PLATFORM)/boot/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot dist-bp_dtb
+	### serve rootfs
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
-ifeq (1,1)
-	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/tispl.bin_unsigned \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/root/tispl-emmc.bin
-	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/root/u-boot-emmc.img
-	rsync -L $(RSYNC_VERBOSE) $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53-emmc.env \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/root/
-endif
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a
@@ -2773,13 +2777,13 @@ dist-bp_depmod:
 		$(if $(filter 1,$(CLIARGS_VERBOSE)),-v) \
 	    -F $(linux_BUILDDIR)/System.map
 
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot_sd
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot_emmc
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 GENDIR+=$(BUILD_SYSROOT)/root
 
-dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot/boot/dtb/ti
-dist-bp_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 500M)
 

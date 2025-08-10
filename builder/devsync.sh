@@ -6,6 +6,7 @@ selfdir="$(cd "$(dirname "$self")"; pwd)"
 
 _pri_mount="busybox mount"
 _pri_umount="busybox umount"
+_pri_dd_args2="conv=fdatasync status=progress iflag=nonblock oflag=nonblock"
 
 ts_up () {
   _lo_ts1="$(</proc/uptime awk '{ print $1 }')"
@@ -384,9 +385,9 @@ boot_tiboot3 () {
 
   # Clear eMMC boot0
   cmd_run eval "echo 0 >> /sys/class/block/mmcblk0boot0/force_ro" || { log_e "Failed"; return 1; }
-  cmd_run eval "dd if=/dev/zero of=/dev/mmcblk0boot0 count=32 bs=128k" || { log_e "Failed"; return 1; }
+  cmd_run eval "dd if=/dev/zero of=/dev/mmcblk0boot0 count=1 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
   # Write tiboot3.bin
-  cmd_run eval "dd if=${_lo_tiboot3} of=/dev/mmcblk0boot0 bs=128k" || { log_e "Failed"; return 1; }
+  cmd_run eval "dd if=${_lo_tiboot3} of=/dev/mmcblk0boot0 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
 }
 
 do_insmod () {
@@ -507,12 +508,24 @@ flash_tiboot3 () {
   log_d "Clearing eMMC ${_lo_emmcdevpart}"
   cmd_run eval "echo '0' >>/sys/class/block/${_lo_emmcdevpart}/force_ro" \
     || { log_e "Failed"; return 1; }
-  dd if=/dev/zero of=/dev/${_lo_emmcdevpart} count=32 bs=128k \
+  # shellcheck disable=SC2086
+  dd if=/dev/zero of=/dev/"${_lo_emmcdevpart}" count=1 bs=4M ${_pri_dd_args2} \
     || { log_e "Failed"; return 1; }
 
   log_d "Write tiboot3"
-  dd if="${_lo_tiboot3}" of=/dev/${_lo_emmcdevpart} bs=128k \
+  # shellcheck disable=SC2086
+  dd if="${_lo_tiboot3}" of=/dev/"${_lo_emmcdevpart}" bs=4M ${_pri_dd_args2} \
     || { log_e "Failed"; return 1; }
+}
+
+do_sfdisk () {
+  sfdisk /dev/mmcblk0 <<-EOSFDISK || { log_e Failed; return 1; }
+label:gpt
+-,200M,uefi,*
+-,2G,linux,-
+-,2G,linux,-
+-,-,linux,-
+EOSFDISK
 }
 
 rootfs_cmdline () {
@@ -627,6 +640,11 @@ while test -n "$1"; do
     sync; sync
     exit
     ;;
+  sfdisk)
+    shift
+    do_sfdisk
+    exit
+    ;;
   spi|spioff)
     if [ "${opt1#spi}" = "off" ]; then
       for i in spi-omap2-mcspi spidev; do
@@ -643,73 +661,87 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
 
-    # flash_tispl "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" || exit
-    # flash_uboot "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" || exit
+    _lo_linux_builddir1="${_pri_nfsalgaews}/build/linux-bp"
+    _lo_linux_builddir2="${_pri_nfsalgaews}/build/bb-linux-bp"
+    _lo_linux_builddir=
+    for i in "${_lo_linux_builddir1}" "${_lo_linux_builddir2}"; do
+      if [ -d "$i" ]; then
+        _lo_linux_builddir=$i
+        break
+      fi
+    done
+    [ -n "${_lo_linux_builddir}" ] || _lo_linux_builddir="${_lo_linux_builddir1}"
 
-    cmd_run cp -Hv "${_pri_nfsalgaebp}/destdir/bp/boot/boot/dtb/k3-am625-beagleplay.dtb" \
-        "/media/mmcblk0p1/boot/dtb/" \
+    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+        "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
 
-    cmd_run cp -Hv "${_pri_nfsalgaews}/build/linux-bp/arch/arm64/boot/Image" \
-        "${_pri_nfsalgaews}/build/linux-bp/arch/arm64/boot/Image.gz" \
-        "/media/mmcblk0p1/boot/" \
-      || { log_e "Failed"; exit 1; }
+    _lo_bl_num="$(( ${opt1#bl} ))"
 
-    if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 2 ]; then
-      cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/tispl.bin_unsigned" \
-          /media/mmcblk0p1/tispl.bin \
-        || { log_e "Failed"; exit 1; }
-
-      cmd_run cp -Hv "${_pri_nfsalgaews}/build/uboot-bp-a53-emmc/u-boot.img_unsigned" \
-          /media/mmcblk0p1/u-boot.img \
-        || { log_e "Failed"; exit 1; }
-
-      { cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
-          /media/mmcblk0p1/uboot.env \
-        && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
-          /media/mmcblk0p1/uboot-redund.env; } \
+    if [ "${_lo_bl_num}" -ge 2 ]; then
+      cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot_emmc/* \
+          "/media/mmcblk0p1/" \
         || { log_e "Failed"; exit 1; }
     fi
-    if [ -n "${opt1#bl}" ] && [ "${opt1#bl}" -ge 3 ]; then
-      flash_tiboot3 "${_pri_nfsalgaews}/build/uboot-bp-r5/tiboot3-am62x-gp-evm.bin" || exit
+    if [ "${_lo_bl_num}" -ge 3 ]; then
+      flash_tiboot3 "${_pri_nfsalgaebp}"/destdir/bp/boot/tiboot3.bin \
+        || { log_e "Failed"; exit 1; }
     fi
     sync; sync
     exit
     ;;
-  ota|ota[0-9])
+  ota|ota[2,3])
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
-    
-    _lo_rootfs="$(rootfs_cmdline)"
-    log_d "Check running rootfs ${_lo_rootfs}"
 
-    if [ -z "${opt1#ota}" ]; then
-      if [ "${_lo_rootfs}" = "mmcblk0p2" ]; then
-        opt1=ota3
-      else
-        opt1=ota2
-      fi
-    fi
+    # _pri_uenv_txt="uenv.txt"
+    _pri_uenv_txt="/media/mmcblk0p1/uenv.txt"
+    _pri_uenv_bootset="$(( $(sed -n "s/^[[:space:]]*bootset=\(\d*\)/\1/p" ${_pri_uenv_txt} 2>/dev/null) ))"
+    _lo_opt1_lvl="$(( ${opt1#ota} ))"
+    _pri_rt_rootfs="$(rootfs_cmdline)"
+    _pri_rt_bootset="$(( ${_pri_rt_rootfs#mmcblk0p} ))"
 
-    if [ "${opt1#ota}" = "3" ]; then
-      pri_rootfs=mmcblk0p3
-    elif [ "${opt1#ota}" = "2" ]; then
-      pri_rootfs=mmcblk0p2
-    elif [ "${opt1#ota}" = "1" ]; then
-      # to sdcard
-      pri_rootfs=mmcblk1p2
+    log_d "_pri_uenv_bootset: ${_pri_uenv_bootset}"
+    log_d "_lo_opt1_lvl: ${_lo_opt1_lvl}"
+    log_d "_pri_rt_rootfs: ${_pri_rt_rootfs}"
+    log_d "_pri_rt_bootset: ${_pri_rt_bootset}"
+
+    _lo_bootset=2
+    if [ "${_lo_opt1_lvl}" -ge "2" ]; then
+      _lo_bootset=${_lo_opt1_lvl}
+      log_d "_lo_bootset: ${_lo_bootset}, from command line"
+    elif [ "${_pri_rt_bootset}" -eq 2 ]; then
+      _lo_bootset=3
+      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}"
+    elif [ "${_pri_rt_bootset}" -ge 3 ]; then
+      _lo_bootset=2
+      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}"
+    elif [ "${_pri_uenv_bootset}" -eq 2 ]; then
+      _lo_bootset=3
+      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}, _pri_uenv_bootset ${_pri_uenv_bootset}"
+    elif [ "${_pri_uenv_bootset}" -ge 3 ]; then
+      _lo_bootset=2
+      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}, _pri_uenv_bootset ${_pri_uenv_bootset}"
     else
-      log_e "Invalid argument"
-      exit 1
+      _lo_bootset=3
+      log_d "_lo_bootset: ${_lo_bootset}, default"
     fi
-    
-    cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" of=/dev/$pri_rootfs \
+
+    # shellcheck disable=SC2086
+    cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" \
+        of=/dev/mmcblk0p${_lo_bootset} bs=4M ${_pri_dd_args2} \
       || { log_e "Failed"; exit 1; }
 
-    if [ "${opt1#ota}" = "2" ]; then
-      cmd_run eval "echo bootset=2 > /media/mmcblk0p1/uenv.txt"
-    elif [ "${opt1#ota}" = "3" ]; then
-      cmd_run eval "echo bootset=3 > /media/mmcblk0p1/uenv.txt"
+    touch $_pri_uenv_txt
+    if [ "$_lo_bootset" -ge 2 ]; then
+        if cmd_run eval "grep '^[[:space:]]*bootset=' $_pri_uenv_txt"; then
+          # existed
+          cmd_run eval "sed -i -e 's/^[[:space:]]*bootset=.*$/bootset=${_lo_bootset}/' $_pri_uenv_txt"
+        else
+          # append
+          cmd_run eval "echo 'bootset=${_lo_bootset}' >> $_pri_uenv_txt"
+        fi
     fi
     sync; sync
     exit
