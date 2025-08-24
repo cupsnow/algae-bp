@@ -26,7 +26,7 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c coreutils systemd
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils locale_posix2c # systemd
+export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -1356,6 +1356,8 @@ tmux_MAKE=$(MAKE) -C $(tmux_BUILDDIR)
 tmux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
 tmux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 
+# tmux_ACARGS_$(APP_PLATFORM)+=ac_cv_func_strtonum_working=no
+
 $(tmux_DIR)/configure:
 	cd $(tmux_DIR) \
 	  && ./autogen.sh
@@ -1366,7 +1368,6 @@ tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDI
 	cd $(tmux_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(tmux_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      ac_cv_func_strtonum_working=no \
 	      CPPFLAGS="$(addprefix -I,$(tmux_INCDIR))" \
 	      LDFLAGS="$(addprefix -L,$(tmux_LIBDIR))" \
 	      $(tmux_ACARGS_$(APP_PLATFORM))
@@ -2578,6 +2579,14 @@ CMD_GENROOT_EXT4= \
     && truncate -s $(or $(3),400M) $(2) \
     && fakeroot mkfs.ext4 -F -d $(1) $(2)
 
+CMD_VFATIMG_CREATE= \
+  $(RMTREE) $(2) \
+    && truncate -s $(or $(2),250M) $(1) \
+	&& mkfs.vfat -n BOOT $(1)
+
+CMD_VFATIMG_ADD= \
+  mcopy -i $(1) $(2) ::
+
 # dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk
 # dist_partdisk_phase1:
 # 	truncate -s 1G $(DIST_PARTDISK_PHASE1_IMG)
@@ -2720,6 +2729,17 @@ dist-bp_phase1:
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
 	$(MAKE) dist_rootfs_phase1
+
+dist-bp_bootpart: bootpart_prefix=$(dist_DIR)/$(APP_PLATFORM)/boot
+dist-bp_bootpart:
+	$(call CMD_VFATIMG_CREATE,$(bootpart_prefix)_sd.img)
+	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_sd.img,$(dist_DIR)/$(APP_PLATFORM)/boot/*)
+	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_sd.img,$(dist_DIR)/$(APP_PLATFORM)/boot_sd/*)
+	mdir -a -/ -i $(bootpart_prefix)_sd.img
+	$(call CMD_VFATIMG_CREATE,$(bootpart_prefix)_emmc.img)
+	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_emmc.img,$(dist_DIR)/$(APP_PLATFORM)/boot/*)
+	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_emmc.img,$(dist_DIR)/$(APP_PLATFORM)/boot_emmc/*)
+	mdir -a -/ -i $(bootpart_prefix)_emmc.img
 
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd

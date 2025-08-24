@@ -1,3 +1,4 @@
+# common between bp a53
 loadaddr=0x82000000
 fdtaddr=0x88000000
 kernel_comp_addr_r=0x85000000
@@ -13,8 +14,9 @@ initbootset=setenv bootsetdev mmc 1:1; setenv rootfsdev mmcblk1p2
 initbootset2=setenv bootsetdev mmc 0:1; setenv rootfsdev mmcblk0p2
 initbootset3=setenv bootsetdev mmc 0:1; setenv rootfsdev mmcblk0p3
 
+loadenv=fatload ${envdev} ${loadaddr} ${uenvpath}
 envexport=env export -t ${loadaddr} && fatwrite ${envdev} ${loadaddr} ${uenvpath} ${filesize}
-envimport=fatload ${envdev} ${loadaddr} ${uenvpath} && env import -t ${loadaddr} ${filesize}
+envimport=run loadenv && env import -t ${loadaddr} ${filesize}
 loadimage=fatload ${bootsetdev} ${loadaddr} ${kernpath}
 loadfdt=fatload ${bootsetdev} ${fdtaddr} ${dtbpath}
 loadbootargs=setenv bootargs root=/dev/${rootfsdev} rw rootwait rootfstype=ext4 ${bootargs_console} ${bootargs_extra}
@@ -22,7 +24,9 @@ loadbootargs=setenv bootargs root=/dev/${rootfsdev} rw rootwait rootfstype=ext4 
 sdboot=run envimport; run initbootset${bootset} && run loadimage && run loadfdt && run loadbootargs && booti ${loadaddr} - ${fdtaddr}
 bootcmd=run sdboot
 
-# 1:1 -> sdcard, 0:1 -> emmc
+# variant between sdcard and emmc
+
+# uboot startup load environment from 1:1 -> sdcard, 0:1 -> emmc
 envdev=mmc 0:1
 
 # <empty> -> sdcard, 2..3 -> emmc partition

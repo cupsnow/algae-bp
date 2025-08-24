@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, logging, datetime
+import sys, os, logging, datetime, typing
 
 # self_path = os.path.abspath(__file__)
 # self_dirname = os.path.dirname(self_path)
@@ -28,6 +28,15 @@ def logger_get(name, level=logging.INFO, format=logger_fmt):
         logger.addHandler(console_handler)
         pass
 
+    return logger
+
+def logger_verbose(logger, inc):
+    lut = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO,
+            logging.DEBUG]
+    if inc + lut.index(logger.level) >= len(lut):
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(inc + lut[logger.level])
     return logger
 
 def ts_dt(ts):
@@ -69,3 +78,7 @@ def modbus_crc(msg: str) -> int:
             else:
                 crc >>= 1
     return crc
+
+# 0xc W95 FAT32 (LBA)
+PARTCODE_W95_FAT32 = 0xc
+PARTCODE_FAT16 = 0x6
