@@ -1,0 +1,13 @@
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 4dbe93fee..5acc0c018 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -10,7 +10,7 @@ bin_PROGRAMS += %D%/openocd
+ 	%D%/hello.c %D%/hello.h \
+ 	%D%/openocd.c %D%/openocd.h
+ 
+-%C%_openocd_LDADD = %D%/libopenocd.la
++%C%_openocd_LDADD = %D%/libopenocd.la -lm
+ 
+ %C%_openocd_LDADD += $(MINGWLDADD)
+ 

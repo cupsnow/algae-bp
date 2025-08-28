@@ -237,15 +237,13 @@ def main(argv=None):
         sys.exit(1)
 
     logger.debug(f"Format disk")
+    
+    # default fat32
     if args.fat16:
         part1_partcode = PARTCODE_FAT16
     else:
-        # default fat32
         part1_partcode = PARTCODE_W95_FAT32
 
-    # cmdIn = (f"label: dos"
-    #         f"\n{args.offset1}M,{args.sz1}M,{fs1FatId:x}"
-    #         f"\n{args.sz1 + 1}M,,L,-")
     fdiskstr = (f"label: dos"
         f"\n{args.offset1}M,{args.sz1}M,{part1_partcode:x}"
         )
@@ -335,11 +333,6 @@ def main(argv=None):
     fsync()
 
 if __name__ == "__main__":
-    # main(["sd.py", "--sz1=100", "--fat16",
-    #         "--bbbboot=destdir/boot/MLO,destdir/boot/u-boot.img",
-    #         "-n", "/dev/sdd"])
-    # main(["sd.py", "--offset1=4",
-    #         "-n", "/dev/sdd"])
     # main(f"sd.py -t --sz2=500 /dev/sdd".split())
     main(sys.argv)
     pass

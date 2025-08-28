@@ -17,12 +17,12 @@ ARTIFACT_INSTALL:=
 
 #------------------------------------
 #
-dummy_DIR=.
 dummy_BUILDDIR=$(BUILDDIR)/dummy1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
 dummy_BIN=dummy1
-dummy_SRCS=main.cpp \
-  $(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c)) \
-  $(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
+dummy_SRCS=main.cpp
+dummy_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
+dummy_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
+dummy_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
 dummy_OBJS=$(patsubst %,$(dummy_BUILDDIR)/%.o,$(filter %.c %.cpp,$(dummy_SRCS)))
 dummy_DEPS=$(dummy_OBJS:%=%.d)
 #dummy_LDFLAGS=-static $(LDFLAGS)
@@ -57,7 +57,7 @@ doxygen:
 	  echo "PROJECT_NUMBER=0.0.1" && \
 	  echo "INPUT=include" &&  \
 	  echo "OUTPUT_DIRECTORY=$(OUTPUT_DIRECTORY)" && \
-	  echo ""; } | doxygen -
+	  echo ""; } | doxygen -q -
 
 #------------------------------------
 #

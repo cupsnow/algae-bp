@@ -792,6 +792,43 @@ mmcutils_%: | $(mmcutils_BUILDDIR)/Makefile
 
 #------------------------------------
 #
+libgpiod_DIR=$(PKGDIR2)/libgpiod
+libgpiod_BUILDDIR=$(BUILDDIR2)/libgpiod
+libgpiod_MAKE=$(MAKE) -C $(libgpiod_BUILDDIR)
+
+GENDIR+=$(libgpiod_BUILDDIR)
+
+$(libgpiod_DIR)/configure:
+	cd $(dir $(@)) \
+	  && NOCONFIGURE=1 ./autogen.sh
+
+libgpiod_defconfig $(libgpiod_BUILDDIR)/Makefile: | $(libgpiod_BUILDDIR) $(libgpiod_DIR)/configure
+	cd $(libgpiod_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libgpiod_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(libgpiod_ACARGS_$(APP_PLATFORM))
+
+libgpiod_install: DESTDIR=$(BUILD_SYSROOT)
+libgpiod_install: | $(libgpiod_BUILDDIR)/Makefile
+	$(libgpiod_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,liblibgpiod)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libgpiod)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,libgpiod))
+
+libgpiod: | $(libgpiod_BUILDDIR)/Makefile
+	$(libgpiod_MAKE) $(PARALLEL_BUILD)
+
+libgpiod_%: | $(libgpiod_BUILDDIR)/Makefile
+	$(libgpiod_MAKE) $(PARALLEL_BUILD) $(@:libgpiod_%=%)
+
+#------------------------------------
+#
 zlib_DIR=$(PKGDIR2)/zlib
 zlib_BUILDDIR?=$(BUILDDIR2)/zlib-$(APP_BUILD)
 zlib_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(zlib_BUILDDIR)
@@ -2514,6 +2551,80 @@ fcgi2_%: | $(fcgi2_BUILDDIR)/Makefile
 	$(fcgi2_MAKE) $(PARALLEL_BUILD) $(@:fcgi2_%=%)
 
 #------------------------------------
+#
+jimtcl_DIR=$(PKGDIR2)/jimtcl
+jimtcl_BUILDDIR=$(BUILDDIR2)/jimtcl-$(APP_BUILD)
+jimtcl_MAKE=$(MAKE) -C $(jimtcl_BUILDDIR)
+
+GENDIR+=$(jimtcl_BUILDDIR)
+
+jimtcl_defconfig $(jimtcl_BUILDDIR)/Makefile: | $(jimtcl_BUILDDIR)
+	cd $(jimtcl_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(jimtcl_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(jimtcl_ACARGS_$(APP_PLATFORM))
+
+jimtcl_install: DESTDIR=$(BUILD_SYSROOT)
+jimtcl_install: | $(jimtcl_BUILDDIR)/Makefile
+	$(jimtcl_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libjimtcl)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,jimtcl)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,jimtcl))
+
+jimtcl: | $(jimtcl_BUILDDIR)/Makefile
+	$(jimtcl_MAKE) $(PARALLEL_BUILD)
+
+jimtcl_%: | $(jimtcl_BUILDDIR)/Makefile
+	$(jimtcl_MAKE) $(PARALLEL_BUILD) $(@:jimtcl_%=%)
+
+#------------------------------------
+#
+openocd_DEP=jimtcl
+# openocd_DEP+=libgpiod
+openocd_DIR=$(PKGDIR2)/openocd
+openocd_BUILDDIR=$(BUILDDIR2)/openocd-$(APP_BUILD)
+openocd_MAKE=$(MAKE) -C $(openocd_BUILDDIR)
+
+GENDIR+=$(openocd_BUILDDIR)
+
+$(openocd_DIR)/configure: 
+	cd $(dir $(@)) \
+	  && for i in $(wildcard $(PROJDIR)/openocd-*.patch); do \
+	      patch -p1 --verbose <$${i}; \
+	  done
+	cd $(dir $(@)) \
+	  && autoreconf -fiv
+
+openocd_defconfig $(openocd_BUILDDIR)/Makefile: | $(openocd_BUILDDIR) $(openocd_DIR)/configure
+	cd $(openocd_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(openocd_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+		  --enable-bcm2835gpio --enable-am335xgpio \
+	      $(openocd_ACARGS_$(APP_PLATFORM))
+
+openocd_install: DESTDIR=$(BUILD_SYSROOT)
+openocd_install: | $(openocd_BUILDDIR)/Makefile
+	$(openocd_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    libasprintf libgettextlib libgettextpo libgettextsrc libtextstyle)
+endif
+
+$(eval $(call DEF_DESTDEP,openocd))
+
+openocd: | $(openocd_BUILDDIR)/Makefile
+	$(openocd_MAKE) $(PARALLEL_BUILD)
+
+openocd_%: | $(openocd_BUILDDIR)/Makefile
+	$(openocd_MAKE) $(PARALLEL_BUILD) $(@:openocd_%=%)
+
+#------------------------------------
 # use mod_setenv to set LD_LIBRARY_PATH for cgi
 # DESTDIR=`pwd`/build/sysroot-ub20 LD_LIBRARY_PATH=`pwd`/build/sysroot-ub20/lib `pwd`/build/sysroot-ub20/sbin/lighttpd -m `pwd`/build/sysroot-ub20/lib -f `pwd`/build/sysroot-ub20/etc/lighttpd.conf -D
 #
@@ -2527,16 +2638,27 @@ testsite2_install:
 	$(testsite2_MAKE) install
 
 #------------------------------------
+# $(eval call HOSTAPP1,dummy1,$(PROJDIR)/package/dummy1)
 #
-dummy_DIR=$(PROJDIR)/package/dummy1
+define SIMPLE_APP1
+$(1)_DIR=$(or $(2),$(firstword $(wildcard $(PKGDIR)/$(1) $(PKGDIR2)/$(1))))
+$(1)_MAKE=$$(MAKE) $(foreach var, \
+    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR, \
+    $(var)="$$($(var))") -C $$($(1)_DIR)
 
+$(1):
+	$$($(1)_MAKE)
+
+$(1)_%:
+	$$($(1)_MAKE) $$(@:$(1)_%=%)
+endef
+
+#------------------------------------
+#
+$(eval $(call SIMPLE_APP1,dummy1))
+host_dummy1: APP_PLATFORM=ub20
 host_dummy1:
-	$(MAKE) APP_PLATFORM=ub20 $(@:host_%=%)
-
-dummy1:
-	$(MAKE) $(foreach var, \
-	    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR, \
-		$(var)="$($(var))") -C $(dummy_DIR)
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) $(@:host_%=%)
 
 #------------------------------------
 #
@@ -2616,7 +2738,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc \
+	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc openocd \
 		$(dist_rootfs_phase1_pkg))
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs

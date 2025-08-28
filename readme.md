@@ -35,6 +35,17 @@ format emmc
     -,-,linux,-
     EOSFDISK
 
+diff and patch
+----
+
+git diff
+
+    git diff >package-001-reason.patch
+
+patch
+
+    patch -p1 <package-001-reason.patch
+
 host qemu
 ----
 
