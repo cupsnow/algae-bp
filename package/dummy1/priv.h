@@ -1,10 +1,10 @@
 /* $Id$
  *
- * Copyright 2024, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
+ * permission of joelai is strictly forbidden.
  *
  * @author joelai
  *
@@ -22,13 +22,13 @@ extern "C" {
 #endif
 
 #  define log_m(_lvl, _msg, _args...) do { \
-	struct timespec ts; \
-	struct tm tm; \
-	clock_gettime(CLOCK_REALTIME, &ts); \
-	localtime_r(&ts.tv_sec, &tm); \
+	struct timespec _log_m_ts; \
+	struct tm _log_m_tm; \
+	clock_gettime(CLOCK_REALTIME, &_log_m_ts); \
+	localtime_r(&_log_m_ts.tv_sec, &_log_m_tm); \
 	fprintf(stdout, "[%02ld:%02ld:%02ld.%06ld][%s][%s][#%d]" _msg, \
-			(long)tm.tm_hour, (long)tm.tm_min, (long)tm.tm_sec, \
-			(long)ts.tv_nsec / 1000, \
+			(long)_log_m_tm.tm_hour, (long)_log_m_tm.tm_min, (long)_log_m_tm.tm_sec, \
+			(long)_log_m_ts.tv_nsec / 1000, \
 			_lvl, __func__, __LINE__, ##_args); \
 	fflush(stdout); \
 } while(0)

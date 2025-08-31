@@ -1,10 +1,10 @@
 /* $Id$
  *
- * Copyright 2024, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
+ * permission of joelai is strictly forbidden.
  *
  * @author joelai
  *
@@ -66,6 +66,8 @@ extern "C" {
 #define aloe_trex "🦖"
 #define aloe_sauropod "🦕"
 #define aloe_lizard "🦎"
+#define aloe_cr '\r' // 0xd
+#define aloe_lf '\n' // 0xa
 #define aloe_endl_msw "\r\n"
 #define aloe_endl_unix "\n"
 
@@ -130,6 +132,25 @@ aloe_buf_t* aloe_buf_rewind(aloe_buf_t *buf);
 		(_c_ss) = (_a_ss) + (_b_ss); \
 		ALOE_TIMESEC_NORM(_c_sec, _c_ss, _scale); \
 	} while(0)
+
+
+extern const char *aloe_str_sep; // " \r\n\t"
+
+#define _aloe_cli_tok(_cli, _argc, _argv, _sep, _argmax) if ( \
+		(((_argc) = 0) < (_argmax)) && \
+		((_argv)[_argc] = strtok_r(_cli, _sep, &(_cli)))) { \
+	for ((_argc)++; ((_argc) < (_argmax)) && \
+			((_argv)[_argc] = strtok_r(NULL, _sep, &(_cli))); \
+			(_argc)++); \
+}
+
+/** Parse string to tokens. */
+int aloe_cli_tok(char *cli, int *argc, const char **argv, const char *sep);
+
+double aloe_avg_calc_weight_remain(double *weight, size_t weight_cnt,
+		size_t cap);
+double aloe_avg_calc_f(aloe_buf_t *rec, double val, double *weight,
+		size_t weight_cnt, double weight_remain);
 
 /** @} ALOE */
 

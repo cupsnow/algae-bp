@@ -1,12 +1,11 @@
-/**
- * Copyright 2023, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+/* $Id$
+ *
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
- */
-
-/**
+ * permission of joelai is strictly forbidden.
+ *
  * @author joelai
  */
 
@@ -14,7 +13,7 @@
 #  include <config.h>
 #endif
 
-#include "ev.h"
+#include "include/aloe/ev.h"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -27,10 +26,10 @@
 #include <sys/time.h>
 #include <string.h>
 
-#include "compat/openbsd/sys/queue.h"
+#include "include/aloe/compat/openbsd/sys/queue.h"
 
  /** Minimal due time for select(), value in micro-seconds. */
-#define ALOE_EV_PREVENT_BUSY_WAITING 1001ul
+#define ALOE_EV_PREVENT_BUSY_SELECT 1001ul
 
 #define log_m(_lvl, _fmt, _args...) do { \
     char log_m_dtstr[32]; \
@@ -101,6 +100,12 @@ typedef TAILQ_HEAD(aloe_ev_ctx_fd_queue_rec, aloe_ev_ctx_fd_rec) aloe_ev_ctx_fd_
 
 /** Information about control flow and running context. */
 typedef struct aloe_ev_ctx_rec {
+	union {
+		unsigned flag;
+		struct {
+			unsigned with_busy_select: 1;
+		};
+	};
 	aloe_ev_ctx_fd_queue_t fd_q; /**< Queue to select(). */
 	aloe_ev_ctx_fd_queue_t spare_fd_q; /**< Queue for cached memory. */
 	aloe_ev_ctx_noti_queue_t noti_q; /**< Queue for ready to notify. */
@@ -200,7 +205,7 @@ void* aloe_ev_put(void *_ctx, int fd, aloe_ev_noti_cb_t cb, void *cbarg,
 	if (sec == ALOE_EV_INFINITE) {
 		due.tv_sec = ALOE_EV_INFINITE;
 	} else {
-		if ((clock_gettime(CLOCK_MONOTONIC, &due)) != 0) {
+		if ((clock_gettime(CLOCK_MONOTONIC_RAW, &due)) != 0) {
 			int r = errno;
 			log_e("monotonic timestamp: %s(%d)\n", strerror(r), r);
 			return NULL;
@@ -259,7 +264,7 @@ void aloe_ev_cancel(void *_ctx, void *ev) {
 	        && noti_q_find(&ev_fd->noti_q, ev_noti, 1)) {
 		TAILQ_INSERT_TAIL(&ctx->spare_noti_q, ev_noti, qent);
 
-		// fd group empty, handle it or fd group keeping on memory
+		// handle the empty fd group to prevent fd group keeping on memory
 		if (TAILQ_EMPTY(&ev_fd->noti_q)) {
 			TAILQ_REMOVE(&ctx->fd_q, ev_fd, qent);
 			TAILQ_INSERT_TAIL(&ctx->spare_fd_q, ev_fd, qent);
@@ -316,7 +321,7 @@ int aloe_ev_once(void *_ctx) {
 
 	// convert to relative time for select()
 	if (due) {
-		if ((clock_gettime(CLOCK_MONOTONIC, &ts)) != 0) {
+		if ((clock_gettime(CLOCK_MONOTONIC_RAW, &ts)) != 0) {
 			r = errno;
 			log_e("Failed to get time: %s(%d)\n", strerror(r), r);
 			return r;
@@ -334,9 +339,12 @@ int aloe_ev_once(void *_ctx) {
 		sel_tmr.tv_sec = 0; sel_tmr.tv_usec = 0;
 	}
 
-#if ALOE_EV_PREVENT_BUSY_WAITING
-	if (sel_tmr.tv_sec == 0 && sel_tmr.tv_usec < ALOE_EV_PREVENT_BUSY_WAITING) {
-		sel_tmr.tv_usec = ALOE_EV_PREVENT_BUSY_WAITING;
+#if ALOE_EV_PREVENT_BUSY_SELECT
+	// here use a minimal time to prevent busy looping
+	if (!ctx->with_busy_select
+			&& sel_tmr.tv_sec == 0
+			&& sel_tmr.tv_usec < ALOE_EV_PREVENT_BUSY_SELECT) {
+		sel_tmr.tv_usec = ALOE_EV_PREVENT_BUSY_SELECT;
 	}
 #endif
 
@@ -351,15 +359,19 @@ int aloe_ev_once(void *_ctx) {
 		return r;
 	}
 
-	if ((r = clock_gettime(CLOCK_MONOTONIC, &ts)) != 0) {
+	// used for checking timeout
+	// CLOCK_MONOTONIC may effect by NTP
+	if ((r = clock_gettime(CLOCK_MONOTONIC_RAW, &ts)) != 0) {
 		r = errno;
 		log_e("Failed to get time: %s(%d)\n", strerror(r), r);
 		return r;
 	}
 
 	TAILQ_FOREACH_SAFE(ev_fd, &ctx->fd_q, qent, ev_fd_safe) {
+		// triggered event
 		unsigned triggered = 0;
 
+		// check the io triggered
 		if (fdmax > 0 && ev_fd->fd != -1) {
 			if (FD_ISSET(ev_fd->fd, &rdset)) {
 				triggered |= aloe_ev_flag_read;
@@ -374,24 +386,35 @@ int aloe_ev_once(void *_ctx) {
 				fdmax--;
 			}
 		}
+
+		// move out the triggered event pervent user change the list
 		TAILQ_FOREACH_SAFE(ev_noti, &ev_fd->noti_q, qent, ev_noti_safe) {
-			if (!(ev_noti->ev_noti = triggered & ev_noti->ev_wait)
+
+			// save triggered event for user callback argument
+			// for the io not triggered, maybe timeout
+			if (!(ev_noti->ev_noti = (triggered & ev_noti->ev_wait))
 					&& ev_noti->due.tv_sec != ALOE_EV_INFINITE
 					&& ALOE_TIMESEC_CMP(ev_noti->due.tv_sec, ev_noti->due.tv_nsec,
 							ts.tv_sec, ts.tv_nsec) <= 0) {
+				// timeout
 				ev_noti->ev_noti |= aloe_ev_flag_time;
 			}
+
+			// move out the triggered events
 			if (ev_noti->ev_noti) {
 				TAILQ_REMOVE(&ev_fd->noti_q, ev_noti, qent);
 				TAILQ_INSERT_TAIL(&ctx->noti_q, ev_noti, qent);
 			}
 		}
+
+		// handle the empty fd group to prevent fd group keeping on memory
 		if (TAILQ_EMPTY(&ev_fd->noti_q)) {
 			TAILQ_REMOVE(&ctx->fd_q, ev_fd, qent);
 			TAILQ_INSERT_TAIL(&ctx->spare_fd_q, ev_fd, qent);
 		}
 	}
 
+	// user callback
 	fdmax = 0;
 	while ((ev_noti = TAILQ_FIRST(&ctx->noti_q))) {
 		int fd = ev_noti->fd;
@@ -404,16 +427,19 @@ int aloe_ev_once(void *_ctx) {
 		TAILQ_INSERT_TAIL(&ctx->spare_noti_q, ev_noti, qent);
 		(*cb)(fd, triggered, cbarg);
 	}
+
+	// return the triggered event count
 	return fdmax;
 }
 
-void* aloe_ev_init(void) {
+void* aloe_ev_init(unsigned flag) {
 	aloe_ev_ctx_t *ctx;
 
 	if (!(ctx = malloc(sizeof(*ctx)))) {
 		log_e("malloc ev ctx\n");
 		return NULL;
 	}
+	ctx->with_busy_select = !!flag;
 	TAILQ_INIT(&ctx->fd_q);
 	TAILQ_INIT(&ctx->spare_fd_q);
 	TAILQ_INIT(&ctx->noti_q);

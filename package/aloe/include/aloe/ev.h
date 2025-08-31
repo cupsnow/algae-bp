@@ -1,13 +1,15 @@
-/**
- * Copyright 2023, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+/* $Id$
+ *
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
- */
-
-/**
+ * permission of joelai is strictly forbidden.
+ *
  * @author joelai
+ *
+ * @file aloe/ev.h
+ * @brief ev
  */
 
 #ifndef _H_ALOE_EV
@@ -64,8 +66,12 @@ void aloe_ev_cancel(void *ctx, void *ev);
 /** Process a loop. */
 int aloe_ev_once(void *ctx);
 
-/** Initialize context. */
-void* aloe_ev_init(void);
+/** Initialize context.
+ *
+ * @param[in] flag
+ * - 1 allow busy select
+ */
+void* aloe_ev_init(unsigned flag);
 
 /** Free context. */
 void aloe_ev_destroy(void *ctx);

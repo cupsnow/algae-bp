@@ -1,10 +1,10 @@
 /* $Id$
  *
- * Copyright 2024, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
+ * permission of joelai is strictly forbidden.
  *
  * @author joelai
  *
@@ -111,6 +111,10 @@ struct aloe_thread_rec {
 	char name[ALOE_THREAD_NAME_SIZE]; /**< Identify. */
 #endif
 };
+
+int aloe_file_nonblock(int fd, int en);
+int aloe_so_reuseaddr(int fd);
+int aloe_so_keepalive(int fd);
 
 /** @} ALOE_LINUX */
 

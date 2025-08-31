@@ -1,10 +1,10 @@
 /* $Id$
  *
- * Copyright 2024, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
+ * permission of joelai is strictly forbidden.
  *
  * @author joelai
  *
@@ -13,6 +13,8 @@
  */
 
 #include <aloe/sys.h>
+#include <fcntl.h>
+#include <sys/socket.h>
 #include "../log.h"
 
 #  define log_m(_lvl, _msg, _args...) do { \
@@ -242,3 +244,49 @@ int aloe_thread_run(aloe_thread_t *thd, void(*on_run)(aloe_thread_t*),
 	thd->run = on_run;
 	return pthread_create(&thd->thread, NULL, &thread_runner, thd);
 }
+
+extern "C"
+int aloe_file_nonblock(int fd, int en) {
+	int r;
+
+	if ((r = fcntl(fd, F_GETFL, NULL)) == -1) {
+		r = errno;
+		log_e("Failed to get file flag: %s(%d)\n", strerror(r), r);
+		return r;
+	}
+	if (en) r |= O_NONBLOCK;
+	else r &= (~O_NONBLOCK);
+	if ((r = fcntl(fd, F_SETFL, r)) != 0) {
+		r = errno;
+		log_e("Failed to set nonblocking file flag: %s(%d)\n", strerror(r), r);
+		return r;
+	}
+	return 0;
+}
+
+extern "C"
+int aloe_so_reuseaddr(int fd) {
+	int r, opt;
+
+	opt = 1;
+	if ((r = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) != 0) {
+		r = errno;
+		log_e("Failed to set SO_REUSEADDR: %s(%d)\n", strerror(r), r);
+		return r;
+	}
+	return 0;
+}
+
+extern "C"
+int aloe_so_keepalive(int fd) {
+	int r, opt;
+
+	opt = 1;
+	if ((r = setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt))) != 0) {
+		r = errno;
+		log_e("Failed to set SO_KEEPALIVE: %s(%d)\n", strerror(r), r);
+		return r;
+	}
+	return 0;
+}
+

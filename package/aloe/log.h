@@ -1,10 +1,10 @@
 /* $Id$
  *
- * Copyright 2024, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
+ * Copyright 2025, joelai
+ * This is proprietary information of joelai
  * All Rights Reserved. Reproduction of this documentation or the
  * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
+ * permission of joelai is strictly forbidden.
  *
  * @author joelai
  *
@@ -12,11 +12,10 @@
  * @brief log
  */
 
-#ifndef LOG_H_
-#define LOG_H_
+#ifndef _H_ALOE_LOG
+#define _H_ALOE_LOG
 
 #include <time.h>
-
 #include <aloe/sys.h>
 
 #ifdef __cplusplus
@@ -41,7 +40,4 @@ extern "C" {
 } /* extern "C" */
 #endif
 
-
-
-
-#endif /* LOG_H_ */
+#endif /* _H_ALOE_LOG */
