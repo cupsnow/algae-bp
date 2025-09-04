@@ -19,6 +19,7 @@
 #include "priv.h"
 #include <aloe/ev.h>
 #include <aloe/compat/openbsd/sys/queue.h>
+#include <aloe/compat/openbsd/sys/tree.h>
 
 typedef struct evconn_rec {
 	int fd;
@@ -250,8 +251,8 @@ static int mgmt1_init(const char *path) {
 	mgmt->evconn.ev_ctx = impl.ev_ctx;
 
 
-	// sock_type = SOCK_STREAM;
-	sock_type = SOCK_DGRAM;
+	sock_type = SOCK_STREAM;
+//	sock_type = SOCK_DGRAM;
 	if ((mgmt->evconn.fd = socket(AF_UNIX, sock_type, 0)) == -1) {
 		r = errno;
 		log_e("failure socket AF_UNIX: %s\n", strerror(r));
@@ -267,7 +268,7 @@ static int mgmt1_init(const char *path) {
 		goto finally;
 	}
 	if (aloe_file_nonblock(mgmt->evconn.fd, 1) != 0
-#if 0
+#if 1
 			|| aloe_so_reuseaddr(mgmt->evconn.fd) != 0
 			|| aloe_so_keepalive(mgmt->evconn.fd) != 0
 #endif
@@ -275,7 +276,8 @@ static int mgmt1_init(const char *path) {
 		log_e("failure set nonblock or socket flag\n");
 		goto finally;
 	}
-	if (listen(mgmt->evconn.fd, 5) != 0) {
+	if ((sock_type == SOCK_STREAM)
+			&& listen(mgmt->evconn.fd, 5) != 0) {
 		r = errno;
 		log_e("failure listen: %s\n", strerror(r));
 		goto finally;
@@ -303,41 +305,55 @@ finally:
 	return ret;
 }
 
-typedef struct {
-	evconn_t evconn;
-	char line_fb_data[2048];
-	aloe_buf_t line_fb;
-} cli1_t;
-
-typedef struct {
+typedef struct cli_cmd_rec {
 	const char *str;
 	int (*run)(int, const char**);
 	const char *detail;
-} cli_lut_ent_t;
+	RB_ENTRY(cli_cmd_rec) qent;
+} cli_cmd_t;
+
+typedef RB_HEAD(cli_cmdq_rec, cli_cmd_rec) cli_cmdq_t;
+
+static int cli_cmd_cmp(cli_cmd_t *a, cli_cmd_t *b) {
+	return strcmp(a->str, b->str);
+}
+RB_GENERATE_STATIC(cli_cmdq_rec, cli_cmd_rec, qent, cli_cmd_cmp);
+
+typedef struct cli_rec {
+	evconn_t evconn;
+	char line_fb_data[2048];
+	aloe_buf_t line_fb;
+	cli_cmdq_t cmdq;
+} cli1_t;
 
 static int cli_help(int argc, const char **argv);
-static cli_lut_ent_t cli_lut[] = {
+cli_cmd_t cli_lut[] = {
 //	{"n2", &test_n2, "<0 | 1>"},
 //	{"fan", &test_fan, "<1 | 2 | 3> <0 | 1>"},
 //	{"poe", &test_poe, "<0 | 1>"},
-	{"help", &cli_help},
-	{NULL},
+	{"help", &cli_help, "Show this help"}
 };
 
-static cli_lut_ent_t* cli_lut_find(const char *str) {
-	cli_lut_ent_t *cli_ref;
+static cli_cmd_t* cli_lut_find(cli1_t *cli, const char *str) {
+	cli_cmd_t *cli_ref;
+	size_t cli_cnt = aloe_arraysize(cli_lut);
+	int i;
 
-	for (cli_ref = cli_lut; cli_ref->str; cli_ref++) {
+	for (i = 0; i < (int)cli_cnt; i++) {
+		cli_ref = &cli_lut[i];
 		if (strcasecmp(str, cli_ref->str) == 0) return cli_ref;
 	}
 	return NULL;
 }
 
 static int cli_help(int argc, const char **argv) {
-	cli_lut_ent_t *cli_ref;
+	cli_cmd_t *cli_ref;
 	const char *tgt = (argc >= 3 ? argv[2] : NULL);
+	size_t cli_cnt = aloe_arraysize(cli_lut);
+	int i;
 
-	for (cli_ref = cli_lut; cli_ref->str; cli_ref++) {
+	for (i = 0; i < (int)cli_cnt; i++) {
+		cli_ref = &cli_lut[i];
 		if (tgt && strcasecmp(tgt, cli_ref->str) != 0) continue;
 
 		if (cli_ref->detail) {
@@ -385,7 +401,7 @@ static const char* cli_line_trim(const char *data, size_t *data_sz) {
 
 static int cli_input_line(cli1_t *cli, const char *line_start, size_t line_sz) {
 	int r;
-	cli_lut_ent_t *cli_ref;
+	cli_cmd_t *cli_ref;
 	char line_buf[1024];
 	const char *argv[20];
 	int argc = aloe_arraysize(argv) - 1;
@@ -402,7 +418,7 @@ static int cli_input_line(cli1_t *cli, const char *line_start, size_t line_sz) {
 	memcpy(line_buf, line_start, line_sz);
 	line_buf[line_sz] = '\0';
 	aloe_cli_tok(line_buf, &argc, &argv[1], NULL);
-	if ((cli_ref = cli_lut_find(argv[1])) == NULL) {
+	if ((cli_ref = cli_lut_find(cli, argv[1])) == NULL) {
 		log_e("Command %s not found\n", argv[1]);
 		return -1;
 	}
@@ -416,60 +432,56 @@ static int cli_input_line(cli1_t *cli, const char *line_start, size_t line_sz) {
 	return r;
 }
 
-static int cli_input(cli1_t *cli, const char *line_start, size_t line_sz) {
+static int cli_input(cli1_t *cli, const char *data, size_t data_sz) {
 	int r;
 	const char *lf_pos;
+	size_t lf_parse;
 
 	// insufficient buffer, drop all
-	if (cli->line_fb.pos + line_sz >= cli->line_fb.cap) {
+	if (cli->line_fb.pos + data_sz >= cli->line_fb.cap) {
 		log_e("cli too long\n");
 		_aloe_buf_clear(&cli->line_fb);
 		return 0;
 	}
 
+	lf_parse = cli->line_fb.pos;
+
 	// append data to line_fb
-	memcpy((char*)cli->line_fb.data + cli->line_fb.pos, line_start, line_sz);
-	((char*)cli->line_fb.data)[cli->line_fb.pos + line_sz] = '\0';
+	memcpy((char*)cli->line_fb.data + cli->line_fb.pos, data, data_sz);
+	((char*)cli->line_fb.data)[cli->line_fb.pos += data_sz] = '\0';
 
-	// for search newline from incoming data
-	line_start = (char*)cli->line_fb.data + cli->line_fb.pos;
-
-	// complete append data to line_fb
-	cli->line_fb.pos += line_sz;
+	// line starting from saved buffer
+	data = (char*)cli->line_fb.data;
 
 	// search newline from incoming data
-	lf_pos = (char*)memmem(line_start, line_sz, "\n", 1);
+	lf_pos = (char*)memmem((char*)cli->line_fb.data + lf_parse, data_sz,
+			"\n", 1);
 
-	// line start position
-	line_start = (char*)cli->line_fb.data;
-
-	// consume line
 	while (lf_pos) {
-		cli_input_line(cli, line_start, lf_pos - line_start);
+		// including newline
+		cli_input_line(cli, data, lf_pos - data + 1);
 
-		// line start position
-		line_start = lf_pos + 1;
-		if (line_start > (char*)cli->line_fb.data + cli->line_fb.pos) {
-			log_e("Sanity check line start out of range");
-		}
-		if (line_start >= (char*)cli->line_fb.data + cli->line_fb.pos) {
-			// consume all data
+		// update line start position
+		data = lf_pos + 1;
+
+		if (data >= (char*)cli->line_fb.data + cli->line_fb.pos) {
+			// exhausted all data
 			break;
 		}
 
 		// search newline from next data
-		line_sz = (char*)cli->line_fb.data + cli->line_fb.pos - line_start;
-		lf_pos = (char*)memmem(line_start, line_sz, "\n", 1);
+		data_sz = (char*)cli->line_fb.data + cli->line_fb.pos - data;
+		lf_pos = (char*)memmem(data, data_sz, "\n", 1);
 	}
 
-	if (line_start >= (char*)cli->line_fb.data + cli->line_fb.pos) {
-		// consume all data
+	if (data >= (char*)cli->line_fb.data + cli->line_fb.pos) {
+		// exhausted all data
 		((char*)cli->line_fb.data)[cli->line_fb.pos = 0] = '\0';
-	} else if (line_start > (char*)cli->line_fb.data) {
-		// wrap for next data
-		line_sz = (char*)cli->line_fb.data + cli->line_fb.pos - line_start;
-		memmove(cli->line_fb.data, line_start, line_sz);
-		((char*)cli->line_fb.data)[cli->line_fb.pos = line_sz] = '\0';
+	} else if (data > (char*)cli->line_fb.data) {
+		// wrap data for next line start
+		data_sz = (char*)cli->line_fb.data + cli->line_fb.pos - data;
+		memmove(cli->line_fb.data, data, data_sz);
+		((char*)cli->line_fb.data)[cli->line_fb.pos = data_sz] = '\0';
 //	} else if (line_start == (char*)cli->line_fb.data) {
 //		// no need wrap
 	}
@@ -575,12 +587,36 @@ finally:
 	return ret;
 }
 
+static void test_cli1(void) {
+	cli1_t _cli = {}, *cli = &_cli;
+	const char *buf;
+
+	cli->evconn.fd = -1;
+	cli->line_fb.data = cli->line_fb_data;
+	cli->line_fb.cap = sizeof(cli->line_fb_data);
+
+	buf = "hel";
+	cli_input(cli, buf, strlen(buf));
+
+	buf = "p\nhel";
+	cli_input(cli, buf, strlen(buf));
+
+	buf = "p\n";
+	cli_input(cli, buf, strlen(buf));
+
+}
+
 int main(int argc, const char **argv) {
 	int ret = -1;
 
 	log_d("%s\n", aloe_version(NULL, 0));
 
 	dump_argv(argc, argv)
+
+	if (0) {
+		test_cli1();
+		goto finally;
+	}
 
 	if ((impl.ev_ctx = aloe_ev_init(0)) == NULL) {
 		log_e("Failure alloc ev_ctx\n");
