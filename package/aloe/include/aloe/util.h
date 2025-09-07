@@ -51,6 +51,7 @@ extern "C" {
 #define _aloe_stringify(_s) # _s
 #define aloe_stringify(_s) _aloe_stringify(_s)
 
+#define aloe_member_of(_type, _member) ((_type *)NULL)->_member
 #define aloe_offsetof(_type, _member) ((_type *)NULL)->_member
 #define aloe_containerof(_obj, _type, _member) \
 	((_type *)((_obj) ? ((char*)(_obj) - offsetof(_type, _member)) : NULL))
