@@ -138,6 +138,11 @@ DTC_LINUX_WNO=-Wno-interrupt_provider -Wno-unit_address_vs_reg \
 CMD_DTC2=dtc -O dtb -I dts -b 0 -@ $(DTC_LINUX_WNO) $(1:%=-d %)
 
 #------------------------------------
+# 
+CMD_CDEF= echo | $(CC) -dM -E -
+CMD_CXXDEF= echo | $(C++) -dM -E -x c++ -
+
+#------------------------------------
 # $(eval $(call DECL_TOOLCHAIN_GCC,$(HOME)/07_sw/gcc-aarch64-none-linux-gnu))
 # $(eval $(call DECL_TOOLCHAIN_GCC,$(HOME)/07_sw/or1k-linux-musl,OR1K))
 # EXTRA_PATH+=$(TOOLCHAIN_PATH:%=%/bin) $(OR1K_TOOLCHAIN_PATH:%=%/bin)

@@ -2,6 +2,12 @@ PROJDIR?=$(abspath .)
 -include $(PROJDIR)/site.mk
 -include $(PROJDIR:%=%/builder/)proj.mk
 
+
+#------------------------------------
+#
+fcgi_CFLAGS+=-I$(BUILD_SYSROOT)/include
+fcgi_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib -l fcgi
+
 #------------------------------------
 #
 help: DESTDIR=$(BUILD_SYSROOT)
@@ -18,17 +24,22 @@ testsite2_OBJS=$(patsubst %,$(testsite2_BUILDDIR)/%.o,$(filter %.cpp,$(testsite2
 testsite2_OBJS+=$(patsubst %,$(testsite2_BUILDDIR)/%.o,$(filter %.c,$(testsite2_SRCS)))
 testsite2_DEPS=$(testsite2_OBJS:%=%.d)
 
+testsite2_CFLAGS+=$(fcgi_CFLAGS)
+testsite2_CXXFLAGS+=$(fcgi_CFLAGS)
+testsite2_LDFLAGS+=$(fcgi_LDFLAGS)
+
 $(testsite2_BUILDDIR)/testsite2: $(testsite2_OBJS)
 	$(if $(filter %.cpp,$(testsite2_SRCS)),g++,gcc) \
-	  -o $@ $(testsite2_OBJS) $(LDFLAGS)
+	  -o $@ $(testsite2_OBJS) -pthread $(LDFLAGS) \
+	  $(testsite2_LDFLAGS)
 
 $(testsite2_BUILDDIR)/%.c.o: %.c
 	$(MKDIR) $(dir $@)
-	gcc -c -o $@ $< $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS)
+	gcc -c -o $@ $< $(testsite2_CFLAGS) -pthread $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS)
 
 $(testsite2_BUILDDIR)/%.cpp.o: %.cpp
 	$(MKDIR) $(dir $@)
-	g++ -c -o $@ $< $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS)
+	g++ -c -o $@ $< $(testsite2_CXXFLAGS) -pthread $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS)
 
 -include $(testsite2_DEPS)
 

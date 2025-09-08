@@ -36,6 +36,7 @@
  */
 
 #include <stdio.h>
+#include <stddef.h> // offsetof
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>

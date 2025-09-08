@@ -7,4 +7,4 @@ if type resize >/dev/null 2>&1; then
   eval "$(resize)"
 fi
 
-alias ls='ls --color --group-directories-first'
+alias ls='ls --color --group-directories-first -F'
