@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdint.h> // for uint64_t
 
 #ifdef __cplusplus
 extern "C" {

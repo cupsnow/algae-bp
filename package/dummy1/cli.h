@@ -9,8 +9,8 @@
  * @brief noname
  */
 
-#ifndef CLI_H_
-#define CLI_H_
+#ifndef _H_ALGAE_CLI
+#define _H_ALGAE_CLI
 
 #include "priv.h"
 
@@ -30,4 +30,4 @@ void cli1_test1(void);
 } /* extern "C" */
 #endif
 
-#endif /* CLI_H_ */
+#endif /* _H_ALGAE_CLI */

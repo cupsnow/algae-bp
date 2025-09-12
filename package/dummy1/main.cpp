@@ -1,12 +1,12 @@
 /* $Id$
  *
- * Copyright 2025, joelai
- * This is proprietary information of joelai
- * All Rights Reserved. Reproduction of this documentation or the
- * accompanying programs in any manner whatsoever without the written
- * permission of joelai is strictly forbidden.
+ * Copyright (c) 2025, joelai
+ * All Rights Reserved
  *
- * @author joelai
+ * SPDX-License-Identifier: MIT
+ *
+ * @file noname
+ * @brief noname
  */
 
 #include <iostream>
@@ -25,6 +25,7 @@
 static struct {
 	void *ev_ctx;
 	char quit;
+	struct timespec cycle_ts, cycle_td;
 } impl;
 
 #define dump_argv(_argc, _argv) for (int i = 0; i < _argc; i++) { \
@@ -49,60 +50,49 @@ static int test_mm1(void*,int,const char**) {
 }
 
 static void cycletime_cb(int fd, unsigned ev, void *arg) {
-	static struct timespec report_ts = {}, cycle_ts = {}, cycle_td = {};
+	struct timespec *cycle_ts = &impl.cycle_ts, *cycle_td = &impl.cycle_td;
 	struct timespec ts;
-	time_t t_epoch;
-	struct tm tm;
 
 	clock_gettime(CLOCK_REALTIME, &ts);
 
-	if (cycle_ts.tv_sec != 0 && cycle_ts.tv_nsec != 0 // initial
+	if (cycle_ts->tv_sec != 0 && cycle_ts->tv_nsec != 0 // initial
 			&& ALOE_TIMESEC_CMP(ts.tv_sec, ts.tv_nsec,
-					cycle_ts.tv_sec, cycle_ts.tv_nsec) >= 0
+					cycle_ts->tv_sec, cycle_ts->tv_nsec) >= 0
 					) {
 		ALOE_TIMESEC_SUB(ts.tv_sec, ts.tv_nsec,
-				cycle_ts.tv_sec, cycle_ts.tv_nsec,
-				cycle_td.tv_sec, cycle_td.tv_nsec, 1000000000ul);
+				cycle_ts->tv_sec, cycle_ts->tv_nsec,
+				cycle_td->tv_sec, cycle_td->tv_nsec, 1000000000ul);
 	}
-	cycle_ts = ts;
+	*cycle_ts = ts;
 
-	t_epoch = (time_t)ts.tv_sec;
-	localtime_r(&t_epoch, &tm);
-
-	if (report_ts.tv_sec == 0 // initial
-			|| ts.tv_sec < report_ts.tv_sec // rollback
-			|| ts.tv_sec - report_ts.tv_sec >= 1 // report interval
-			) {
-		uint64_t cycle_us = cycle_td.tv_sec * 1000000 + cycle_td.tv_nsec / 1000;
-		log_d("tick %llu, cycle_us %llu\n",
-				(unsigned long long)t_epoch * 1000 + ts.tv_nsec / 1000000,
-				(unsigned long long)cycle_us);
-		report_ts = ts;
-	}
 finally:
 	if (aloe_ev_put(impl.ev_ctx, -1, &cycletime_cb, NULL, 0, 0, 0) == NULL) {
 		log_e("Failure aloe_ev_put\n");
 	}
 }
 
-static void tester_proc2(void *args) {
-	int *seq = (int*)args;
+static int cli_cmd_cycle_time(void*, int, const char**) {
+	struct timespec cycle_td = impl.cycle_td;
+	uint64_t cycle_us = cycle_td.tv_sec * 1000000 + cycle_td.tv_nsec / 1000;
 
-	log_d("seq: %d\n", seq ? *seq : 0);
+	log_d("cycle time %llu (microseconds)\n", (unsigned long long)cycle_us);
+	return 0;
 }
 
-static void* tester_proc(void *args) {
+static void tester_proc2(void *args) {
+	int *msg_seq = (int*)args;
+
+	log_d("seq: %d\n", msg_seq ? *msg_seq : 0);
+}
+
+static void* tester_ipc(void *args) {
 	int r = -1, seq = 0, msg_seq;
-	struct {
-		void (*func)(void*);
-		void* cbarg;
-	} val = {.func = &tester_proc2, .cbarg = &seq};
 
 	(void)args;
 
 	while (1) {
-		if ((r = ipc1_write(ipc_global, 1, &msg_seq,
-				&val, sizeof(val))) < sizeof(val)) {
+		if ((r = ipc1_register_callback(ipc_global, &msg_seq, &tester_proc2,
+				&msg_seq)) != 0) {
 			log_e("failed write to ipc1\n");
 			goto finally;
 		}
@@ -112,11 +102,6 @@ static void* tester_proc(void *args) {
 	}
 finally:
 	return (void*)(unsigned long)r;
-}
-
-static int tester_cli(void *cbarg, int argc, const char **argv) {
-	dump_argv(argc, argv);
-	return 0;
 }
 
 int main(int argc, const char **argv) {
@@ -137,21 +122,19 @@ int main(int argc, const char **argv) {
 		goto finally;
 	}
 
-#if 0 // enable for callback in each cycle
 	if (aloe_ev_put(impl.ev_ctx, -1, &cycletime_cb, NULL, 0, 0, 0) == NULL) {
 		log_e("Failure aloe_ev_put\n");
 		goto finally;
 	}
-#endif
 
 	mgmt1_init(impl.ev_ctx, "mgmt1.socket");
 	cli_global = cli1_init(impl.ev_ctx);
 	ipc_global = ipc1_init(impl.ev_ctx);
 
-	cli1_cmd_add(cli_global, "nms", &tester_cli, NULL, "no man's sky");
+	cli1_cmd_add(cli_global, "cycle_time", &cli_cmd_cycle_time, NULL, "event cycle time");
 
 #if 0
-	pthread_create(&tester, NULL, &tester_proc, NULL);
+	pthread_create(&tester, NULL, &tester_ipc, NULL);
 #endif
 
 	while (!impl.quit) {

@@ -1,3 +1,13 @@
+# $Id$
+# 
+# Copyright (c) 2025, joelai
+# All Rights Reserved
+# 
+# SPDX-License-Identifier: MIT
+# 
+# @file noname
+# @brief noname
+
 #------------------------------------
 #
 PROJDIR?=$(PWD)

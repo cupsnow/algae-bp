@@ -1,19 +1,16 @@
 /* $Id$
  *
- * Copyright 2025, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
- * All Rights Reserved. Reproduction of this documentation or the
- * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
+ * Copyright (c) 2025, joelai
+ * All Rights Reserved
  *
- * @author joelai
+ * SPDX-License-Identifier: MIT
  *
- * @file /algae-bp/package/dummy1/priv_ev.h
- * @brief priv_ev
+ * @file noname
+ * @brief noname
  */
 
-#ifndef PRIV_EV_H_
-#define PRIV_EV_H_
+#ifndef _H_ALGAE_PRIV_EV
+#define _H_ALGAE_PRIV_EV
 
 #include "priv.h"
 #include <aloe/ev.h>
@@ -38,4 +35,4 @@ typedef TAILQ_HEAD(evconn_list_rec, evconn_rec) evconn_list_t;
 } /* extern "C" */
 #endif
 
-#endif /* PRIV_EV_H_ */
+#endif /* _H_ALGAE_PRIV_EV */

@@ -68,7 +68,7 @@ static int ipc1_input_msg(ipc1_t *ipc, const ipc1_msg_t *msg) {
 	log_d("ipc msg seq %d, type %d, length %d\n", (int)msg->seq,
 			(int)msg->type, (int)msg->length);
 
-	if (msg->type == 1) {
+	if (msg->type == ipc1_type_callback1) {
 		typedef void (*func_t)(void*);
 		func_t func;
 		void *cbarg = NULL;
@@ -307,4 +307,21 @@ finally:
 		}
 	}
 	return ipc;
+}
+
+extern "C"
+int ipc1_register_callback(void *ipc, int *seq, void (*func)(void*), void *cbarg) {
+	int ret = -1, r;
+	ipc1_type_callback_t msg = {
+		.func = func, .cbarg = cbarg,
+	};
+
+	if ((r = ipc1_write(ipc, ipc1_type_callback1, seq,
+			&msg, sizeof(msg))) < sizeof(msg)) {
+		log_e("failed write to ipc1\n");
+		goto finally;
+	}
+	ret = 0;
+finally:
+	return ret;
 }

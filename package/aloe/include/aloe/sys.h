@@ -60,7 +60,7 @@ extern "C" {
  *
  * See also ALOE_TICK2MS(), ALOE_MS2TICK(), ALOE_TICK2US(), ALOE_US2TICK()
  */
-unsigned long aloe_ticks(void);
+uint64_t aloe_ticks(void);
 
 typedef struct __attribute__((packed)) aloe_mem_rec {
 	const int *sig;

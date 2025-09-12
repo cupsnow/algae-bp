@@ -82,11 +82,12 @@ int aloe_free(void *p) {
 	return ret;
 }
 
+/** Return microseconds. */
 extern "C"
-unsigned long aloe_ticks(void) {
+uint64_t aloe_ticks(void) {
 	struct timespec tv;
 
-	clock_gettime(CLOCK_MONOTONIC, &tv);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &tv);
 
 	return tv.tv_sec * 1000000ul +
 			(tv.tv_nsec + 500ul) / 1000ul;

@@ -1,19 +1,16 @@
 /* $Id$
  *
- * Copyright 2025, joelai
- * This is proprietary information of joelai
- * All Rights Reserved. Reproduction of this documentation or the
- * accompanying programs in any manner whatsoever without the written
- * permission of joelai is strictly forbidden.
+ * Copyright (c) 2025, joelai
+ * All Rights Reserved
  *
- * @author joelai
+ * SPDX-License-Identifier: MIT
  *
- * @file /algae-bp/package/dummy1/priv.h
- * @brief priv
+ * @file noname
+ * @brief noname
  */
 
-#ifndef PRIV_H_
-#define PRIV_H_
+#ifndef _H_ALGAE_PRIV
+#define _H_ALGAE_PRIV
 
 #include <aloe/sys.h>
 
@@ -40,4 +37,4 @@ extern "C" {
 #endif
 
 
-#endif /* PRIV_H_ */
+#endif /* _H_ALGAE_PRIV */

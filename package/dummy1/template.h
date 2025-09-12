@@ -9,8 +9,8 @@
  * @brief noname
  */
 
-#ifndef _H_ALGAE_MGMT
-#define _H_ALGAE_MGMT
+#ifndef _H_ALGAE_TEMPLATE
+#define _H_ALGAE_TEMPLATE
 
 #include "priv.h"
 
@@ -18,10 +18,8 @@
 extern "C" {
 #endif
 
-void* mgmt1_init(void *evctx, const char *path);
-
 #ifdef __cplusplus
 } // extern "C"
 #endif
 
-#endif // _H_ALGAE_MGMT
+#endif // _H_ALGAE_TEMPLATE
