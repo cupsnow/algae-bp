@@ -19,7 +19,7 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 APP_ATTR_ub20?=ub20
 
 # ti_linux bb_linux
-APP_ATTR_bp?=bp wl18xx bb_linux
+APP_ATTR_bp?=bp wl18xx # bb_linux
 
 APP_ATTR_qemuarm64?=qemuarm64
 
@@ -40,7 +40,8 @@ ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-arm
 ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
 PATH_PUSH+=$(ARM_TOOLCHAIN_PATH)/bin
 
-AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
+# AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
+AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
 AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
 PATH_PUSH+=$(AARCH64_TOOLCHAIN_PATH)/bin
 
@@ -379,6 +380,9 @@ else
 linux_DIR?=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
 endif
+
+linux_MAKE_BASE=$(MAKE) $(linux_MAKEARGS-$(APP_PLATFORM)) \
+    -C $(linux_DIR)
 linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
 
@@ -398,6 +402,7 @@ linux_defconfig-qemuarm64=defconfig
 linux_defconfig-site=$(or $(linux_defconfig-site-$(APP_PLATFORM)),$(PROJDIR)/linux-$(APP_PLATFORM).config)
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
+	$(linux_MAKE_BASE) mrproper
 ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
 	$(linux_MAKE) defconfig ti_arm64_prune.config
 else
@@ -940,8 +945,12 @@ ncursesw_TINFODIR=/usr/share/terminfo
 ncursesw_MAKE=$(MAKE) -C $(ncursesw_BUILDDIR)
 
 # ncursesw_ACARGS_$(APP_PLATFORM)+=--without-debug
-ncursesw_ACARGS_ub20+=--with-pkg-config=/lib
-ncursesw_ACARGS_bp+=--disable-db-install --without-tests --without-manpages
+
+ncursesw_ACARGS_ub20+=--enable-pc-files --with-pkg-config-libdir=/lib/pkgconfig
+ncursesw_ACARGS_bp+=--without-tests --without-manpages --disable-db-install
+
+ncursesw_MAKEENV_bp=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
+    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR)
 
 GENDIR+=$(ncursesw_BUILDDIR)
 
@@ -950,8 +959,8 @@ ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
 	cd $(ncursesw_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(ncursesw_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --with-termlib --with-ticlib \
-	      --with-shared --enable-widec --disable-stripping \
-	      --with-default-terminfo-dir=$(ncursesw_TINFODIR) \
+	      --with-shared --enable-widec --disable-stripping --without-ada \
+		  --with-default-terminfo-dir=$(ncursesw_TINFODIR) \
 	      CFLAGS="-fPIC $(ncursesw_CFLAGS_$(APP_PLATFORM))" \
 	      $(ncursesw_ACARGS_$(APP_PLATFORM))
 
@@ -990,21 +999,34 @@ TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
 TERMINFO_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
     TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) \
 	$(PROJDIR)/tool/bin/tic
+TERMINFO_INFOCMP=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
+    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) \
+	$(PROJDIR)/tool/bin/infocmp
+
+# extract from ncursesw source
+TERMINFO_EXTRACT=$(TERMINFO_TIC) -s -r -I -x -r -e"$(TERMINFO_NAMES)" \
+    $(ncursesw_DIR)/misc/terminfo.src
+
+# extract from installed terminfo
+TERMINFO_EXTRACT2={ \
+  for tname in $(subst $(COMMA),$(SPACE),$(TERMINFO_NAMES)); do \
+    $(TERMINFO_INFOCMP) -q $$tname; \
+  done; \
+}
+
 CMD_TERMINFO= \
   { [ -d "$(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR)" ] || \
     $(MKDIR) $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR); } \
-  && $(TERMINFO_TIC) -s -r -I -x -r -e"$(TERMINFO_NAMES)" \
-      $(ncursesw_DIR)/misc/terminfo.src > $(BUILDDIR)/terminfo.src \
+  && $(TERMINFO_EXTRACT2) >$(BUILDDIR)/terminfo.src \
   && $(TERMINFO_TIC) -s -o $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR) \
       $(BUILDDIR)/terminfo.src
-
 terminfo_install: DESTDIR=$(BUILD_SYSROOT)
 terminfo_install: | $(PROJDIR)/tool/bin/tic
 	$(call CMD_TERMINFO)
 
 $(eval $(call DEF_DESTDEP,terminfo))
 
-$(addprefix $(PROJDIR)/tool/bin/,tic):
+$(addprefix $(PROJDIR)/tool/bin/,tic) ncursesw_host:
 	$(MAKE) DESTDIR=$(PROJDIR)/tool APP_PLATFORM=ub20 ncursesw_destdep_install
 
 #------------------------------------
@@ -2863,6 +2885,11 @@ dist-bp_bootpart:
 	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_emmc.img,$(dist_DIR)/$(APP_PLATFORM)/boot_emmc/*)
 	mdir -a -/ -i $(bootpart_prefix)_emmc.img
 
+dist-bp_itb_loadaddr=0x82000000
+dist-bp_itb_fdtaddr=0x88000000
+dist-bp_mkimage_dtcargs+=-I dts -O dtb -p 500
+dist-bp_mkimage_dtcargs+=-Wno-unit_address_vs_reg
+
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
@@ -2872,7 +2899,7 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	### serve sbl
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin
-	# serve uboot boot from sdcard
+	### serve uboot boot from sdcard
 	rsync -L $(RSYNC_VERBOSE) $(BUILDDIR)/uboot-bp-a53.env \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot.env
 	rsync -L $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot.env \
@@ -2891,11 +2918,25 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53-emmc)/u-boot.img_unsigned \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot_emmc/u-boot.img
 	### serve kernel image
-	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
+	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image \
+	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
 	#     $(dist_DIR)/$(APP_PLATFORM)/boot/
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot dist-bp_dtb
+	### serve uboot fit image
+	sed \
+	  -e "s/\$$\$$(KERNEL_DATA_FILE)/$(subst /,\/,$(linux_BUILDDIR)/arch/arm64/boot/Image)/g" \
+	  -e "s/\$$\$$(KERNEL_DATA_COMPRESSION)/none/g" \
+	  -e "s/\$$\$$(KERNEL_LOAD_ADDR)/$(dist-bp_itb_loadaddr)/g" \
+	  -e "s/\$$\$$(KERNEL_ENTRY_ADDR)/$(dist-bp_itb_loadaddr)/g" \
+	  -e "s/\$$\$$(FDT_DATA_FILE)/$(subst /,\/,$(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb)/g" \
+	  -e "s/\$$\$$(FDT_LOAD_ADDR)/$(dist-bp_itb_fdtaddr)/g" \
+	  -e "s/\$$\$$(SIGNATURE_KEY_NAME)/$(ubsignkey)/g" \
+	  $(PROJDIR)/linux-$(APP_PLATFORM).its | tee $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its
+	$(PROJDIR)/tool/bin/mkimage $(if $(dist-bp_mkimage_dtcargs),-D "$(dist-bp_mkimage_dtcargs)") \
+	  -f $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot/linux.itb
 	### serve rootfs
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/

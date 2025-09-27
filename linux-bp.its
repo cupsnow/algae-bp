@@ -1,0 +1,33 @@
+/dts-v1/;
+/ {
+    description = "FDT blobs";
+    images {
+        kernel-1 {
+            description = "Linux kernel";
+            data = /incbin/("$$(KERNEL_DATA_FILE)");
+            type = "kernel";
+            arch = "arm64";
+            os = "linux";
+            compression = "$$(KERNEL_DATA_COMPRESSION)";
+            load = <$$(KERNEL_LOAD_ADDR)>;
+            entry = <$$(KERNEL_ENTRY_ADDR)>;
+        };
+        fdt-1 {
+            description = "Linux device tree";
+            data = /incbin/("$$(FDT_DATA_FILE)");
+            type = "flat_dt";
+            arch = "arm64";
+            compression = "none";
+            load = <$$(FDT_LOAD_ADDR)>;
+            fdt-version = <1>;
+        };
+    };
+    configurations {
+        default = "conf-1";
+        conf-1 {
+            description = "Set 1";
+            kernel = "kernel-1";
+            fdt = "fdt-1";
+        };
+    };
+};

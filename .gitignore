@@ -2,8 +2,16 @@
 /build/
 /destdir/
 /site.mk
+/build.log
+
+__pycache__
 
 
 # eclipse
 /.project
 /.cproject
+
+# vscode
+/.settings/
+/.venv/
+

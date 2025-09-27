@@ -673,6 +673,7 @@ while test -n "$1"; do
     [ -n "${_lo_linux_builddir}" ] || _lo_linux_builddir="${_lo_linux_builddir1}"
 
     cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
         "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }

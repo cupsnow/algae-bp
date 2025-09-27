@@ -108,6 +108,17 @@ U-Boot
 
 For BP, currently upstream version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
 
+### memory for boot
+| addr       | offset | related varable             | memo |
+| ---------- | ------ | --------------------------- | ---- |
+| 0x80000000 | 0      | scriptaddr                  |
+| 0x82000000 | 32M    | loadaddr, kernel_addr_r     |
+| 0x85000000 | 80M    | kernel_comp_addr_r          |
+| 0x88000000 | 128M   | fdtaddr, fdt_addr_r         |
+| 0x89000000 | 144M   | dtboaddr, fdtoverlay_addr_r |
+| 0x90000000 | 256M   | addr_fit                    |
+
+
 ### Env for SDCard
 
 ### Env for EMMC
@@ -148,6 +159,23 @@ cp /media/boot-sd/u-boot.img /media/boot-emmc/
 sync
 ```
 
+### other commands
+
+```
+mmc dev 1 && fatls mmc 1:1
+
+fatload mmc 1:1 ${addr_fit} ubootenv-bp-a53.txt && env import ${addr_fit};
+
+fatload mmc 1:1 ${addr_fit} linux.itb && iminfo ${addr_fit};
+
+bootm ${addr_fit} -
+
+fatload mmc 1:1 ${addr_fit} Image
+
+setenv sdboot 'run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}'
+
+
+```
 
 yocto
 ----

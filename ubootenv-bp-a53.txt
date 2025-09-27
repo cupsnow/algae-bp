@@ -1,28 +1,56 @@
 # common between bp a53
+
+# mem offset 256 MB
+addr_fit=0x90000000
+fitaddr=0x90000000
+
+# mem offset 32 MB
 loadaddr=0x82000000
+kernel_addr_r=0x82000000
+
+# mem offset 128 MB
 fdtaddr=0x88000000
+fdt_addr_r=0x88000000
+
+# mem offset 144 MB
+dtboaddr=0x89000000
+fdtoverlay_addr_r=0x89000000
+
+# mem offset 80 MB
 kernel_comp_addr_r=0x85000000
+
+# size 32 MB
 kernel_comp_size=0x2000000
 
+# mem offset 0
+scriptaddr=0x80000000
+
+uenvpath=uenv.txt
+bootargs_console=console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 kernpath=Image.gz
 dtbpath=k3-am625-beagleplay.dtb
-uenvpath=uenv.txt
+fitpath=linux.itb
 
-bootargs_console=console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
-
+# sdcard
 initbootset=setenv bootsetdev mmc 1:1; setenv rootfsdev mmcblk1p2
+
+# emmc
 initbootset2=setenv bootsetdev mmc 0:1; setenv rootfsdev mmcblk0p2
 initbootset3=setenv bootsetdev mmc 0:1; setenv rootfsdev mmcblk0p3
 
 loadenv=fatload ${envdev} ${loadaddr} ${uenvpath}
-envexport=env export -t ${loadaddr} && fatwrite ${envdev} ${loadaddr} ${uenvpath} ${filesize}
-envimport=run loadenv && env import -t ${loadaddr} ${filesize}
-loadimage=fatload ${bootsetdev} ${loadaddr} ${kernpath}
-loadfdt=fatload ${bootsetdev} ${fdtaddr} ${dtbpath}
+exportenv=env export -t ${loadaddr} && fatwrite ${envdev} ${loadaddr} ${uenvpath} ${filesize}
+importenv=run loadenv && env import -t ${loadaddr} ${filesize}
+
 loadbootargs=setenv bootargs root=/dev/${rootfsdev} rw rootwait rootfstype=ext4 ${bootargs_console} ${bootargs_extra}
 
-sdboot=run envimport; run initbootset${bootset} && run loadimage && run loadfdt && run loadbootargs && booti ${loadaddr} - ${fdtaddr}
-bootcmd=run sdboot
+loadkern=fatload ${bootsetdev} ${loadaddr} ${kernpath}
+loadfdt=fatload ${bootsetdev} ${fdtaddr} ${dtbpath}
+loadfit=fatload ${bootsetdev} ${addr_fit} ${fitpath}
+
+sdboot=run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs && booti ${loadaddr} - ${fdtaddr}
+sdboot_fit=run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}
+bootcmd=run sdboot_fit
 
 # variant between sdcard and emmc
 
