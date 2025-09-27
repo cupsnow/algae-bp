@@ -46,6 +46,24 @@ patch
 
     patch -p1 <package-001-reason.patch
 
+GPIO
+----
+
+[cat /sys/kernel/debug/gpio](docs/bp-gpio.txt)
+
+| gpio_sysfs | MikroBus | net      |
+| ---------- | -------- | -------- |
+| 640        | INT      | GPIO1_9  |
+| 641        | AN       | GPIO1_10 |
+| 643        | RST      | GPIO1_12 |
+
+
+| gpio_sysfs | MikroBus | net      |
+| ---------- | -------- | -------- |
+| 642        | PWM      | GPIO1_11 |
+
+
+
 host qemu
 ----
 

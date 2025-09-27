@@ -2930,7 +2930,7 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	  -e "s/\$$\$$(KERNEL_DATA_COMPRESSION)/none/g" \
 	  -e "s/\$$\$$(KERNEL_LOAD_ADDR)/$(dist-bp_itb_loadaddr)/g" \
 	  -e "s/\$$\$$(KERNEL_ENTRY_ADDR)/$(dist-bp_itb_loadaddr)/g" \
-	  -e "s/\$$\$$(FDT_DATA_FILE)/$(subst /,\/,$(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb)/g" \
+	  -e "s/\$$\$$(FDT_DATA_FILE)/$(subst /,\/,$(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay.dtb)/g" \
 	  -e "s/\$$\$$(FDT_LOAD_ADDR)/$(dist-bp_itb_fdtaddr)/g" \
 	  -e "s/\$$\$$(SIGNATURE_KEY_NAME)/$(ubsignkey)/g" \
 	  $(PROJDIR)/linux-$(APP_PLATFORM).its | tee $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its

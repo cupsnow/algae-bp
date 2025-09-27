@@ -657,6 +657,10 @@ while test -n "$1"; do
     done
     exit
     ;;
+  gpio_init|gpio_out)
+    ${opt1} $*
+    exit
+    ;;
   bl|bl[2-3])
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
