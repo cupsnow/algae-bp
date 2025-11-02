@@ -59,8 +59,11 @@ extern "C" {
 	((_type *)((_obj) ? ((char*)(_obj) - offsetof(_type, _member)) : NULL))
 #define aloe_offsetafter(_type, _member) (offsetof(_type, _member) + sizeof(aloe_member_of(_type, _member)))
 
-#define _aloe_concat2(_s1, _s2) _s1 ## _s2
-#define aloe_concat2(_s1, _s2) _aloe_concat2(_s1, _s2)
+#define aloe_min(_a, _b) ((_a) <= (_b) ? (_a) : (_b))
+#define aloe_max(_a, _b) ((_a) >= (_b) ? (_a) : (_b))
+
+#define _aloe_concat(_s1, _s2) _s1 ## _s2
+#define aloe_concat(_s1, _s2) _aloe_concat(_s1, _s2)
 #define _aloe_concat3(_s1, _s2, _s3) _s1 ## _s2 ## _s3
 #define aloe_concat3(_s1, _s2, _s3) _aloe_concat3(_s1, _s2, _s3)
 

@@ -1,0 +1,45 @@
+gpiochip0: GPIOs 512-514, parent: i2c/0-0030, tps65219-gpio, can sleep:
+
+gpiochip1: GPIOs 515-538, parent: platform/4201000.gpio, 4201000.gpio:
+
+gpiochip2: GPIOs 539-630, parent: platform/600000.gpio, 600000.gpio:
+ gpio-539 (BL_EN_3V3           )
+ gpio-540 (SPE_PO_EN           )
+ gpio-541 (RTC_INT             )
+ gpio-542 (USR0                |:heartbeat          ) out hi 
+ gpio-543 (USR1                |:disk-activity      ) out hi 
+ gpio-544 (USR2                |:cpu                ) out lo 
+ gpio-545 (USR3                |:lan                ) out lo 
+ gpio-548 (USR4                |:wlan               ) out lo 
+ gpio-549 (EEPROM_WP           )
+ gpio-550 (CSI2_CAMERA_GPIO1   )
+ gpio-551 (CSI2_CAMERA_GPIO2   )
+ gpio-552 (CC1352P7_BOOT       )
+ gpio-553 (CC1352P7_RSTN       )
+ gpio-554 (GBE_RSTN            |PHY reset           ) out hi ACTIVE LOW
+ gpio-557 (USR_BUTTON          |User Key            ) in  hi ACTIVE LOW
+ gpio-575 (HDMI_INT            )
+ gpio-577 (VDD_WLAN_EN         |reset               ) out lo ACTIVE LOW
+ gpio-580 (WL_IRQ              )
+ gpio-581 (GBE_INTN            )
+ gpio-624 (BITBANG_MDIO_DATA   )
+ gpio-625 (BITBANG_MDIO_CLK    )
+
+gpiochip3: GPIOs 631-682, parent: platform/601000.gpio, 601000.gpio:
+ gpio-636 (SPE_RSTN            |PHY reset           ) out hi ACTIVE LOW
+ gpio-637 (SPE_INTN            )
+ gpio-638 (MIKROBUS_GPIO1_7    )
+ gpio-639 (MIKROBUS_GPIO1_8    )
+ gpio-640 (MIKROBUS_GPIO1_9    |sysfs               ) out hi 
+ gpio-641 (MIKROBUS_GPIO1_10   )
+ gpio-642 (MIKROBUS_GPIO1_11   )
+ gpio-643 (MIKROBUS_GPIO1_12   )
+ gpio-644 (MIKROBUS_W1_GPIO0   )
+ gpio-645 (MIKROBUS_GPIO1_14   )
+ gpio-650 (VDD_3V3_SD          |regulator-4         ) out hi 
+ gpio-653 (MIKROBUS_GPIO1_22   )
+ gpio-654 (MIKROBUS_GPIO1_23   )
+ gpio-655 (MIKROBUS_GPIO1_24   )
+ gpio-656 (MIKROBUS_GPIO1_25   )
+ gpio-679 (SD_CD               |cd                  ) in  lo ACTIVE LOW
+ gpio-680 (SD_VOLT_SEL         |sd_hs200_switch     ) out lo 

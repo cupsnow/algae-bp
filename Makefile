@@ -2001,37 +2001,47 @@ CLEAN += curl
 # WIP
 # dependent: zlib, openssl
 #
-openssh_DIR = $(PROJDIR)/package/openssh
-openssh_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(openssh_DIR)
-openssh_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    --disable-strip --disable-etc-default-login \
-    CPPFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+openssh_DEP=zlib openssl
+openssh_DIR=$(PKGDIR2)/openssh
+openssh_BUILDDIR=$(BUILDDIR2)/openssh-$(APP_BUILD)
+openssh_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssh_BUILDDIR)
+# openssh_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+#     $(BUILD_SYSROOT)/share/pkgconfig
+openssh_INCDIR+=$(BUILD_SYSROOT)/include
+openssh_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+openssh_LIBS+=
+openssh_ACARGS_$(APP_PLATFORM)+=--disable-strip --disable-etc-default-login
 
-openssh: openssh_;
+GENDIR+=$(openssh_BUILDDIR)
 
-openssh_dir:
-	git clone git://anongit.mindrot.org/openssh.git $(openssh_DIR)
+$(openssh_DIR)/configure: | $(openssh_DIR)/configure.ac
+	cd $(dir $@) \
+	  && autoreconf -fiv
 
-openssh_clean openssh_distclean:
-	if [ -f $(openssh_DIR)/Makefile ]; then \
-	  $(openssh_MAKE) $(patsubst _%,%,$(@:openssh%=%)); \
-	fi
+openssh_defconfig $(openssh_BUILDDIR)/Makefile: | $(openssh_DIR)/configure $(openssh_BUILDDIR)
+	cd $(openssh_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(openssh_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --disable-etc-default-login \
+	      CPPFLAGS="$(addprefix -I,$(openssh_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(openssh_LIBDIR)) $(addprefix -l,$(openssh_LIBS))" \
+	      $(openssh_ACARGS_$(APP_PLATFORM))
 
-openssh_makefile:
-	if [ ! -e $(openssh_DIR)/configure ]; then \
-	  cd $(openssh_DIR) && autoreconf -fiv; \
-	fi
-	cd $(openssh_DIR) && $(openssh_CFGENV) ./configure $(openssh_CFGPARAM)
+openssh_install: DESTDIR=$(BUILD_SYSROOT)
+openssh_install:
+	$(openssh_MAKE) DESTDIR=$(DESTDIR) install-nokeys
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+# 	    blkid com_err e2p ext2fs ss uuid)
+# endif
+# 	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
-openssh%:
-	if [ ! -d $(openssh_DIR) ]; then \
-	  $(MAKE) openssh_dir; \
-	fi
-	if [ ! -e $(openssh_DIR)/Makefile ]; then \
-	  $(MAKE) openssh_makefile; \
-	fi
-	$(openssh_MAKE) $(patsubst _%,%,$(@:openssh%=%))
+$(eval $(call DEF_DESTDEP,openssh))
+
+openssh: | $(openssh_BUILDDIR)/Makefile
+	$(openssh_MAKE) $(PARALLEL_BUILD)
+
+openssh_%: | $(openssh_BUILDDIR)/Makefile
+	$(openssh_MAKE) $(PARALLEL_BUILD) $(@:openssh_%=%)
 
 CLEAN += openssh
 
@@ -2215,7 +2225,49 @@ kmod: | $(kmod_BUILDDIR)/build.ninja
 	$(kmod_MESON) compile -C $(kmod_BUILDDIR)
 
 
+#------------------------------------
+#
+libdrm_DEP=
+libdrm_DIR=$(PKGDIR2)/libdrm
+libdrm_BUILDDIR?=$(BUILDDIR2)/libdrm-$(APP_BUILD)
+libdrm_MESON=. $(PYVENVDIR)/bin/activate && meson
 
+libdrm_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include
+libdrm_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
+    -L$(BUILD_SYSROOT)/lib
+libdrm_ACARGS_$(APP_PLATFORM)+=
+
+libdrm_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+    $(BUILD_SYSROOT)/share/pkgconfig
+
+GENPYVENV+=meson ninja
+
+libdrm_defconfig $(libdrm_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) meson setup \
+	      -Dprefix=/ \
+		  -Dc_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_CPPFLAGS))" \
+	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_LDFLAGS))" \
+		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_CPPFLAGS))" \
+	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_LDFLAGS))" \
+		  -Dpkg_config_path="$(subst $(SPACE),:,$(libdrm_ACARGS_PKGDIR))" \
+		  $(patsubst %,-D%=disabled,intel radeon amdgpu nouveau vmwgfx exynos) \
+		  $(patsubst %,-D%=disabled,freedreno tegra vc4 etnaviv) \
+		  $(patsubst %,-D%=disabled,man-pages) \
+		  $(patsubst %,-D%=true,install-test-programs) \
+		  $(libdrm_ACARGS_$(APP_PLATFORM)) \
+		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  $(libdrm_BUILDDIR) $(libdrm_DIR)
+
+libdrm_install: DESTDIR=$(BUILD_SYSROOT)
+libdrm_install: | $(libdrm_BUILDDIR)/build.ninja
+	$(libdrm_MESON) compile -C $(libdrm_BUILDDIR)
+	$(libdrm_MESON) install -C $(libdrm_BUILDDIR) --destdir=$(DESTDIR)
+
+$(eval $(call DEF_DESTDEP,libdrm))
+
+libdrm: | $(libdrm_BUILDDIR)/build.ninja
+	$(libdrm_MESON) compile -C $(libdrm_BUILDDIR)
 
 #------------------------------------
 #
@@ -2678,9 +2730,20 @@ endef
 #------------------------------------
 #
 $(eval $(call SIMPLE_APP1,dummy1))
+
+#------------------------------------
+#
 host_dummy1: APP_PLATFORM=ub20
 host_dummy1:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) $(@:host_%=%)
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
+
+host_dummy1_%: APP_PLATFORM=ub20
+host_dummy1_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
+
+#------------------------------------
+#
+$(eval $(call SIMPLE_APP1,tester1))
 
 #------------------------------------
 #
@@ -2760,7 +2823,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc openocd \
+	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc openocd openssh \
 		$(dist_rootfs_phase1_pkg))
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
@@ -2977,17 +3040,19 @@ dist-bp:
 	$(MAKE) dist-bp_phase2
 	$(MAKE) dist-bp_phase3
 
-dist-bp_sd_phase1: | $(SD_BOOT)/dtb
-	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/* $(SD_BOOT)/
+SDBOOT_DIR=$(firstword $(wildcard /media/$(USER)/BOOT) /dev/null)
+SDROOT_DIR=$(firstword $(wildcard /media/$(USER)/rootfs) /dev/null)
 
-GENDIR+=$(SD_BOOT)/dtb
-
-dist-bp_sd_phase2: | $(SD_ROOTFS)
-	rsync -a $(dist_DIR)/$(APP_PLATFORM)/rootfs/* $(SD_ROOTFS)/
-
+CMD_DIST_SDBOOT=rsync -a $$(realpath --relative-to=$(PWD) $(dist_DIR)/$(APP_PLATFORM)/boot)/* \
+    $$(realpath --relative-to=$(PWD) $(dist_DIR)/$(APP_PLATFORM)/boot_sd)/* \
+	$(SDBOOT_DIR)/
+CMD_DIST_SDROOT=dd if=$$(realpath --relative-to=$(PWD) $(dist_DIR)/$(APP_PLATFORM))/rootfs.img \
+    of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock
 dist-bp_sd:
-	$(MAKE) dist-bp_sd_phase1
-	$(MAKE) dist-bp_sd_phase2
+	@echo "Try following commands"
+	@echo "$(CMD_DIST_SDBOOT)"
+	@echo "umount /dev/sddx"
+	@echo "$(CMD_DIST_SDROOT)"
 
 #------------------------------------
 #

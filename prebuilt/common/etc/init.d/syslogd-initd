@@ -19,45 +19,61 @@ KLOGD_ARGS=
 
 TZFILE="/etc/TZ"
 
-do_start() {
+tz_start () {
   if [ -f "$TZFILE" ]; then
     TZ="$(cat $TZFILE)"
     export TZ
   fi
+}
 
+syslogd_start () {
   if [ -n "$SYSLOGD_CONF" ] && [ ! -f "$SYSLOGD_CONF" ]; then
     cp /etc/syslog.conf "$SYSLOGD_CONF"
   fi
 
-  # shellcheck disable=SC2086
-  start-stop-daemon -b -S -m -p $SYSLOGD_PIDFILE --exec $SYSLOGD_DAEMON -- -n $SYSLOGD_ARGS
-  # $SYSLOGD_DAEMON ${SYSLOGD_ARGS}
-
-  # shellcheck disable=SC2086
-  start-stop-daemon -b -S -m -p $KLOGD_PIDFILE --exec $KLOGD_DAEMON -- -n $KLOGD_ARGS
-  # $KLOGD_DAEMON ${KLOGD_ARGS}
+  cmd_run start-stop-daemon -p $SYSLOGD_PIDFILE -x $SYSLOGD_DAEMON -S -- $SYSLOGD_ARGS
 }
 
-do_stop() {
-  # start-stop-daemon -K -p $SYSLOGD_PIDFILE
-  # start-stop-daemon -K -p $KLOGD_PIDFILE
-  killall syslogd klogd >/dev/null 2>&1
+syslogd_stop () {
+  cmd_run start-stop-daemon -p $SYSLOGD_PIDFILE -K -oq
+}
+
+klogd_start () {
+  if [ -n "$KLOGD_CONF" ] && [ ! -f "$KLOGD_CONF" ]; then
+    cp /etc/syslog.conf "$KLOGD_CONF"
+  fi
+  cmd_run start-stop-daemon -p $KLOGD_PIDFILE -x $KLOGD_DAEMON -S -- $KLOGD_ARGS
+}
+
+klogd_stop () {
+  cmd_run start-stop-daemon -p $KLOGD_PIDFILE -K -oq
 }
 
 case "$1" in
-  start)
-  do_start
+start)
+  shift
+  tz_start
+  syslogd_start
+  klogd_start
   ;;
-  stop)
-  do_stop
+stop)
+  shift
+  klogd_stop
+  syslogd_stop
   ;;
-  restart|reload)
-  do_stop
-  do_start
+restart)
+  shift
+  $0 stop && $0 start "$@"
   ;;
-  *)
-  echo "Usage: $0 {start|stop|restart}"
-  exit 1
-esac
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start|stop|restart]
 
-exit $?
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

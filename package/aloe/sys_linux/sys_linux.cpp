@@ -15,6 +15,9 @@
 #include <aloe/sys.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "../log.h"
 
 #  define log_m(_lvl, _msg, _args...) do { \
@@ -290,4 +293,60 @@ int aloe_so_keepalive(int fd) {
 	}
 	return 0;
 }
+
+extern "C"
+aloe_mmap_t* aloe_mmap_reset(aloe_mmap_t *mm) {
+	mm->fmem = MAP_FAILED;
+	return mm;
+}
+
+extern "C"
+int aloe_mmap_file(const char *fn, aloe_mmap_t *mm) {
+	int r, fd = -1;
+	struct stat st;
+	void *fmem = MAP_FAILED;
+
+	if ((fd = open(fn, O_RDWR, 0660)) == -1) {
+		r = errno;
+		log_e("Failed open %s, %s\n", fn, strerror(r));
+		goto finally;
+	}
+
+	if ((r = fstat(fd, &st)) != 0) {
+		r = errno;
+		log_e("Failed get file stat, %s\n", strerror(r));
+		goto finally;
+	}
+
+	if ((fmem = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+			fd, 0)) == MAP_FAILED) {
+		r = errno;
+		log_e("Failed mmap to %s, %s\n", fn, strerror(r));
+		goto finally;
+	}
+	mm->fmem = fmem;
+	fmem = MAP_FAILED;
+	mm->fmem_sz = st.st_size;
+	r = 0;
+finally:
+	if (fd != -1) close(fd);
+	if (fmem != MAP_FAILED) munmap(fmem, st.st_size);
+	return r;
+}
+
+extern "C"
+void aloe_munmap(aloe_mmap_t *mm) {
+	int r;
+
+	if (mm->fmem != MAP_FAILED) {
+		if ((r = munmap(mm->fmem, mm->fmem_sz)) != 0) {
+			r = errno;
+			log_e("Failed munmap\n");
+			return;
+		}
+		aloe_mmap_reset(mm);
+	}
+}
+
+
 

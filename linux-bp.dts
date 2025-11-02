@@ -42,6 +42,7 @@
 
 	chosen {
 		stdout-path = "serial2:115200n8";
+		framebuffer = <&framebuffer0>;
 	};
 
 	memory@80000000 {
@@ -80,6 +81,21 @@
 			reg = <0x00 0x9db00000 0x00 0xc00000>;
 			no-map;
 		};
+
+		framebuffer@9c000000 {
+			reg = <0x00 0x9c000000 0x00 0x00800000>;
+			no-map;
+		};
+	};
+
+	framebuffer0: framebuffer@9c000000 {
+		compatible = "simple-framebuffer";
+		format = "a8r8g8b8";
+		reg = <0x00 0x9c000000 0x00 0x00800000>;
+		width = <1920>;
+		height = <1080>;
+		stride = <7680>;
+		status = "okay";
 	};
 
 	sdio_pwrseq: sdio-pwrseq {

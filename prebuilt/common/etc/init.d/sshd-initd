@@ -1,0 +1,56 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="sshd-initd"
+
+log_d "$0 $*"
+
+_pri_daemin_exec="/sbin/sshd"
+_pri_daemin_pid="/var/run/sshd.pid"
+# _pri_sshd_log="/var/run/sshd.log"
+# log_f "$_pri_sshd_log"
+# log_f "$_pri_sshd_log" "$0 $*"
+
+sshd_start () {
+  if [ ! -d "/var/empty" ]; then
+    cmd_run mkdir -p /var/empty || { log_e "failed"; return 1; }
+  fi
+
+  if ! find_mount "*" /var/empty >/dev/null; then
+    cmd_run mount -t tmpfs none /var/empty || { log_e "failed"; return 1; }
+    cmd_run chmod 0755 /var/empty || { log_e "failed"; return 1; }
+  fi
+
+  cmd_run start-stop-daemon -p ${_pri_daemin_pid} -x ${_pri_daemin_exec} -S
+}
+
+sshd_stop () {
+  cmd_run start-stop-daemon -p ${_pri_daemin_pid} -K -oq
+}
+
+case "$1" in
+start)
+  shift
+  sshd_start
+  ;;
+stop)
+  shift
+  sshd_stop
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start|stop|restart]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

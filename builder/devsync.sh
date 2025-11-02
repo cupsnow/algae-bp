@@ -765,10 +765,20 @@ while test -n "$1"; do
       tar -Jxvf locale-aarch64-destpkg.tar.xz --strip-components=1 -C /
     fi
     ;;
+  openocd)
+    nfsget_n "${_pri_nfsalgaebp}"/builder/bpgpioswd.cfg
+    ;;
+  tester)
+    nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/tester1
+    nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/tester_fb
+    nfsget_x "${_pri_nfsalgaebp}"/build/dummy1-aarch64/dummy1
+    nfsget_n "${_pri_nfsalgaebp}"/docs/demo1.bmp
+    ;;
   sh|sh[2-3])
     nfsmount || exit
     lo_tgt="etc/init.d/func_involved etc/init.d/eth etc/init.d/wifi"
-    lo_tgt="${lo_tgt} etc/init.d/persist"
+    lo_tgt="${lo_tgt} etc/init.d/persist etc/init.d/syslogd-initd"
+    lo_tgt="${lo_tgt} etc/init.d/sshd-initd"
     lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
     for i in $lo_tgt; do
       if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then

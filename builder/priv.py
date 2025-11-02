@@ -16,27 +16,41 @@ def logger_init(filename="privpriv1234566.log"):
 
 def logger_get(name, level=logging.INFO, format=logger_fmt):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG) # For capture all levels in file
-
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
-    if format:
-        console_formatter = logging.Formatter(format)
-        console_handler.setFormatter(console_formatter)
+    logger.setLevel(logging.DEBUG) # For capture all levels to file
 
     if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        if format:
+            console_formatter = logging.Formatter(format)
+            console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
-        pass
+        logger.consoleHandler = console_handler
+    return logger
 
+def logger_getLevel(logger):
+    if hasattr(logger, "consoleHandler"):
+        return logger.consoleHandler.level
+    return logger.level
+
+def logger_setLevel(logger, level):
+    if hasattr(logger, "consoleHandler"):
+        logger.consoleHandler.setLevel(level)
+    else:
+        logger.setLevel(level)
     return logger
 
 def logger_verbose(logger, inc):
     lut = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO,
             logging.DEBUG]
-    if inc + lut.index(logger.level) >= len(lut):
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(inc + lut[logger.level])
+
+    lut_idx = lut.index(logger_getLevel(logger))
+    lut_idx += inc
+    if lut_idx < 0:
+        lut_idx = 0
+    elif lut_idx >= len(lut):
+        lut_idx = len(lut) - 1
+    logger_setLevel(logger, lut[lut_idx])
     return logger
 
 def ts_dt(ts):

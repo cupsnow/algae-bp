@@ -1,48 +1,121 @@
-#------------------------------------
-#
--include $(PROJDIR:%=%/builder/)proj.mk
-
-tester_DEPFLAGS=-MMD -MF $(@).d -MT $@
-tester_CPPFLAGS+=-g -pthread -I$(BUILD_SYSROOT)/include
-tester_LDFLAGS+=-pthread -L$(BUILD_SYSROOT)/lib -ladmin \
-    -lcjson  -lssl -lcrypto -lgpiod \
-    -lavformat -lavcodec -lswresample -lavutil \
-    -lm
-
-.DEFAULT_GOAL:=all
+# $Id$
+# 
+# Copyright (c) 2025, joelai
+# All Rights Reserved
+# 
+# SPDX-License-Identifier: MIT
+# 
+# @file noname
+# @brief noname
 
 #------------------------------------
 #
-GENDIR+=$(BUILDDIR)
+PROJDIR?=$(PWD)
+include $(PROJDIR)/builder/proj.mk
 
-$(BUILDDIR)/%.c.o: %.c | $(BUILDDIR)
-	$(CC) -c -o $@ $< $(tester_DEPFLAGS) $(tester_CPPFLAGS) $(tester_CFLAGS)
+CPPFLAGS+=-g
+CFLAGS+=
+CXXFLAGS+=
+LDFLAGS+=
 
-$(BUILDDIR)/%.cpp.o: %.cpp | $(BUILDDIR)
-	$(C++) -c -o $@ $< $(tester_DEPFLAGS) $(tester_CPPFLAGS) $(tester_CXXFLAGS)
+GENDIR:=
 
-#------------------------------------
-#
-tester_net1_SRC=tester_net1.cpp
-tester_net1_OBJ=$(patsubst %,$(BUILDDIR)/%.o,$(filter %.c %.cpp,$(tester_net1_SRC)))
-tester_net1_DEP=$(tester_net1_OBJ:%=%.d)
-tester_net1_BIN=tester_net1
+ARTIFACT:=
+ARTIFACT_INSTALL:=
 
-$(BUILDDIR)/$(tester_net1_BIN): $(tester_net1_OBJ)
-	$(if $(filter %.cpp,$(tester_net1_SRC)),$(C++),$(CC)) \
-	    -o $(BUILDDIR)/$(tester_net1_BIN) $(filter %.o %.a,$^) \
-	    $(tester_LDFLAGS)
-
-ARTIFACT+=tester_net1
+.DEFAULT_GOAL:=artifact
 
 #------------------------------------
 #
--include $(foreach iter,$(ARTIFACT),$($(iter)_DEP)))
+tester1_BUILDDIR=$(BUILDDIR)/tester1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
+tester1_BIN=tester1
+tester1_SRCS=main.cpp
+tester1_SRCS+=mgmt.cpp cli.cpp ipc.cpp
+tester1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
+tester1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
+# tester1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
+tester1_OBJS=$(patsubst %,$(tester1_BUILDDIR)/%.o,$(filter %.c %.cpp,$(tester1_SRCS)))
+tester1_DEPS=$(tester1_OBJS:%=%.d)
+#tester1_LDFLAGS=-static $(LDFLAGS)
+tester1_CPPFLAGS+=$(CPPFLAGS)
+tester1_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 
-all: $(addprefix $(BUILDDIR)/,$(foreach iter,$(ARTIFACT),$($(iter)_BIN)))
+ARTIFACT+=tester1
+
+GENDIR+=$(tester1_BUILDDIR)
+ 
+tester1: $(tester1_BUILDDIR)/$(tester1_BIN)
+
+$(tester1_BUILDDIR)/$(tester1_BIN): $(tester1_OBJS)
+	$(C++) -o $(tester1_BUILDDIR)/$(tester1_BIN) $(filter %.o %.a,$^) \
+	    $(or $(tester1_LDFLAGS),$(LDFLAGS))
+
+$(tester1_BUILDDIR)/%.c.o: %.c
+	[ -d "$(@D)" ] || $(MKDIR) $(@D)
+	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(tester1_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(tester1_CFLAGS),$(CFLAGS))
+
+$(tester1_BUILDDIR)/%.cpp.o: %.cpp
+	[ -d "$(@D)" ] || $(MKDIR) $(@D)
+	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(tester1_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(tester1_CXXFLAGS),$(CXXFLAGS))
+
+doxygen: OUTPUT_DIRECTORY=$(BUILDDIR)/aloe-docs
+doxygen:
+	[ -d "$(OUTPUT_DIRECTORY)" ] || $(MKDIR) $(OUTPUT_DIRECTORY)
+	cd $(PROJDIR)/package/aloe && \
+	  { cat Doxyfile && \
+	  echo "PROJECT_NUMBER=0.0.1" && \
+	  echo "INPUT=include" &&  \
+	  echo "OUTPUT_DIRECTORY=$(OUTPUT_DIRECTORY)" && \
+	  echo ""; } | doxygen - >$(tester1_BUILDDIR)/doxygen.log 2>&1
 
 #------------------------------------
 #
+fb1_BUILDDIR=$(BUILDDIR)/tester1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
+fb1_BIN=tester_fb
+fb1_SRCS=tester_fb1.c
+fb1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
+fb1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
+# fb1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
+fb1_OBJS=$(patsubst %,$(fb1_BUILDDIR)/%.o,$(filter %.c %.cpp,$(fb1_SRCS)))
+fb1_DEPS=$(fb1_OBJS:%=%.d)
+#fb1_LDFLAGS=-static $(LDFLAGS)
+fb1_CPPFLAGS+=$(CPPFLAGS)
+fb1_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 
+ARTIFACT+=fb1
+
+GENDIR+=$(fb1_BUILDDIR)
+ 
+fb1: $(fb1_BUILDDIR)/$(fb1_BIN)
+
+$(fb1_BUILDDIR)/$(fb1_BIN): $(fb1_OBJS)
+	$(C++) -o $(fb1_BUILDDIR)/$(fb1_BIN) $(filter %.o %.a,$^) \
+	    $(or $(fb1_LDFLAGS),$(LDFLAGS))
+
+$(fb1_BUILDDIR)/%.c.o: %.c
+	[ -d "$(@D)" ] || $(MKDIR) $(@D)
+	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(fb1_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(fb1_CFLAGS),$(CFLAGS))
+
+$(fb1_BUILDDIR)/%.cpp.o: %.cpp
+	[ -d "$(@D)" ] || $(MKDIR) $(@D)
+	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(fb1_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(fb1_CXXFLAGS),$(CXXFLAGS))
+
+#------------------------------------
+#
+artifact: $(ARTIFACT) doxygen
+
+-include $(sort $(foreach iter,$(ARTIFACT),$(${iter}_DEPS)))
+
+#------------------------------------
+#
 $(sort $(GENDIR)):
-	mkdir -p $@
+	$(MKDIR) $@
+
+#------------------------------------
+#------------------------------------
+#------------------------------------
+#

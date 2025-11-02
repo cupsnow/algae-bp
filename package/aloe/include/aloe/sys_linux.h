@@ -116,6 +116,15 @@ int aloe_file_nonblock(int fd, int en);
 int aloe_so_reuseaddr(int fd);
 int aloe_so_keepalive(int fd);
 
+typedef struct {
+	void *fmem;
+	size_t fmem_sz;
+} aloe_mmap_t;
+
+aloe_mmap_t* aloe_mmap_reset(aloe_mmap_t *mm);
+int aloe_mmap_file(const char *fn, aloe_mmap_t *mm);
+void aloe_munmap(aloe_mmap_t *mm);
+
 /** @} ALOE_LINUX */
 
 #ifdef __cplusplus

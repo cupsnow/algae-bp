@@ -27,38 +27,38 @@ ARTIFACT_INSTALL:=
 
 #------------------------------------
 #
-dummy_BUILDDIR=$(BUILDDIR)/dummy1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
-dummy_BIN=dummy1
-dummy_SRCS=main.cpp
-dummy_SRCS+=mgmt.cpp cli.cpp ipc.cpp
-dummy_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
-dummy_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
-# dummy_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
-dummy_OBJS=$(patsubst %,$(dummy_BUILDDIR)/%.o,$(filter %.c %.cpp,$(dummy_SRCS)))
-dummy_DEPS=$(dummy_OBJS:%=%.d)
-#dummy_LDFLAGS=-static $(LDFLAGS)
-dummy_CPPFLAGS+=$(CPPFLAGS)
-dummy_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+dummy1_BUILDDIR=$(BUILDDIR)/dummy1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
+dummy1_BIN=dummy1
+dummy1_SRCS=main.cpp
+dummy1_SRCS+=mgmt.cpp cli.cpp ipc.cpp
+dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
+dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
+# dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
+dummy1_OBJS=$(patsubst %,$(dummy1_BUILDDIR)/%.o,$(filter %.c %.cpp,$(dummy1_SRCS)))
+dummy1_DEPS=$(dummy1_OBJS:%=%.d)
+#dummy1_LDFLAGS=-static $(LDFLAGS)
+dummy1_CPPFLAGS+=$(CPPFLAGS)
+dummy1_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 
-ARTIFACT+=dummy
+ARTIFACT+=dummy1
 
-GENDIR+=$(dummy_BUILDDIR)
+GENDIR+=$(dummy1_BUILDDIR)
  
-dummy: $(dummy_BUILDDIR)/$(dummy_BIN)
+dummy1: $(dummy1_BUILDDIR)/$(dummy1_BIN)
 
-$(dummy_BUILDDIR)/$(dummy_BIN): $(dummy_OBJS)
-	$(C++) -o $(dummy_BUILDDIR)/$(dummy_BIN) $(filter %.o %.a,$^) \
-	    $(or $(dummy_LDFLAGS),$(LDFLAGS))
+$(dummy1_BUILDDIR)/$(dummy1_BIN): $(dummy1_OBJS)
+	$(C++) -o $(dummy1_BUILDDIR)/$(dummy1_BIN) $(filter %.o %.a,$^) \
+	    $(or $(dummy1_LDFLAGS),$(LDFLAGS))
 
-$(dummy_BUILDDIR)/%.c.o: %.c
+$(dummy1_BUILDDIR)/%.c.o: %.c
 	[ -d "$(@D)" ] || $(MKDIR) $(@D)
-	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(dummy_CPPFLAGS),$(CPPFLAGS)) \
-	    $(or $(dummy_CFLAGS),$(CFLAGS))
+	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(dummy1_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(dummy1_CFLAGS),$(CFLAGS))
 
-$(dummy_BUILDDIR)/%.cpp.o: %.cpp
+$(dummy1_BUILDDIR)/%.cpp.o: %.cpp
 	[ -d "$(@D)" ] || $(MKDIR) $(@D)
-	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(dummy_CPPFLAGS),$(CPPFLAGS)) \
-	    $(or $(dummy_CXXFLAGS),$(CXXFLAGS))
+	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(dummy1_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(dummy1_CXXFLAGS),$(CXXFLAGS))
 
 doxygen: OUTPUT_DIRECTORY=$(BUILDDIR)/aloe-docs
 doxygen:
@@ -68,7 +68,7 @@ doxygen:
 	  echo "PROJECT_NUMBER=0.0.1" && \
 	  echo "INPUT=include" &&  \
 	  echo "OUTPUT_DIRECTORY=$(OUTPUT_DIRECTORY)" && \
-	  echo ""; } | doxygen - >$(dummy_BUILDDIR)/doxygen.log 2>&1
+	  echo ""; } | doxygen - >$(dummy1_BUILDDIR)/doxygen.log 2>&1
 
 #------------------------------------
 #
