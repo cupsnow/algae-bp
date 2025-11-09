@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys, os, logging, argparse, asyncio, pathlib, subprocess
+import fnmatch
 
 # level=logging.INFO,
 logging.basicConfig(format="[%(asctime)s][%(levelname)s][%(name)s][%(funcName)s][#%(lineno)d]%(message)s")
@@ -93,11 +94,23 @@ def do_test_bound(p, bound):
     parent_path = pathlib.Path(bound).resolve()
     child_path = pathlib.Path(child_path).resolve()
 
+def do_test_exclude(p, exclude):
+    if not exclude:
+        return False
+    if not isinstance(exclude, (list, tuple)):
+        exclude = [exclude]
+    for ex1 in exclude:
+        if fnmatch.fnmatch(p, ex1):
+            return True
+    return False
+
 def do_strip(tgt, symlink=False):
     if not isinstance(tgt, (list, tuple)):
         tgt = [tgt]
     dest = app_cfg["dest"]
     bound = app_cfg["bound"]
+    exclude = app_cfg["cli_args"].exclude
+
     defer_dir = []
     du_yield = 0
     for tgt1 in tgt:
@@ -127,6 +140,9 @@ def do_strip(tgt, symlink=False):
         if not do_test_elf(p):
             do_strip_log(f"Skip non-elf: {tgt1}")
             continue
+        if do_test_exclude(p, exclude):
+            do_strip_log(f"Skip exclusion: {tgt1}")
+            continue
         sz0 = p.stat().st_size
         do_strip_elf(p)
         du_yield += sz0 - p.stat().st_size
@@ -148,6 +164,7 @@ async def main(argv):
     argparser.add_argument("--strip", default="strip", help="Program used to strip executable")
     argparser.add_argument("--kostrip", help="Program used to strip kernel module")
     argparser.add_argument("--bound", help="Strip target must under the directory")
+    argparser.add_argument("--exclude", action="append", help="Exclude glob")
     argparser.add_argument("input", nargs="*", help="Input path")
 
     cli_args = argparser.parse_args(argv[1:])

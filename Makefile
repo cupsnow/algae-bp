@@ -18,8 +18,8 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
 
-# ti_linux bb_linux
-APP_ATTR_bp?=bp wl18xx # bb_linux
+# bp wl18xx powervr ti_linux bb_linux powervr
+APP_ATTR_bp?=bp wl18xx powervr
 
 APP_ATTR_qemuarm64?=qemuarm64
 
@@ -298,7 +298,7 @@ else
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
 	if [ "$(APP_uboot_DEFCONFIG_USER)" = "1" ] && [ -f "uboot-$(APP_PLATFORM).defconfig" ]; then \
-	  cp -v uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config \
+	  rsync -a $(RSYNC_VERBOSE) uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config \
 	    && ( yes "" | $(uboot_MAKE) olddefconfig ); \
 	else \
 	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
@@ -321,7 +321,7 @@ uboot_tools_install: DESTDIR=$(PROJDIR)/tool
 uboot_tools_install: uboot_tools
 	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
 	for i in $(UBOOT_TOOLS); do \
-	  cp -v $(uboot_BUILDDIR)/tools/$$i $(DESTDIR)/bin/; \
+	  rsync -a $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/tools/$$i $(DESTDIR)/bin/; \
 	done
 
 uboot_envtools_install: DESTDIR=$(BUILD_SYSROOT)
@@ -407,7 +407,7 @@ ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp
 	$(linux_MAKE) defconfig ti_arm64_prune.config
 else
 	if [ -f "$(linux_defconfig-site)" ]; then \
-	  cp -v $(linux_defconfig-site) $(linux_BUILDDIR)/.config \
+	  rsync -a $(RSYNC_VERBOSE) $(linux_defconfig-site) $(linux_BUILDDIR)/.config \
 	    && yes "" | $(linux_MAKE) oldconfig; \
 	  $(linux_MAKE) prepare; \
 	else \
@@ -456,7 +456,7 @@ GENDIR+=$(busybox_BUILDDIR)
 
 busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
 	if [ -f "$(PROJDIR)/busybox.config" ]; then \
-	  cp -v $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
+	  rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
 	  yes "" | $(busybox_MAKE) oldconfig; \
 	else \
 	  $(busybox_MAKE) defconfig; \
@@ -1732,7 +1732,7 @@ libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUI
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
 		  --disable-mbedtls --with-pic --verbose \
 	      $(libnl_ACARGS_$(APP_PLATFORM))
-	cp $(libnl_DIR)/*.sym $(libnl_BUILDDIR)/
+	rsync -a $(RSYNC_VERBOSE) $(libnl_DIR)/*.sym $(libnl_BUILDDIR)/
 
 libnl_install: DESTDIR=$(BUILD_SYSROOT)
 libnl_install: | $(libnl_BUILDDIR)/Makefile
@@ -2147,12 +2147,6 @@ glib_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
 glib_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig
 
-#   -Dc_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_CPPFLAGS))" \
-#   -Dc_link_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_LDFLAGS))" \
-#   -Dcpp_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_CPPFLAGS))" \
-#   -Dcpp_link_args="$(subst $(SPACE),$(COMMA),$(glib_ACARGS_LDFLAGS))" \
-#   -Dpkg_config_path="$(subst $(SPACE),:,$(glib_ACARGS_PKGDIR))" \
-
 glib_defconfig $(glib_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
 	. $(PYVENVDIR)/bin/activate \
 	  && $(BUILD_PKGCFG_ENV) meson setup \
@@ -2177,6 +2171,120 @@ $(eval $(call DEF_DESTDEP,glib))
 
 glib: | $(glib_BUILDDIR)/build.ninja
 	$(glib_MESON) compile -C $(glib_BUILDDIR)
+
+GENPYVENV+=meson ninja
+
+#------------------------------------
+#
+llvmproj_DIR=$(PKGDIR2)/llvm-project
+llvm_DIR=$(llvmproj_DIR)/llvm
+libclc_DIR=$(llvm_DIR)
+libclc_BUILDDIR=$(BUILDDIR2)/libclc-$(APP_BUILD)
+libclc_MAKE=$(MAKE) -C $(libclc_BUILDDIR)
+
+libclc_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+
+libclc_defconfig $(libclc_BUILDDIR)/Makefile: $(libclc_cross_cmake_$(APP_BUILD))
+	$(MKDIR) $(libclc_BUILDDIR)
+	cd $(libclc_BUILDDIR) \
+	  && cmake \
+	      $(libclc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
+		  -DLLVM_ENABLE_PROJECTS="libclc;clang" \
+		  -DCMAKE_BUILD_TYPE=Release \
+		  $(libclc_DIR)
+
+libclc_install: DESTDIR=$(BUILD_SYSROOT)
+libclc_install: | $(libclc_cross_cmake_$(APP_BUILD))
+	$(MKDIR) $(libclc_BUILDDIR)
+	cd $(libclc_BUILDDIR) \
+	  && cmake \
+	      $(libclc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
+		  $(libclc_DIR)
+	$(libclc_MAKE) DESTDIR= install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,libclc))
+
+libclc: | $(libclc_BUILDDIR)/Makefile
+	$(libclc_MAKE)
+
+#------------------------------------
+#
+glslang_DIR=$(PKGDIR2)/glslang
+glslang_BUILDDIR=$(BUILDDIR2)/json-c-$(APP_BUILD)
+glslang_MAKE=$(MAKE) -C $(glslang_BUILDDIR)
+
+glslang_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+
+glslang_defconfig $(glslang_BUILDDIR)/Makefile: $(glslang_cross_cmake_$(APP_BUILD))
+	$(MKDIR) $(glslang_BUILDDIR)
+	cd $(glslang_BUILDDIR) \
+	  && cmake \
+	      $(glslang_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
+		  $(glslang_DIR)
+
+glslang_install: DESTDIR=$(BUILD_SYSROOT)
+glslang_install: | $(glslang_cross_cmake_$(APP_BUILD))
+	$(MKDIR) $(glslang_BUILDDIR)
+	cd $(glslang_BUILDDIR) \
+	  && cmake \
+	      $(glslang_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
+		  $(glslang_DIR)
+	$(glslang_MAKE) DESTDIR= install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,glslang))
+
+glslang: | $(glslang_BUILDDIR)/Makefile
+	$(glslang_MAKE)
+
+#------------------------------------
+#
+mesa3d_DEP=
+mesa3d_DIR=$(PKGDIR2)/mesa3d
+mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
+mesa3d_MESON=. $(PYVENVDIR)/bin/activate && meson
+
+mesa3d_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
+    -I$(BUILD_SYSROOT)/include/libmount \
+	-I$(BUILD_SYSROOT)/include/blkid
+mesa3d_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
+    -L$(BUILD_SYSROOT)/lib \
+	-liconv
+mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+    $(BUILD_SYSROOT)/share/pkgconfig
+
+mesa3d_defconfig $(mesa3d_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) meson setup \
+	      -Dprefix=/ \
+		  -Dc_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
+	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
+		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
+	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
+		  -Dpkg_config_path="$(subst $(SPACE),:,$(mesa3d_ACARGS_PKGDIR))" \
+		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  $(mesa3d_BUILDDIR) $(mesa3d_DIR)
+
+mesa3d_install: DESTDIR=$(BUILD_SYSROOT)
+mesa3d_install: | $(mesa3d_BUILDDIR)/build.ninja
+	$(mesa3d_MESON) compile -C $(mesa3d_BUILDDIR)
+	$(mesa3d_MESON) install -C $(mesa3d_BUILDDIR) --destdir=$(DESTDIR)
+
+$(eval $(call DEF_DESTDEP,mesa3d))
+
+mesa3d: | $(mesa3d_BUILDDIR)/build.ninja
+	$(mesa3d_MESON) compile -C $(mesa3d_BUILDDIR)
 
 GENPYVENV+=meson ninja
 
@@ -2934,7 +3042,8 @@ dist-bp_phase1:
 	$(MAKE) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
-	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
+	$(MAKE) $(addsuffix _destdep_install, \
+	    libdrm)
 	$(MAKE) dist_rootfs_phase1
 
 dist-bp_bootpart: bootpart_prefix=$(dist_DIR)/$(APP_PLATFORM)/boot
@@ -2956,8 +3065,9 @@ dist-bp_mkimage_dtcargs+=-Wno-unit_address_vs_reg
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
-dist-bp_phase2: | $(BUILD_SYSROOT)/root
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
+ifeq (1,1)
 	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
 	### serve sbl
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
@@ -3006,16 +3116,27 @@ dist-bp_phase2: | $(BUILD_SYSROOT)/root
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a
+	### serve kmod
+	$(MAKE) INSTALL_MOD_PATH=$(dist_DIR)/$(APP_PLATFORM)/rootfs linux_modules_install
+endif
+ifneq ($(strip $(filter powervr,$(APP_ATTR))),)
+	rsync -a $(RSYNC_VERBOSE) $(ti-linux-fw_DIR)/powervr/rogue_33.15.11.3_v1.fw \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr/
+endif
+ifeq (1,1)
 	$(busybox_DIR)/examples/depmod.pl \
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
 	    -F $(linux_BUILDDIR)/System.map
-	. $(PYVENVDIR)/bin/activate && \
-	  python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
+endif
+	$(PYVENVDIR)/bin/python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
 	      -l $(BUILDDIR)/elfstrip.log \
 	      --strip=$(TOOLCHAIN_PATH)/bin/$(STRIP) \
 		  --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
+		  --exclude="$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/*" \
 	      $(dist_DIR)/$(APP_PLATFORM)/rootfs
+ifeq (1,1)
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
+endif
 
 dist-bp_depmod:
 	$(busybox_DIR)/examples/depmod.pl \
@@ -3026,8 +3147,8 @@ dist-bp_depmod:
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot_sd
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/boot_emmc
-GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
-GENDIR+=$(BUILD_SYSROOT)/root
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr
+GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 
 dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
