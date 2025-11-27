@@ -64,8 +64,14 @@ BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(APP_PLATFORM)
 # 0 remove .pc and .la after build
 # 1 remove .la after build
 BUILD_PKGCFG_USAGE=2
-BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig" \
+BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/usr/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/usr/share/pkgconfig" \
     PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
+
+LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
+
+ifneq ($(wildcard $(LLVM_TOOLCHAIN_PATH)/bin/llvm-config),)
+PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
+endif
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
@@ -513,7 +519,7 @@ jsonc_MAKE=$(MAKE) -C $(jsonc_BUILDDIR)
 
 jsonc_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
 
-jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: $(jsonc_cross_cmake_$(APP_BUILD))
+jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: | $(jsonc_cross_cmake_$(APP_BUILD))
 	$(MKDIR) $(jsonc_BUILDDIR)
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
@@ -2178,50 +2184,110 @@ GENPYVENV+=meson ninja
 #
 llvmproj_DIR=$(PKGDIR2)/llvm-project
 llvm_DIR=$(llvmproj_DIR)/llvm
-libclc_DIR=$(llvm_DIR)
-libclc_BUILDDIR=$(BUILDDIR2)/libclc-$(APP_BUILD)
-libclc_MAKE=$(MAKE) -C $(libclc_BUILDDIR)
+llvm_BUILDDIR=$(BUILDDIR2)/llvm-$(APP_BUILD)
+llvm_cross_cmake_bp=$(BUILDDIR)/cross-aarch64.cmake
 
-libclc_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+# clang;clang-tools-extra;lldb;lld;polly
+llvm_LLVM_ENABLE_PROJECTS=clang;lld;lldb
 
-libclc_defconfig $(libclc_BUILDDIR)/Makefile: $(libclc_cross_cmake_$(APP_BUILD))
-	$(MKDIR) $(libclc_BUILDDIR)
-	cd $(libclc_BUILDDIR) \
-	  && cmake \
-	      $(libclc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
-		  -DLLVM_ENABLE_PROJECTS="libclc;clang" \
-		  -DCMAKE_BUILD_TYPE=Release \
-		  $(libclc_DIR)
+# libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp;llvm-libgcc;offload;flang-rt;llvm;libsycl;orc-rt
+llvm_LLVM_ENABLE_RUNTIMES=
+
+llvm_LLVM_TARGETS_TO_BUILD=AArch64;ARM;BPF;WebAssembly;X86
+
+llvm_CMAKEARGS+=
+
+llvm_MAKE=$(MAKE) -C $(llvm_BUILDDIR)
+
+GENDIR+=$(llvm_BUILDDIR)
+
+llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_BUILDDIR)
+llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_cross_cmake_$(APP_BUILD))
+	. $(PYVENVDIR)/bin/activate \
+	    && cmake -B $(llvm_BUILDDIR) -S $(llvm_DIR) \
+		    $(llvm_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE="%") \
+		    $(llvm_CMAKEARGS) \
+	        $(llvm_LLVM_ENABLE_PROJECTS:%=-DLLVM_ENABLE_PROJECTS="%") \
+	        $(llvm_LLVM_ENABLE_RUNTIMES:%=-DLLVM_ENABLE_RUNTIMES="%") \
+	        $(llvm_LLVM_TARGETS_TO_BUILD:%=-DLLVM_TARGETS_TO_BUILD="%") \
+	        -DCMAKE_BUILD_TYPE=Release
+
+llvm_install: DESTDIR=$(BUILD_SYSROOT)/usr/llvm
+llvm_install: PREFIX=/
+llvm_install:
+	$(MAKE) llvm
+	. $(PYVENVDIR)/bin/activate \
+	    && cd $(llvm_BUILDDIR) \
+	    && DESTDIR=$(DESTDIR) cmake --install . --prefix=$(PREFIX)
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,llvm)
+# endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,llvm))
+
+llvm: | $(llvm_BUILDDIR)/Makefile
+	$(llvm_MAKE) $(PARALLEL_BUILD)
+
+llvm_host_install: DESTDIR=$(LLVM_TOOLCHAIN_PATH)
+llvm_host_install:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:llvm_host_%=llvm_%)
+
+llvm_host_%: APP_PLATFORM=ub20
+llvm_host_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) $(@:llvm_host_%=llvm_%)
+
+llvm_host: APP_PLATFORM=ub20
+llvm_host:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) llvm
+
+#------------------------------------
+#
+libclc_DEP=llvm_host
+libclc_DIR=$(llvmproj_DIR)/libclc
+libclc_BUIDLDIR=$(BUILDDIR2)/libclc-$(APP_BUILD)
+
+libclc_MAKE=$(MAKE) -C $(libclc_BUIDLDIR)
+
+# libclc_LIBCLC_TARGETS_TO_BUILD+="spirv;spirv64"
+
+GENDIR+=$(libclc_BUIDLDIR)
+
+libclc_defconfig $(libclc_BUIDLDIR)/Makefile: | $(libclc_BUIDLDIR)
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) \
+	      cmake -B $(libclc_BUIDLDIR) -S $(libclc_DIR) \
+	          $(libclc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE="%") \
+			  -DCMAKE_INSTALL_PREFIX=/ \
+	          $(libclc_CMAKEARGS) \
+	          $(libclc_LIBCLC_TARGETS_TO_BUILD:%=-DLIBCLC_TARGETS_TO_BUILD="%") \
+	          -DLLVM_ROOT=$(LLVM_TOOLCHAIN_PATH)
 
 libclc_install: DESTDIR=$(BUILD_SYSROOT)
-libclc_install: | $(libclc_cross_cmake_$(APP_BUILD))
-	$(MKDIR) $(libclc_BUILDDIR)
-	cd $(libclc_BUILDDIR) \
-	  && cmake \
-	      $(libclc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
-		  $(libclc_DIR)
-	$(libclc_MAKE) DESTDIR= install
-ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
-	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
-endif
+libclc_install:
+	. $(PYVENVDIR)/bin/activate \
+	  && $(MAKE) libclc
+	. $(PYVENVDIR)/bin/activate \
+	  && $(libclc_MAKE) DESTDIR=$(DESTDIR) install
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libclc)
+# endif
 	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
 $(eval $(call DEF_DESTDEP,libclc))
 
-libclc: | $(libclc_BUILDDIR)/Makefile
-	$(libclc_MAKE)
+libclc: | $(libclc_BUIDLDIR)/Makefile
+	$(libclc_MAKE) $(PARALLEL_BUILD)
 
 #------------------------------------
 #
 glslang_DIR=$(PKGDIR2)/glslang
-glslang_BUILDDIR=$(BUILDDIR2)/json-c-$(APP_BUILD)
+glslang_BUILDDIR=$(BUILDDIR2)/glslang-$(APP_BUILD)
 glslang_MAKE=$(MAKE) -C $(glslang_BUILDDIR)
 
 glslang_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
 
-glslang_defconfig $(glslang_BUILDDIR)/Makefile: $(glslang_cross_cmake_$(APP_BUILD))
+glslang_defconfig $(glslang_BUILDDIR)/Makefile: | $(glslang_cross_cmake_$(APP_BUILD))
 	$(MKDIR) $(glslang_BUILDDIR)
 	cd $(glslang_BUILDDIR) \
 	  && cmake \
@@ -2250,7 +2316,7 @@ glslang: | $(glslang_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-mesa3d_DEP=
+mesa3d_DEP=libclc
 mesa3d_DIR=$(PKGDIR2)/mesa3d
 mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
 mesa3d_MESON=. $(PYVENVDIR)/bin/activate && meson
@@ -2262,19 +2328,23 @@ mesa3d_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
     -L$(BUILD_SYSROOT)/lib \
 	-liconv
 mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
-    $(BUILD_SYSROOT)/share/pkgconfig
+    $(BUILD_SYSROOT)/share/pkgconfig \
+	$(BUILD_SYSROOT)/usr/lib/pkgconfig \
+    $(BUILD_SYSROOT)/usr/share/pkgconfig
 
 mesa3d_defconfig $(mesa3d_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
 	. $(PYVENVDIR)/bin/activate \
-	  && $(BUILD_PKGCFG_ENV) meson setup \
-	      -Dprefix=/ \
-		  -Dc_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
-	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
-		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
-	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
-		  -Dpkg_config_path="$(subst $(SPACE),:,$(mesa3d_ACARGS_PKGDIR))" \
-		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
-		  $(mesa3d_BUILDDIR) $(mesa3d_DIR)
+	  && $(BUILD_PKGCFG_ENV) \
+	      LD_LIBRARY_PATH=$(LLVM_TOOLCHAIN_PATH)/lib$(LD_LIBRARY_PATH:%=:%) \
+	      meson setup \
+	          -Dprefix=/ \
+	          -Dc_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
+	          -Dc_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
+	          -Dcpp_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
+	          -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
+	          -Dpkg_config_path="$(subst $(SPACE),:,$(mesa3d_ACARGS_PKGDIR))" \
+	          --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+	          $(mesa3d_BUILDDIR) $(mesa3d_DIR)
 
 mesa3d_install: DESTDIR=$(BUILD_SYSROOT)
 mesa3d_install: | $(mesa3d_BUILDDIR)/build.ninja

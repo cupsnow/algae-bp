@@ -1,0 +1,75 @@
+--- Checking the number of DRM device available ---
+--- Devices reported 2 ---
+--- Retrieving devices information (PCI device revision is ignored) ---
+device[0]
++-> available_nodes 0x01
++-> nodes
+|   +-> nodes[0] /dev/dri/card0
++-> bustype 0002
+|   +-> platform
+|       +-> fullname	/bus@f0000/dss@30200000
++-> deviceinfo
+    +-> platform
+        +-> compatible
+                    ti,am625-dss
+
+--- Opening device node /dev/dri/card0 ---
+--- Retrieving device info, for node /dev/dri/card0 ---
+device[0]
++-> available_nodes 0x01
++-> nodes
+|   +-> nodes[0] /dev/dri/card0
++-> bustype 0002
+|   +-> platform
+|       +-> fullname	/bus@f0000/dss@30200000
++-> deviceinfo
+    +-> platform
+        +-> compatible
+                    ti,am625-dss
+
+device[1]
++-> available_nodes 0x05
++-> nodes
+|   +-> nodes[0] /dev/dri/card1
+|   +-> nodes[2] /dev/dri/renderD128
++-> bustype 0002
+|   +-> platform
+|       +-> fullname	/bus@f0000/gpu@fd00000
++-> deviceinfo
+    +-> platform
+        +-> compatible
+                    ti,am62-gpu
+                    img,img-axe
+
+--- Opening device node /dev/dri/card1 ---
+--- Retrieving device info, for node /dev/dri/card1 ---
+device[1]
++-> available_nodes 0x05
++-> nodes
+|   +-> nodes[0] /dev/dri/card1
+|   +-> nodes[2] /dev/dri/renderD128
++-> bustype 0002
+|   +-> platform
+|       +-> fullname	/bus@f0000/gpu@fd00000
++-> deviceinfo
+    +-> platform
+        +-> compatible
+                    ti,am62-gpu
+                    img,img-axe
+
+--- Opening device node /dev/dri/renderD128 ---
+--- Retrieving device info, for node /dev/dri/renderD128 ---
+device[1]
++-> available_nodes 0x05
++-> nodes
+|   +-> nodes[0] /dev/dri/card1
+|   +-> nodes[2] /dev/dri/renderD128
++-> bustype 0002
+|   +-> platform
+|       +-> fullname	/bus@f0000/gpu@fd00000
++-> deviceinfo
+    +-> platform
+        +-> compatible
+                    ti,am62-gpu
+                    img,img-axe
+

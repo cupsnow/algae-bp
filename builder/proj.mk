@@ -71,7 +71,9 @@ CMD_SORT_WS_SEP=$(call CMD_SORT_WS_SEP1,$(1)) | xargs
 
 CMD_RM_EMPTYDIR= \
   for i in $(1); do \
-    [ -d $${i} ] && rmdir --ignore-fail-on-non-empty $${i}; \
+    if [ -d $${i} ]; then \
+	  rmdir --ignore-fail-on-non-empty $${i}; \
+	fi \
   done
 
 #------------------------------------
