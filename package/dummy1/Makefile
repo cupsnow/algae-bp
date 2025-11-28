@@ -36,43 +36,52 @@ dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c
 # dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
 dummy1_OBJS=$(patsubst %,$(dummy1_BUILDDIR)/%.o,$(filter %.c %.cpp,$(dummy1_SRCS)))
 dummy1_DEPS=$(dummy1_OBJS:%=%.d)
-#dummy1_LDFLAGS=-static $(LDFLAGS)
-dummy1_CPPFLAGS+=$(CPPFLAGS)
+#dummy1_LDFLAGS+=
 dummy1_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 
-ARTIFACT+=dummy1
+GENDIR+=$(dummy1_BUILDDIR) $(dir $(dummy1_OBJS)) $(dir $(dummy1_BUILDDIR)/$(dummy1_BIN))
 
-GENDIR+=$(dummy1_BUILDDIR)
- 
+.PHONY: dummy1
 dummy1: $(dummy1_BUILDDIR)/$(dummy1_BIN)
 
 $(dummy1_BUILDDIR)/$(dummy1_BIN): $(dummy1_OBJS)
-	$(C++) -o $(dummy1_BUILDDIR)/$(dummy1_BIN) $(filter %.o %.a,$^) \
-	    $(or $(dummy1_LDFLAGS),$(LDFLAGS))
+	$(if $(filter %.cpp,$(dummy1_SRCS)),$(C++),$(CC)) \
+	    -o $@ -Wl,--start-group \
+	    $(filter %.o %.a,$^ $(dummy1_SRCS)) \
+	    -Wl,--end-group \
+	    -pthread $(LDFLAGS) $(dummy1_LDFLAGS)
+	$(OBJDUMP) -xdt $@ \
+	    >$(@).lst
 
 $(dummy1_BUILDDIR)/%.c.o: %.c
 	[ -d "$(@D)" ] || $(MKDIR) $(@D)
-	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(dummy1_CPPFLAGS),$(CPPFLAGS)) \
-	    $(or $(dummy1_CFLAGS),$(CFLAGS))
+	$(CC) -c -o $@ $< $(DEPFLAGS) \
+	    -pthread $(CPPFLAGS) $(dummy1_CPPFLAGS) \
+	    $(CFLAGS) $(dummy1_CFLAGS)
 
 $(dummy1_BUILDDIR)/%.cpp.o: %.cpp
 	[ -d "$(@D)" ] || $(MKDIR) $(@D)
-	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(dummy1_CPPFLAGS),$(CPPFLAGS)) \
-	    $(or $(dummy1_CXXFLAGS),$(CXXFLAGS))
+	$(C++) -c -o $@ $< $(DEPFLAGS) \
+	    -pthread $(CPPFLAGS) $(dummy1_CPPFLAGS) \
+	    $(CXXFLAGS) $(dummy1_CXXFLAGS)
 
-doxygen: OUTPUT_DIRECTORY=$(BUILDDIR)/aloe-docs
-doxygen:
+# -include $(dummy1_DEPS)
+
+dummy1_docs: OUTPUT_DIRECTORY=$(dummy1_BUILDDIR)/docs
+dummy1_docs:
 	[ -d "$(OUTPUT_DIRECTORY)" ] || $(MKDIR) $(OUTPUT_DIRECTORY)
-	cd $(PROJDIR)/package/aloe && \
-	  { cat Doxyfile && \
+	{ cat $(PROJDIR)/package/aloe/Doxyfile && \
 	  echo "PROJECT_NUMBER=0.0.1" && \
-	  echo "INPUT=include" &&  \
+	  echo "INPUT=$(PROJDIR)/package/aloe/include $(abspath .)" &&  \
 	  echo "OUTPUT_DIRECTORY=$(OUTPUT_DIRECTORY)" && \
 	  echo ""; } | doxygen - >$(dummy1_BUILDDIR)/doxygen.log 2>&1
 
+ARTIFACT+=dummy1
+ARTIFACT_DOCS+=dummy1_docs
+
 #------------------------------------
 #
-artifact: $(ARTIFACT) doxygen
+artifact: $(ARTIFACT) $(ARTIFACT_DOCS)
 
 -include $(sort $(foreach iter,$(ARTIFACT),$(${iter}_DEPS)))
 

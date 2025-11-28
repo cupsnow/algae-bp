@@ -12,11 +12,23 @@
 #ifndef _H_ALGAE_PRIV
 #define _H_ALGAE_PRIV
 
+/**
+ * @defgroup DUMMY Dummy App
+ *
+ * @defgroup DUMMY_PRIV priv
+ * @ingroup DUMMY
+ * @brief Private for this app.
+ */
+
 #include <aloe/sys.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** @addtogroup DUMMY_PRIV
+ * @{
+ */
 
 #  define log_m(_lvl, _msg, _args...) do { \
 	struct timespec _log_m_ts; \
@@ -31,6 +43,8 @@ extern "C" {
 } while(0)
 #  define log_d(...) log_m("Debug", __VA_ARGS__)
 #  define log_e(...) log_m("ERROR", __VA_ARGS__)
+
+/** @} DUMMY_PRIV */
 
 #ifdef __cplusplus
 } /* extern "C" */

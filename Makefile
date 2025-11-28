@@ -2193,9 +2193,20 @@ llvm_LLVM_ENABLE_PROJECTS=clang;lld;lldb
 # libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp;llvm-libgcc;offload;flang-rt;llvm;libsycl;orc-rt
 llvm_LLVM_ENABLE_RUNTIMES=
 
-llvm_LLVM_TARGETS_TO_BUILD=AArch64;ARM;BPF;WebAssembly;X86
+llvm_LLVM_TARGETS_TO_BUILD=AArch64;ARM;BPF;WebAssembly;X86;SPIRV
 
-llvm_CMAKEARGS+=
+llvm_CMAKEARGS+= \
+  -DLLVM_ENABLE_RTTI=ON \
+  -DLLVM_BUILD_TOOLS=ON \
+  -DLLVM_INSTALL_UTILS=ON \
+  -DLLVM_ENABLE_TERMINFO=OFF \
+  -DLLVM_ENABLE_ZLIB=ON
+
+llvm_CMAKEARGS+= \
+  -DLLVM_INCLUDE_TESTS=OFF \
+  -DLLVM_INCLUDE_EXAMPLES=OFF \
+  -DLLVM_INCLUDE_BENCHMARKS=OFF \
+  -DLLVM_INCLUDE_DOCS=OFF
 
 llvm_MAKE=$(MAKE) -C $(llvm_BUILDDIR)
 
