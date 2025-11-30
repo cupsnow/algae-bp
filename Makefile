@@ -9,7 +9,7 @@ ifeq ("$(MAKELEVEL)","20")
 $(error Maybe endless loop, MAKELEVEL: $(MAKELEVEL))
 endif
 
-PARALLEL_BUILD?=$(or $(1),-j)10
+PARALLEL_BUILD?=$(or $(1),-j)20
 
 PKGDIR=$(PROJDIR)/package
 PKGDIR2=$(abspath $(PROJDIR)/..)
@@ -2200,9 +2200,7 @@ llvm_CMAKEARGS+= \
   -DLLVM_BUILD_TOOLS=ON \
   -DLLVM_INSTALL_UTILS=ON \
   -DLLVM_ENABLE_TERMINFO=OFF \
-  -DLLVM_ENABLE_ZLIB=ON
-
-llvm_CMAKEARGS+= \
+  -DLLVM_ENABLE_ZLIB=ON \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
@@ -2256,30 +2254,31 @@ llvm_host:
 #
 libclc_DEP=llvm_host
 libclc_DIR=$(llvmproj_DIR)/libclc
-libclc_BUIDLDIR=$(BUILDDIR2)/libclc-$(APP_BUILD)
-
-libclc_MAKE=$(MAKE) -C $(libclc_BUIDLDIR)
+libclc_BUILDDIR=$(BUILDDIR2)/libclc-$(APP_BUILD)
 
 # libclc_LIBCLC_TARGETS_TO_BUILD+="spirv;spirv64"
 
-GENDIR+=$(libclc_BUIDLDIR)
+libclc_CMAKEARGS+=
 
-libclc_defconfig $(libclc_BUIDLDIR)/Makefile: | $(libclc_BUIDLDIR)
+libclc_MAKE=$(MAKE) -C $(libclc_BUILDDIR)
+
+GENDIR+=$(libclc_BUILDDIR)
+
+libclc_defconfig $(libclc_BUILDDIR)/Makefile: | $(libclc_BUILDDIR)
+libclc_defconfig $(libclc_BUILDDIR)/Makefile: | $(libclc_cross_cmake_$(APP_BUILD))
 	. $(PYVENVDIR)/bin/activate \
-	  && $(BUILD_PKGCFG_ENV) \
-	      cmake -B $(libclc_BUIDLDIR) -S $(libclc_DIR) \
-	          $(libclc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE="%") \
-			  -DCMAKE_INSTALL_PREFIX=/ \
-	          $(libclc_CMAKEARGS) \
-	          $(libclc_LIBCLC_TARGETS_TO_BUILD:%=-DLIBCLC_TARGETS_TO_BUILD="%") \
-	          -DLLVM_ROOT=$(LLVM_TOOLCHAIN_PATH)
+	    && cmake -B $(libclc_BUILDDIR) -S $(libclc_DIR) \
+	        $(libclc_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE="%") \
+	        $(libclc_CMAKEARGS) \
+	        $(libclc_LIBCLC_TARGETS_TO_BUILD:%=-DLIBCLC_TARGETS_TO_BUILD="%")
 
 libclc_install: DESTDIR=$(BUILD_SYSROOT)
+libclc_install: PREFIX=/
 libclc_install:
+	$(MAKE) libclc
 	. $(PYVENVDIR)/bin/activate \
-	  && $(MAKE) libclc
-	. $(PYVENVDIR)/bin/activate \
-	  && $(libclc_MAKE) DESTDIR=$(DESTDIR) install
+	    && cd $(libclc_BUILDDIR) \
+	    && DESTDIR=$(DESTDIR) cmake --install . --prefix=$(PREFIX)
 # ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 # 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libclc)
 # endif
@@ -2287,7 +2286,7 @@ libclc_install:
 
 $(eval $(call DEF_DESTDEP,libclc))
 
-libclc: | $(libclc_BUIDLDIR)/Makefile
+libclc: | $(libclc_BUILDDIR)/Makefile
 	$(libclc_MAKE) $(PARALLEL_BUILD)
 
 #------------------------------------
@@ -2343,18 +2342,35 @@ mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
 	$(BUILD_SYSROOT)/usr/lib/pkgconfig \
     $(BUILD_SYSROOT)/usr/share/pkgconfig
 
+# mesa3d_platforms+=x11,wayland
+
+mesa3d_CMAKEARGS+= \
+  -Dglx=disabled
+
+mesa3d_CMAKEARGS+= \
+  -Dprefix=/usr \
+  -Dgallium-drivers=llvmpipe,softpipe \
+  -Dvulkan-drivers= \
+  -Dllvm=enabled \
+  -Dshared-llvm=disabled \
+  -Dspirv-tools=disabled
+
+# mesa3d_CMAKEARGS+= \
+#   -Dgallium-rusticl=true
+
 mesa3d_defconfig $(mesa3d_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
 	. $(PYVENVDIR)/bin/activate \
 	  && $(BUILD_PKGCFG_ENV) \
 	      LD_LIBRARY_PATH=$(LLVM_TOOLCHAIN_PATH)/lib$(LD_LIBRARY_PATH:%=:%) \
 	      meson setup \
-	          -Dprefix=/ \
+	          --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		      $(mesa3d_CMAKEARGS) \
 	          -Dc_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
 	          -Dc_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
 	          -Dcpp_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
 	          -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
 	          -Dpkg_config_path="$(subst $(SPACE),:,$(mesa3d_ACARGS_PKGDIR))" \
-	          --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+	          -Dplatforms=$(mesa3d_platforms) \
 	          $(mesa3d_BUILDDIR) $(mesa3d_DIR)
 
 mesa3d_install: DESTDIR=$(BUILD_SYSROOT)
