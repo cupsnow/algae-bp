@@ -2188,38 +2188,68 @@ llvm_BUILDDIR=$(BUILDDIR2)/llvm-$(APP_BUILD)
 llvm_cross_cmake_bp=$(BUILDDIR)/cross-aarch64.cmake
 
 # clang;clang-tools-extra;lldb;lld;polly
-llvm_LLVM_ENABLE_PROJECTS=clang;lld;lldb
+llvm_LLVM_ENABLE_PROJECTS_PREPARE+=
+llvm_LLVM_ENABLE_PROJECTS_PREPARE_ub20+=clang lld lldb
+llvm_LLVM_ENABLE_PROJECTS_PREPARE_bp+=
+llvm_LLVM_ENABLE_PROJECTS=$(subst $(SPACE),;,$(sort \
+  $(llvm_LLVM_ENABLE_PROJECTS_PREPARE) \
+  $(llvm_LLVM_ENABLE_PROJECTS_PREPARE_$(APP_PLATFORM))))
 
 # libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp;llvm-libgcc;offload;flang-rt;llvm;libsycl;orc-rt
-llvm_LLVM_ENABLE_RUNTIMES=
+llvm_LLVM_ENABLE_RUNTIMES_PREPARE+=
+llvm_LLVM_ENABLE_RUNTIMES_PREPARE_ub20+=
+llvm_LLVM_ENABLE_RUNTIMES_PREPARE_bp+=
+llvm_LLVM_ENABLE_RUNTIMES=$(subst $(SPACE),;,$(sort \
+  $(llvm_LLVM_ENABLE_RUNTIMES_PREPARE) \
+  $(llvm_LLVM_ENABLE_RUNTIMES_PREPARE_$(APP_PLATFORM))))
 
-llvm_LLVM_TARGETS_TO_BUILD=AArch64;ARM;BPF;WebAssembly;X86;SPIRV
+llvm_LLVM_TARGETS_TO_BUILD_PREPARE+=
+llvm_LLVM_TARGETS_TO_BUILD_PREPARE_ub20+=AArch64 X86
+# llvm_LLVM_TARGETS_TO_BUILD_PREPARE_ub20+=ARM BPF WebAssembly SPIRV
+llvm_LLVM_TARGETS_TO_BUILD_PREPARE_bp+=AArch64
+llvm_LLVM_TARGETS_TO_BUILD=$(subst $(SPACE),;,$(sort \
+  $(llvm_LLVM_TARGETS_TO_BUILD_PREPARE) \
+  $(llvm_LLVM_TARGETS_TO_BUILD_PREPARE_$(APP_PLATFORM))))
 
-llvm_CMAKEARGS+= \
-  -DLLVM_ENABLE_RTTI=ON \
+# llvm_CMAKEARGS+=-DLLVM_ENABLE_RTTI=ON
+
+llvm_CMAKEARGS_ub20+= \
   -DLLVM_BUILD_TOOLS=ON \
   -DLLVM_INSTALL_UTILS=ON \
-  -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_ZLIB=ON \
+  -DLLVM_ENABLE_ZSTD=OFF \
+  -DLLVM_ENABLE_LIBXML2=OFF
+
+llvm_CMAKEARGS_bp+= \
+  -DLLVM_BUILD_TOOLS=OFF \
+  -DLLVM_INSTALL_UTILS=OFF \
+  -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="" \
+  -DLLVM_ENABLE_ZLIB=ON \
+  -DLLVM_ENABLE_ZSTD=OFF
+
+llvm_CMAKEARGS_bp+= \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
   -DLLVM_INCLUDE_DOCS=OFF
 
-llvm_MAKE=$(MAKE) -C $(llvm_BUILDDIR)
+llvm_CMAKEARGS_bp+= \
+  -DLLVM_BUILD_LLVM_DYLIB=ON
+
+llvm_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(llvm_BUILDDIR)
 
 GENDIR+=$(llvm_BUILDDIR)
 
 llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_BUILDDIR)
 llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_cross_cmake_$(APP_BUILD))
 	. $(PYVENVDIR)/bin/activate \
-	    && cmake -B $(llvm_BUILDDIR) -S $(llvm_DIR) \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(llvm_BUILDDIR) -S $(llvm_DIR) \
+	        -DCMAKE_BUILD_TYPE=Release \
 		    $(llvm_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE="%") \
-		    $(llvm_CMAKEARGS) \
-	        $(llvm_LLVM_ENABLE_PROJECTS:%=-DLLVM_ENABLE_PROJECTS="%") \
-	        $(llvm_LLVM_ENABLE_RUNTIMES:%=-DLLVM_ENABLE_RUNTIMES="%") \
-	        $(llvm_LLVM_TARGETS_TO_BUILD:%=-DLLVM_TARGETS_TO_BUILD="%") \
-	        -DCMAKE_BUILD_TYPE=Release
+			-DLLVM_ENABLE_PROJECTS="$(llvm_LLVM_ENABLE_PROJECTS)" \
+			-DLLVM_ENABLE_RUNTIMES="$(llvm_LLVM_ENABLE_RUNTIMES)" \
+			-DLLVM_TARGETS_TO_BUILD="$(llvm_LLVM_TARGETS_TO_BUILD)" \
+		    $(llvm_CMAKEARGS_$(APP_PLATFORM)) $(llvm_CMAKEARGS)
 
 llvm_install: DESTDIR=$(BUILD_SYSROOT)/usr/llvm
 llvm_install: PREFIX=/
@@ -2256,7 +2286,8 @@ libclc_DEP=llvm_host
 libclc_DIR=$(llvmproj_DIR)/libclc
 libclc_BUILDDIR=$(BUILDDIR2)/libclc-$(APP_BUILD)
 
-# libclc_LIBCLC_TARGETS_TO_BUILD+="spirv;spirv64"
+# libclc_LIBCLC_TARGETS_TO_BUILD_PREPARE+="spirv;spirv64"
+libclc_LIBCLC_TARGETS_TO_BUILD=$(subst $(SPACE),;,$(libclc_LIBCLC_TARGETS_TO_BUILD_PREPARE))
 
 libclc_CMAKEARGS+=
 
@@ -2329,18 +2360,26 @@ glslang: | $(glslang_BUILDDIR)/Makefile
 mesa3d_DEP=libclc
 mesa3d_DIR=$(PKGDIR2)/mesa3d
 mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
-mesa3d_MESON=. $(PYVENVDIR)/bin/activate && meson
+mesa3d_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
+
+mesa3d_LLVM_DESTDIR=$(PROJDIR)/destdir-llvm
 
 mesa3d_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
     -I$(BUILD_SYSROOT)/include/libmount \
-	-I$(BUILD_SYSROOT)/include/blkid
+    -I$(BUILD_SYSROOT)/include/blkid \
+    -I$(mesa3d_LLVM_DESTDIR)/include
 mesa3d_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
     -L$(BUILD_SYSROOT)/lib \
-	-liconv
+    -L$(mesa3d_LLVM_DESTDIR)/lib \
+    -liconv -lLLVM
 mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig \
-	$(BUILD_SYSROOT)/usr/lib/pkgconfig \
-    $(BUILD_SYSROOT)/usr/share/pkgconfig
+    $(BUILD_SYSROOT)/usr/lib/pkgconfig \
+    $(BUILD_SYSROOT)/usr/share/pkgconfig \
+	$(mesa3d_LLVM_DESTDIR)/lib/pkgconfig \
+	$(mesa3d_LLVM_DESTDIR)/share/pkgconfig \
+    $(mesa3d_LLVM_DESTDIR)/usr/lib/pkgconfig \
+	$(mesa3d_LLVM_DESTDIR)/usr/share/pkgconfig
 
 # mesa3d_platforms+=x11,wayland
 
@@ -2348,11 +2387,13 @@ mesa3d_CMAKEARGS+= \
   -Dglx=disabled
 
 mesa3d_CMAKEARGS+= \
+  -Dshared-llvm=enabled
+
+mesa3d_CMAKEARGS+= \
   -Dprefix=/usr \
   -Dgallium-drivers=llvmpipe,softpipe \
   -Dvulkan-drivers= \
   -Dllvm=enabled \
-  -Dshared-llvm=disabled \
   -Dspirv-tools=disabled
 
 # mesa3d_CMAKEARGS+= \
