@@ -67,7 +67,7 @@ BUILD_PKGCFG_USAGE=2
 BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/usr/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/usr/share/pkgconfig" \
     PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
 
-LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
+LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool
 
 ifneq ($(wildcard $(LLVM_TOOLCHAIN_PATH)/bin/llvm-config),)
 PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
@@ -1563,6 +1563,59 @@ bzip2%:
 CLEAN += bzip2
 
 #------------------------------------
+#
+libxml2_DIR?=$(PKGDIR2)/libxml2
+libxml2_BUILDDIR?=$(BUILDDIR2)/libxml2-$(APP_BUILD)
+libxml2_MAKE=$(MAKE) -C $(libxml2_BUILDDIR)
+
+$(libxml2_DIR)/configure: | $(libxml2_DIR)/autogen.sh
+	cd $(libxml2_DIR) \
+	  && NOCONFIGURE=1 ./autogen.sh
+
+GENDIR+=$(libxml2_BUILDDIR)
+
+libxml2_defconfig $(libxml2_BUILDDIR)/Makefile: | $(libxml2_DIR)/configure $(libxml2_BUILDDIR)
+	cd $(libxml2_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libxml2_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(libxml2_ACARGS_$(APP_PLATFORM))
+
+libxml2_install: DESTDIR=$(BUILD_SYSROOT)
+libxml2_install: | $(libxml2_BUILDDIR)/Makefile
+	$(libxml2_MAKE) DESTDIR=$(DESTDIR) install
+# ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,liblibxml2-8 liblibxml2-posix)
+# endif
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,liblibxml2-8 liblibxml2-posix)
+# endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,libxml2))
+
+libxml2_host_destpkg_install: DESTDIR=$(PROJDIR)/tool
+libxml2_host_destpkg_install:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:libxml2_host_%=libxml2_%)
+
+libxml2_host_install: DESTDIR=$(PROJDIR)/tool
+libxml2_host_install:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:libxml2_host_%=libxml2_%)
+
+libxml2_host_%: APP_PLATFORM=ub20
+libxml2_host_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) $(@:libxml2_host_%=libxml2_%)
+
+libxml2_host: APP_PLATFORM=ub20
+libxml2_host:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) libxml2
+
+libxml2: | $(libxml2_BUILDDIR)/Makefile
+	$(libxml2_MAKE) $(PARALLEL_BUILD)
+
+libxml2_%: | $(libxml2_BUILDDIR)/Makefile
+	$(libxml2_MAKE) $(PARALLEL_BUILD) $(@:libxml2_%=%)
+
+#------------------------------------
 # WIP
 #
 expat_DIR = $(PROJDIR)/package/expat
@@ -2188,46 +2241,45 @@ llvm_BUILDDIR=$(BUILDDIR2)/llvm-$(APP_BUILD)
 llvm_cross_cmake_bp=$(BUILDDIR)/cross-aarch64.cmake
 
 # clang;clang-tools-extra;lldb;lld;polly
-llvm_LLVM_ENABLE_PROJECTS_PREPARE+=
 llvm_LLVM_ENABLE_PROJECTS_PREPARE_ub20+=clang lld lldb
-llvm_LLVM_ENABLE_PROJECTS_PREPARE_bp+=
 llvm_LLVM_ENABLE_PROJECTS=$(subst $(SPACE),;,$(sort \
-  $(llvm_LLVM_ENABLE_PROJECTS_PREPARE) \
   $(llvm_LLVM_ENABLE_PROJECTS_PREPARE_$(APP_PLATFORM))))
 
 # libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp;llvm-libgcc;offload;flang-rt;llvm;libsycl;orc-rt
-llvm_LLVM_ENABLE_RUNTIMES_PREPARE+=
-llvm_LLVM_ENABLE_RUNTIMES_PREPARE_ub20+=
-llvm_LLVM_ENABLE_RUNTIMES_PREPARE_bp+=
 llvm_LLVM_ENABLE_RUNTIMES=$(subst $(SPACE),;,$(sort \
-  $(llvm_LLVM_ENABLE_RUNTIMES_PREPARE) \
   $(llvm_LLVM_ENABLE_RUNTIMES_PREPARE_$(APP_PLATFORM))))
 
-llvm_LLVM_TARGETS_TO_BUILD_PREPARE+=
 llvm_LLVM_TARGETS_TO_BUILD_PREPARE_ub20+=AArch64 X86
-# llvm_LLVM_TARGETS_TO_BUILD_PREPARE_ub20+=ARM BPF WebAssembly SPIRV
 llvm_LLVM_TARGETS_TO_BUILD_PREPARE_bp+=AArch64
 llvm_LLVM_TARGETS_TO_BUILD=$(subst $(SPACE),;,$(sort \
-  $(llvm_LLVM_TARGETS_TO_BUILD_PREPARE) \
   $(llvm_LLVM_TARGETS_TO_BUILD_PREPARE_$(APP_PLATFORM))))
 
 # llvm_CMAKEARGS+=-DLLVM_ENABLE_RTTI=ON
 
+# LLVM_BUILD_TOOLS default on
+# LLVM_INSTALL_UTILS default off
+# LLVM_ENABLE_ZLIB default on
+# LLVM_ENABLE_ZSTD default on
+# LLVM_INCLUDE_TESTS default on
+# LLVM_INCLUDE_EXAMPLES default on
+# LLVM_INCLUDE_BENCHMARKS default on
+# LLVM_INCLUDE_DOCS default on
+# BUILD_SHARED_LIBS default off
+
 llvm_CMAKEARGS_ub20+= \
-  -DLLVM_BUILD_TOOLS=ON \
   -DLLVM_INSTALL_UTILS=ON \
-  -DLLVM_ENABLE_ZLIB=ON \
   -DLLVM_ENABLE_ZSTD=OFF \
+  -DLLVM_INCLUDE_TESTS=OFF \
+  -DLLVM_INCLUDE_EXAMPLES=OFF \
+  -DLLVM_INCLUDE_BENCHMARKS=OFF \
+  -DLLVM_INCLUDE_DOCS=OFF
+
+llvm_CMAKEARGS_ub20+= \
   -DLLVM_ENABLE_LIBXML2=OFF
 
 llvm_CMAKEARGS_bp+= \
-  -DLLVM_BUILD_TOOLS=OFF \
-  -DLLVM_INSTALL_UTILS=OFF \
   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="" \
-  -DLLVM_ENABLE_ZLIB=ON \
-  -DLLVM_ENABLE_ZSTD=OFF
-
-llvm_CMAKEARGS_bp+= \
+  -DLLVM_ENABLE_ZSTD=OFF \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
@@ -2245,6 +2297,7 @@ llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_cross_cmake_$(APP_BUILD))
 	. $(PYVENVDIR)/bin/activate \
 	    && $(BUILD_PKGCFG_ENV) cmake -B $(llvm_BUILDDIR) -S $(llvm_DIR) \
 	        -DCMAKE_BUILD_TYPE=Release \
+			-DLLVM_TARGET_ARCH=AArch64 \
 		    $(llvm_cross_cmake_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE="%") \
 			-DLLVM_ENABLE_PROJECTS="$(llvm_LLVM_ENABLE_PROJECTS)" \
 			-DLLVM_ENABLE_RUNTIMES="$(llvm_LLVM_ENABLE_RUNTIMES)" \
@@ -2267,6 +2320,10 @@ $(eval $(call DEF_DESTDEP,llvm))
 
 llvm: | $(llvm_BUILDDIR)/Makefile
 	$(llvm_MAKE) $(PARALLEL_BUILD)
+
+llvm_host_destpkg_install: DESTDIR=$(LLVM_TOOLCHAIN_PATH)
+llvm_host_destpkg_install:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:llvm_host_%=llvm_%)
 
 llvm_host_install: DESTDIR=$(LLVM_TOOLCHAIN_PATH)
 llvm_host_install:
@@ -2356,8 +2413,9 @@ glslang: | $(glslang_BUILDDIR)/Makefile
 	$(glslang_MAKE)
 
 #------------------------------------
+# 
 #
-mesa3d_DEP=libclc
+mesa3d_DEP=libclc expat libdrm zlib
 mesa3d_DIR=$(PKGDIR2)/mesa3d
 mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
 mesa3d_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
