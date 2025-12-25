@@ -1618,40 +1618,39 @@ libxml2_%: | $(libxml2_BUILDDIR)/Makefile
 #------------------------------------
 # WIP
 #
-expat_DIR = $(PROJDIR)/package/expat
-expat_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(expat_DIR)
-expat_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    --with-pic \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+expat_DIR=$(PKGDIR2)/expat/expat
+expat_BUILDDIR?=$(BUILDDIR2)/expat-$(APP_BUILD)
+expat_MAKE=$(MAKE) -C $(expat_BUILDDIR)
 
-expat: expat_;
+GENDIR+=$(expat_BUILDDIR)
 
-$(addprefix expat_,clean distclean): ;
-	if [ -e $(expat_DIR)/Makefile ]; then \
-	  $(expat_MAKE) $(patsubst _%,%,$(@:expat%=%)); \
-	fi
+$(expat_DIR)/configure: | $(expat_DIR)/buildconf.sh
+	cd $(expat_DIR) && ./buildconf.sh
 
-expat_dir:
-	cd $(dir $(expat_DIR)) && \
-	  wget http://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz && \
-	  tar -zxvf expat-2.1.0.tar.gz && \
-	  ln -sf expat-2.1.0 $(expat_DIR)
+expat_defconfig $(expat_BUILDDIR)/Makefile: | $(expat_DIR)/configure $(expat_BUILDDIR)
+	cd $(expat_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(expat_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(expat_ACARGS_$(APP_PLATFORM))
 
-expat_makefile:
-	echo "Makefile *** Generate Makefile by configure..."
-	cd $(expat_DIR) && $(expat_CFGENV) ./configure $(expat_CFGPARAM)
+expat_install: DESTDIR=$(BUILD_SYSROOT)
+expat_install: | $(expat_BUILDDIR)/Makefile
+	$(expat_MAKE) DESTDIR=$(DESTDIR) $(@:expat_%=%)
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, libexpat)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, expat)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
-expat%:
-	if [ ! -d $(expat_DIR) ]; then \
-	  $(MAKE) expat_dir; \
-	fi
-	if [ ! -f $(expat_DIR)/Makefile ]; then \
-	  $(MAKE) expat_makefile; \
-	fi
-	$(expat_MAKE) $(patsubst _%,%,$(@:expat%=%))
+$(eval $(call DEF_DESTDEP,expat))
 
-CLEAN += expat
+expat: | $(expat_BUILDDIR)/Makefile
+	$(expat_MAKE) $(PARALLEL_BUILD)
+
+expat_%: | $(expat_BUILDDIR)/Makefile
+	$(expat_MAKE) $(PARALLEL_BUILD) $(@:expat_%=%)
 
 #------------------------------------
 # WIP
@@ -2272,10 +2271,19 @@ llvm_CMAKEARGS_ub20+= \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
-  -DLLVM_INCLUDE_DOCS=OFF
+  -DLLVM_INCLUDE_DOCS=OFF \
+  -DBUILD_SHARED_LIBS=ON \
+  -DLLVM_BUILD_LLVM_DYLIB=ON
 
 llvm_CMAKEARGS_ub20+= \
   -DLLVM_ENABLE_LIBXML2=OFF
+
+# llvm_CMAKEARGS_bp+= \
+#   -DLLVM_BUILD_TOOLS=OFF \
+#   -DLLVM_INSTALL_UTILS=OFF \
+#   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="" \
+#   -DLLVM_ENABLE_ZLIB=ON \
+#   -DLLVM_ENABLE_ZSTD=OFF
 
 llvm_CMAKEARGS_bp+= \
   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="" \
@@ -2420,24 +2428,23 @@ mesa3d_DIR=$(PKGDIR2)/mesa3d
 mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
 mesa3d_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
 
-mesa3d_LLVM_DESTDIR=$(PROJDIR)/destdir-llvm
+# mesa3d_LLVM_DESTDIR=$(PROJDIR)/destdir-llvm
 
 mesa3d_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
     -I$(BUILD_SYSROOT)/include/libmount \
     -I$(BUILD_SYSROOT)/include/blkid \
-    -I$(mesa3d_LLVM_DESTDIR)/include
+	$(mesa3d_LLVM_DESTDIR:%=-I%/include)
 mesa3d_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
     -L$(BUILD_SYSROOT)/lib \
-    -L$(mesa3d_LLVM_DESTDIR)/lib \
-    -liconv -lLLVM
+	$(mesa3d_LLVM_DESTDIR:%=-L%/lib -liconv -lLLVM)
 mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig \
     $(BUILD_SYSROOT)/usr/lib/pkgconfig \
     $(BUILD_SYSROOT)/usr/share/pkgconfig \
-	$(mesa3d_LLVM_DESTDIR)/lib/pkgconfig \
-	$(mesa3d_LLVM_DESTDIR)/share/pkgconfig \
-    $(mesa3d_LLVM_DESTDIR)/usr/lib/pkgconfig \
-	$(mesa3d_LLVM_DESTDIR)/usr/share/pkgconfig
+	$(mesa3d_LLVM_DESTDIR:%=%/lib/pkgconfig) \
+	$(mesa3d_LLVM_DESTDIR:%=%/share/pkgconfig) \
+    $(mesa3d_LLVM_DESTDIR:%=%/usr/lib/pkgconfig) \
+	$(mesa3d_LLVM_DESTDIR:%=%/usr/share/pkgconfig)
 
 # mesa3d_platforms+=x11,wayland
 
@@ -3121,18 +3128,18 @@ dist_rootfs_phase1_pkg+=systemd
 endif
 
 dist_rootfs_phase1:
-# build package and install to sysroot
-# packages are higher priority then busybox
+# packages
 	$(MAKE) uboot_envtools
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
 	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc openocd openssh \
+		  expat libdrm \
 		$(dist_rootfs_phase1_pkg))
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
-# install prebuilt to rootfs
+# toolchain sysroot, prebuilt
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
@@ -3238,9 +3245,9 @@ dist-bp_phase1:
 	$(MAKE) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
-	$(MAKE) $(addsuffix _destdep_install, \
-	    libdrm)
+	$(MAKE) $(addsuffix _destdep_install, )
 	$(MAKE) dist_rootfs_phase1
+	$(MAKE) $(addsuffix _destdep_install, )
 
 dist-bp_bootpart: bootpart_prefix=$(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_bootpart:
