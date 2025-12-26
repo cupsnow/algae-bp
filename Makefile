@@ -2266,6 +2266,7 @@ llvm_LLVM_TARGETS_TO_BUILD=$(subst $(SPACE),;,$(sort \
 # LLVM_INCLUDE_BENCHMARKS default on
 # LLVM_INCLUDE_DOCS default on
 # BUILD_SHARED_LIBS default off
+# LLVM_BUILD_LLVM_DYLIB default off
 
 llvm_CMAKEARGS_ub20+= \
   -DLLVM_INSTALL_UTILS=ON \
