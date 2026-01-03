@@ -2267,27 +2267,57 @@ llvm_LLVM_TARGETS_TO_BUILD=$(subst $(SPACE),;,$(sort \
 # LLVM_INCLUDE_DOCS default on
 # BUILD_SHARED_LIBS default off
 # LLVM_BUILD_LLVM_DYLIB default off
+# LLVM_LINK_LLVM_DYLIB
+# LLVM_ENABLE_RTTI default off
 
-llvm_CMAKEARGS_ub20+= \
-  -DLLVM_INSTALL_UTILS=ON \
+llvm_CMAKEARGS+= \
+  -DLLVM_ENABLE_RTTI=ON \
   -DLLVM_ENABLE_ZSTD=OFF \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
   -DLLVM_INCLUDE_DOCS=OFF
 
+# BUILD_SHARED_LIBS has a misleading name. It is in fact an option for
+# LLVM developers to build all LLVM libraries as separate shared libraries.
+# For normal use of LLVM, it is recommended to build a single
+# shared library, which is achieved by BUILD_SHARED_LIBS=OFF and
+# LLVM_BUILD_LLVM_DYLIB=ON.
+
+# LLVM_BUILD_LLVM_DYLIB to ON. We need to enable this option for the
+# host as llvm-config for the host will be used in STAGING_DIR by packages
+# linking against libLLVM and if this option is not selected, then llvm-config
+# does not work properly. For example, it assumes that LLVM is built statically
+# and cannot find libLLVM.so.
+
+llvm_CMAKEARGS+= \
+  -DLLVM_LINK_LLVM_DYLIB=ON \
+  -DLLVM_BUILD_LLVM_DYLIB=ON \
+  -DLLVM_ENABLE_ZLIB=OFF
+
+llvm_CMAKEARGS_ub20+= \
+  -DLLVM_INSTALL_UTILS=ON
+
 llvm_CMAKEARGS_ub20+= \
   -DLLVM_ENABLE_LIBXML2=OFF
+
+# This option prevents AddLLVM.cmake from adding $ORIGIN/../lib to
+# binaries. Otherwise, llvm-config (host variant installed in STAGING)
+# will try to use target's libc.
+# llvm_CMAKEARGS_ub20+= \
+#   -DCMAKE_INSTALL_RPATH="$(PROJDIR)/tool/lib"
 
 llvm_CMAKEARGS_bp+= \
   -DLLVM_TARGET_ARCH=AArch64 \
   -DLLVM_HOST_TRIPLE=aarch64-linux-gnu \
   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="" \
-  -DLLVM_ENABLE_ZSTD=OFF \
-  -DLLVM_INCLUDE_TESTS=OFF \
-  -DLLVM_INCLUDE_EXAMPLES=OFF \
-  -DLLVM_INCLUDE_BENCHMARKS=OFF \
-  -DLLVM_INCLUDE_DOCS=OFF
+  -DLLVM_TABLEGEN=$(PROJDIR)/tool/bin/llvm-tblgen \
+  -DLLVM_CONFIG_PATH=$(PROJDIR)/tool/bin/llvm-config \
+  -DCMAKE_CROSSCOMPILING=1
+
+llvm_CMAKEARGS_bp+= \
+  -DLLVM_BUILD_RUNTIME=Off \
+
 
 llvm_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(llvm_BUILDDIR)
 
@@ -2302,9 +2332,7 @@ llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_cross_cmake_$(APP_BUILD))
 	        -DLLVM_ENABLE_PROJECTS="$(llvm_LLVM_ENABLE_PROJECTS)" \
 	        -DLLVM_ENABLE_RUNTIMES="$(llvm_LLVM_ENABLE_RUNTIMES)" \
 	        -DLLVM_TARGETS_TO_BUILD="$(llvm_LLVM_TARGETS_TO_BUILD)" \
-			-DLLVM_BUILD_LLVM_DYLIB=ON \
-			-DBUILD_SHARED_LIBS=ON \
-	        $(llvm_CMAKEARGS_$(APP_PLATFORM))
+	        $(llvm_CMAKEARGS_$(APP_PLATFORM)) $(llvm_CMAKEARGS)
 
 llvm_install: DESTDIR=$(BUILD_SYSROOT)/usr/llvm
 llvm_install: PREFIX=/
