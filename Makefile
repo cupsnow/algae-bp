@@ -2443,31 +2443,129 @@ glslang: | $(glslang_BUILDDIR)/Makefile
 	$(glslang_MAKE)
 
 #------------------------------------
-# 
+#
+spirvheaders_DIR=$(PKGDIR2)/spirv_headers
+spirvheaders_BUILDDIR?=$(BUILDDIR2)/spirv_headers-$(APP_BUILD)
+spirvheaders_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+
+spirvheaders_CMAKEARGS+=
+
+spirvheaders_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(spirvheaders_BUILDDIR)
+
+GENDIR+=$(spirvheaders_BUILDDIR)
+spirvheaders_defconfig $(spirvheaders_BUILDDIR)/Makefile: | $(spirvheaders_BUILDDIR)
+spirvheaders_defconfig $(spirvheaders_BUILDDIR)/Makefile: | $(spirvheaders_cross_cmake_$(APP_BUILD))
+	. $(PYVENVDIR)/bin/activate \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(spirvheaders_BUILDDIR) -S $(spirvheaders_DIR) \
+	        -DCMAKE_BUILD_TYPE=Release \
+	        $(spirvheaders_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE="%") \
+	        $(spirvheaders_CMAKEARGS_$(APP_PLATFORM)) $(spirvheaders_CMAKEARGS)
+
+spirvheaders_install: DESTDIR=$(BUILD_SYSROOT)/usr
+spirvheaders_install: PREFIX=/
+spirvheaders_install:
+	$(MAKE) spirvheaders
+	. $(PYVENVDIR)/bin/activate \
+	    && cd $(spirvheaders_BUILDDIR) \
+	    && DESTDIR=$(DESTDIR) cmake --install . --prefix=$(PREFIX)
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,spirvheaders)
+# endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,spirvheaders))
+
+spirvheaders: | $(spirvheaders_BUILDDIR)/Makefile
+	$(spirvheaders_MAKE) $(PARALLEL_BUILD)
+
+spirvheaders_host_destpkg_install: DESTDIR=$(LLVM_TOOLCHAIN_PATH)
+spirvheaders_host_destpkg_install:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:spirvheaders_host_%=spirvheaders_%)
+
+spirvheaders_host_install: DESTDIR=$(LLVM_TOOLCHAIN_PATH)
+spirvheaders_host_install:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:spirvheaders_host_%=spirvheaders_%)
+
+spirvheaders_host_%: APP_PLATFORM=ub20
+spirvheaders_host_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) $(@:spirvheaders_host_%=spirvheaders_%)
+
+spirvheaders_host: APP_PLATFORM=ub20
+spirvheaders_host:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) llvm
+
+#------------------------------------
+#
+spirvllvmtranslator_DIR=$(PKGDIR2)/spirv_llvm_translator
+spirvllvmtranslator_BUILDDIR?=$(BUILDDIR2)/spirv_llvm_translator-$(APP_BUILD)
+spirvllvmtranslator_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+
+spirvllvmtranslator_CMAKEARGS+= \
+  -DLLVM_BUILD_TOOLS=ON \
+  -DLLVM_SPIRV_INCLUDE_TESTS=OFF
+
+spirvllvmtranslator_CMAKEARGS+= \
+  -DLLVM_SPIRV_BUILD_EXTERNAL=YES \
+  -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR=$(LLVM_TOOLCHAIN_PATH)
+
+spirvllvmtranslator_CMAKEARGS_ub20+= \
+  -DLLVM_DIR=$(LLVM_TOOLCHAIN_PATH)/lib/cmake/llvm
+
+spirvllvmtranslator_CMAKEARGS_bp+= \
+  -DLLVM_DIR=$(BUILD_SYSROOT)/lib/cmake/llvm
+
+spirvllvmtranslator_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(spirvllvmtranslator_BUILDDIR)
+
+GENDIR+=$(spirvllvmtranslator_BUILDDIR)
+spirvllvmtranslator_defconfig $(spirvllvmtranslator_BUILDDIR)/Makefile: | $(spirvllvmtranslator_BUILDDIR)
+spirvllvmtranslator_defconfig $(spirvllvmtranslator_BUILDDIR)/Makefile: | $(spirvllvmtranslator_cross_cmake_$(APP_BUILD))
+	. $(PYVENVDIR)/bin/activate \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(spirvllvmtranslator_BUILDDIR) -S $(spirvllvmtranslator_DIR) \
+	        -DCMAKE_BUILD_TYPE=Release \
+	        $(spirvllvmtranslator_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE="%") \
+	        $(spirvllvmtranslator_CMAKEARGS_$(APP_PLATFORM)) $(spirvllvmtranslator_CMAKEARGS)
+
+spirvllvmtranslator_install: DESTDIR=$(BUILD_SYSROOT)
+spirvllvmtranslator_install: PREFIX=/
+spirvllvmtranslator_install:
+	$(MAKE) spirvllvmtranslator
+	. $(PYVENVDIR)/bin/activate \
+	    && cd $(spirvllvmtranslator_BUILDDIR) \
+	    && DESTDIR=$(DESTDIR) cmake --install . --prefix=$(PREFIX)
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,spirvllvmtranslator)
+# endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,spirvllvmtranslator))
+
+spirvllvmtranslator: | $(spirvllvmtranslator_BUILDDIR)/Makefile
+	$(spirvllvmtranslator_MAKE) $(PARALLEL_BUILD)
+
+#------------------------------------
 #
 mesa3d_DEP=libclc expat libdrm zlib
 mesa3d_DIR=$(PKGDIR2)/mesa3d
 mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
 mesa3d_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
 
-mesa3d_LLVM_DESTDIR=$(PROJDIR)/destdir-llvm
-
 mesa3d_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
     -I$(BUILD_SYSROOT)/include/libmount \
-    -I$(BUILD_SYSROOT)/include/blkid \
-    -I$(mesa3d_LLVM_DESTDIR)/include
+    -I$(BUILD_SYSROOT)/include/blkid
+
 mesa3d_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
     -L$(BUILD_SYSROOT)/lib \
-    -L$(mesa3d_LLVM_DESTDIR)/lib \
     -liconv -lLLVM
+
 mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig \
     $(BUILD_SYSROOT)/usr/lib/pkgconfig \
-    $(BUILD_SYSROOT)/usr/share/pkgconfig \
-	$(mesa3d_LLVM_DESTDIR)/lib/pkgconfig \
-	$(mesa3d_LLVM_DESTDIR)/share/pkgconfig \
-    $(mesa3d_LLVM_DESTDIR)/usr/lib/pkgconfig \
-	$(mesa3d_LLVM_DESTDIR)/usr/share/pkgconfig
+    $(BUILD_SYSROOT)/usr/share/pkgconfig
+
+mesa3d_ACARGS_VULKAN_DRIVERS_PREPARE_bp+=swrast imagination
+mesa3d_ACARGS_VULKAN_DRIVERS=$(subst $(SPACE),$(COMMA),$(sort \
+  $(mesa3d_ACARGS_VULKAN_DRIVERS_PREPARE_$(APP_PLATFORM))))
+
 
 # mesa3d_platforms+=x11,wayland
 
@@ -2480,9 +2578,14 @@ mesa3d_CMAKEARGS+= \
 mesa3d_CMAKEARGS+= \
   -Dprefix=/usr \
   -Dgallium-drivers=llvmpipe,softpipe \
-  -Dvulkan-drivers= \
   -Dllvm=enabled \
   -Dspirv-tools=disabled
+
+mesa3d_CMAKEARGS+= \
+  -Dvulkan-drivers="$(mesa3d_ACARGS_VULKAN_DRIVERS)"
+
+mesa3d_CMAKEARGS+= \
+  -Dopengl=true
 
 # mesa3d_CMAKEARGS+= \
 #   -Dgallium-rusticl=true
