@@ -2496,6 +2496,7 @@ spirvheaders_host:
 
 #------------------------------------
 #
+spirvllvmtranslator_DEP+=spirvheaders
 spirvllvmtranslator_DIR=$(PKGDIR2)/spirv_llvm_translator
 spirvllvmtranslator_BUILDDIR?=$(BUILDDIR2)/spirv_llvm_translator-$(APP_BUILD)
 spirvllvmtranslator_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
@@ -2507,6 +2508,9 @@ spirvllvmtranslator_CMAKEARGS+= \
 spirvllvmtranslator_CMAKEARGS+= \
   -DLLVM_SPIRV_BUILD_EXTERNAL=YES \
   -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR=$(LLVM_TOOLCHAIN_PATH)
+
+spirvllvmtranslator_CMAKEARGS+= \
+  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT)
 
 spirvllvmtranslator_CMAKEARGS_ub20+= \
   -DLLVM_DIR=$(LLVM_TOOLCHAIN_PATH)/lib/cmake/llvm
@@ -2525,13 +2529,11 @@ spirvllvmtranslator_defconfig $(spirvllvmtranslator_BUILDDIR)/Makefile: | $(spir
 	        $(spirvllvmtranslator_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE="%") \
 	        $(spirvllvmtranslator_CMAKEARGS_$(APP_PLATFORM)) $(spirvllvmtranslator_CMAKEARGS)
 
-spirvllvmtranslator_install: DESTDIR=$(BUILD_SYSROOT)
-spirvllvmtranslator_install: PREFIX=/
 spirvllvmtranslator_install:
 	$(MAKE) spirvllvmtranslator
 	. $(PYVENVDIR)/bin/activate \
 	    && cd $(spirvllvmtranslator_BUILDDIR) \
-	    && DESTDIR=$(DESTDIR) cmake --install . --prefix=$(PREFIX)
+	    && cmake --install .
 # ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 # 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,spirvllvmtranslator)
 # endif
@@ -2544,7 +2546,46 @@ spirvllvmtranslator: | $(spirvllvmtranslator_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-mesa3d_DEP=libclc expat libdrm zlib
+spirvtools_DEP+=spirvheaders
+spirvtools_DIR=$(PKGDIR2)/spirv_tools
+spirvtools_BUILDDIR?=$(BUILDDIR2)/spirv_tools-$(APP_BUILD)
+spirvtools_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+
+spirvtools_CMAKEARGS+= \
+  -DSPIRV-Headers_SOURCE_DIR=$(LLVM_TOOLCHAIN_PATH)
+
+spirvtools_CMAKEARGS+= \
+  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT)
+
+spirvtools_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(spirvtools_BUILDDIR)
+
+GENDIR+=$(spirvtools_BUILDDIR)
+spirvtools_defconfig $(spirvtools_BUILDDIR)/Makefile: | $(spirvtools_BUILDDIR)
+spirvtools_defconfig $(spirvtools_BUILDDIR)/Makefile: | $(spirvtools_cross_cmake_$(APP_BUILD))
+	. $(PYVENVDIR)/bin/activate \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(spirvtools_BUILDDIR) -S $(spirvtools_DIR) \
+	        -DCMAKE_BUILD_TYPE=Release \
+	        $(spirvtools_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE="%") \
+	        $(spirvtools_CMAKEARGS_$(APP_PLATFORM)) $(spirvtools_CMAKEARGS)
+
+spirvtools_install:
+	$(MAKE) spirvtools
+	. $(PYVENVDIR)/bin/activate \
+	    && cd $(spirvtools_BUILDDIR) \
+	    && cmake --install .
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,spirvtools)
+# endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,spirvtools))
+
+spirvtools: | $(spirvtools_BUILDDIR)/Makefile
+	$(spirvtools_MAKE) $(PARALLEL_BUILD)
+
+#------------------------------------
+#
+mesa3d_DEP=libclc expat libdrm zlib spirvllvmtranslator spirvtools
 mesa3d_DIR=$(PKGDIR2)/mesa3d
 mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
 mesa3d_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
@@ -2578,11 +2619,13 @@ mesa3d_CMAKEARGS+= \
 mesa3d_CMAKEARGS+= \
   -Dprefix=/usr \
   -Dgallium-drivers=llvmpipe,softpipe \
-  -Dllvm=enabled \
-  -Dspirv-tools=disabled
+  -Dllvm=enabled
 
 mesa3d_CMAKEARGS+= \
   -Dvulkan-drivers="$(mesa3d_ACARGS_VULKAN_DRIVERS)"
+
+# mesa3d_CMAKEARGS+= \
+#   -Dspirv-tools=disabled
 
 mesa3d_CMAKEARGS+= \
   -Dopengl=true
