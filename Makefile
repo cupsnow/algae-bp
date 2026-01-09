@@ -3227,6 +3227,18 @@ $(eval $(call SIMPLE_APP1,tester1))
 
 #------------------------------------
 #
+$(eval $(call SIMPLE_APP1,cltest2))
+
+host_cltest2: APP_PLATFORM=ub20
+host_cltest2:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) cltest2$(@:host_cltest2%=%)
+
+host_cltest2_%: APP_PLATFORM=ub20
+host_cltest2_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) cltest2$(@:host_cltest2%=%)
+
+#------------------------------------
+#
 cmake01_DIR=$(PROJDIR)/package/cmake01
 cmake01_BUILDDIR=$(BUILDDIR)/cmake01
 cmake01_MAKE=$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) \
