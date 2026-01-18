@@ -2190,6 +2190,66 @@ utilinux_%: | $(utilinux_BUILDDIR)/Makefile
 	$(utilinux_MAKE) $(PARALLEL_BUILD) $(@:utilinux_%=%)
 
 #------------------------------------
+#
+elfutils_DEP=
+elfutils_DIR=$(PKGDIR2)/elfutils
+elfutils_BUILDDIR?=$(BUILDDIR2)/elfutils-$(APP_BUILD)
+elfutils_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+elfutils_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+elfutils_MAKE=$(MAKE) -C $(elfutils_BUILDDIR)
+
+elfutils_ACARGS_ub20+=--enable-maintainer-mode
+elfutils_ACARGS_bp+= \
+  --disable-debuginfod \
+  --disable-libdebuginfod \
+  --disable-nls
+
+$(elfutils_DIR)/configure:
+	cd $(elfutils_DIR) \
+	  && autoreconf -fiv
+
+GENDIR+=$(elfutils_BUILDDIR)
+
+elfutils_defconfig $(elfutils_BUILDDIR)/Makefile: | $(elfutils_DIR)/configure $(elfutils_BUILDDIR)
+	cd $(elfutils_BUILDDIR) \
+	  && $(elfutils_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      CFLAGS="$(addprefix -I,$(elfutils_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(elfutils_LIBDIR)) -lz" \
+	      $(elfutils_ACARGS_$(APP_PLATFORM))
+
+elfutils_install: DESTDIR=$(BUILD_SYSROOT)
+elfutils_install:  | $(elfutils_BUILDDIR)/Makefile
+	$(elfutils_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    blkid fdisk mount smartcols uuid \
+	    libblkid libfdisk libmount libsmartcols libuuid)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+	    blkid fdisk mount smartcols uuid)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,elfutils))
+
+
+elfutils_host: APP_PLATFORM=ub20
+elfutils_host:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) elfutils
+
+elfutils_host_%: APP_PLATFORM=ub20
+elfutils_host_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) $(@:elfutils_host_%=%)
+
+elfutils: | $(elfutils_BUILDDIR)/Makefile
+	$(elfutils_MAKE) $(PARALLEL_BUILD)
+
+elfutils_%: | $(elfutils_BUILDDIR)/Makefile
+	$(elfutils_MAKE) $(PARALLEL_BUILD) $(@:elfutils_%=%)
+
+#------------------------------------
 # https://download.gnome.org/sources/glib/2.82/glib-2.82.1.tar.xz
 #
 glib_DEP=iconvgettext pcre2 utilinux libffi
@@ -2584,6 +2644,15 @@ spirvtools: | $(spirvtools_BUILDDIR)/Makefile
 	$(spirvtools_MAKE) $(PARALLEL_BUILD)
 
 #------------------------------------
+# # Install Rust
+# curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# source $HOME/.cargo/env
+#
+# # Add the target architecture (e.g., for ARM64)
+# rustup target add aarch64-unknown-linux-gnu
+#
+# # Install bindgen
+# cargo install bindgen-cli
 #
 mesa3d_DEP=libclc expat libdrm zlib spirvllvmtranslator spirvtools
 mesa3d_DIR=$(PKGDIR2)/mesa3d
@@ -2620,6 +2689,12 @@ mesa3d_CMAKEARGS+= \
   -Dprefix=/usr \
   -Dgallium-drivers=llvmpipe,softpipe \
   -Dllvm=enabled
+
+mesa3d_CMAKEARGS+= \
+  -Dmicrosoft-clc=disabled
+
+mesa3d_CMAKEARGS+= \
+  -Dmesa-clc=system
 
 mesa3d_CMAKEARGS+= \
   -Dvulkan-drivers="$(mesa3d_ACARGS_VULKAN_DRIVERS)"
