@@ -3,6 +3,7 @@
 /destdir/
 /site.mk
 /build.log
+/tmp/
 
 __pycache__
 
