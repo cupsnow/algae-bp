@@ -158,6 +158,9 @@ double aloe_avg_calc_weight_remain(double *weight, size_t weight_cnt,
 double aloe_avg_calc_f(aloe_buf_t *rec, double val, double *weight,
 		size_t weight_cnt, double weight_remain);
 
+__attribute__((format(printf, 3, 4)))
+void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...);
+
 /** @} ALOE */
 
 #ifdef __cplusplus

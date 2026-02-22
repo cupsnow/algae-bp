@@ -165,3 +165,49 @@ double aloe_avg_calc_f(aloe_buf_t *rec, double val,
 	}
 	return sum;
 }
+
+extern "C"
+void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...) {
+#define ALOE_HEXDUMP_ASCII
+	va_list args;
+	char line_buffer[7 + 3 * 16 + 1]; // 0000| 00 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff\0
+#ifdef ALOE_HEXDUMP_ASCII
+	char ascii_buffer[16 + 1]; // 0123456789abcdef
+#endif
+	int i;
+
+	if (fmt) {
+		va_start(args, fmt);
+		vprintf(fmt, args);
+		va_end(args);
+	}
+
+#if 1
+    printf("    | 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n"
+           "----+------------------------------------------------\n");
+#endif
+
+	for (i = 0; i < sz; i+=16) {
+		int j, k = 0;
+
+		k += snprintf(line_buffer + k, sizeof(line_buffer) - k, "%04x|", i);
+		for (j = 0; j < 16; j++) {
+			int c;
+			if (i + j >= sz) break;
+			c = ((char*)data)[i + j];
+			k += snprintf(line_buffer + k, sizeof(line_buffer) - k, " %02x", c);
+#ifdef ALOE_HEXDUMP_ASCII
+			ascii_buffer[j] = isprint(c) ? c : '.';
+#endif
+		}
+		line_buffer[k] = '\0';
+#ifdef ALOE_HEXDUMP_ASCII
+		ascii_buffer[j] = '\0';
+#endif
+#ifdef ALOE_HEXDUMP_ASCII
+		printf("%s | %s\n", line_buffer, ascii_buffer);
+#else
+		printf("%s\n", line_buffer);
+#endif
+	}
+}

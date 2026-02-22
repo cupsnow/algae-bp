@@ -110,6 +110,8 @@ int main(int argc, const char **argv) {
 
 	log_d("%s\n", aloe_version(NULL, 0));
 
+	aloe_hexdump(argv[0], strlen(argv[0]), "argv[0]: \n");
+
 	dump_argv(argc, argv)
 
 	if (0) {
