@@ -1,6 +1,37 @@
 #!/bin/sh
 # shellcheck disable=SC2120,SC2004
 # shellcheck disable=SC2164,SC2034
+
+# killall -sigint dexatek_main
+# /usrdata/devsync.sh --applet=wifi_conn DK_SWRD_Test_5G 00000@55555 wpa3-only
+# mkdir -p /run/lavender5/02_exdev2 /run/lavender5/dw
+# mount -o nolock 192.168.234.16:/mnt/dev/02_exdev2 /run/lavender5/02_exdev2
+# mount -o nolock 192.168.50.123:/mnt/dev/02_exdev2 /run/lavender5/02_exdev2
+# mount -o nolock 192.168.50.123:/home/joelai/Downloads /run/lavender5/dw
+
+# cp /run/lavender5/02_exdev2/agt-ws/dkmapi-ws/builder/devsync.sh .
+# cp /run/lavender5/02_exdev2/agt-ws/augentix-platform-application/application_dexatek/dexatek/main_application/dexatek_main /usr/dexatek/dexatek_main
+# cp /run/lavender5/02_exdev2/agt-ws/augentix-platform-application/SA7586_OTA_v6.97.5.54.swu /tmp/
+
+# cp /run/lavender5/02_exdev2/agt-ws/esh-ws/builder/devsync.sh .
+# cp /run/lavender5/02_exdev2/agt-ws/esghub/application_dexatek/dexatek/main_application/dexatek_main /usr/dexatek/dexatek_main
+# cp /run/lavender5/02_exdev2/agt-ws/esghub-lc/SA7586_OTA_v6.99.5.63.swu  /tmp/
+
+# vi wpasup.conf
+# country=US
+# ctrl_interface=/var/run/wpa_supplicant
+# update_config=1
+# network={
+#   scan_ssid=1
+#   ssid="DK_SWRD_Test_5G"
+#   ieee80211w=2
+#   key_mgmt=SAE
+#   psk="00000@55555"
+# }
+# wpa_cli terminate
+# wpa_supplicant -Dnl80211 -iwlan0 -c wpasup.conf -B
+# udhcpc -i wlan0 -q
+
 self=$0
 selfdir="$(cd "$(dirname "$self")"; pwd)"
 
@@ -34,30 +65,74 @@ cmd_run () {
 _pri_listok=""
 _pri_listfailed=""
 
-if [ -z "$_pri_ip" ]; then
-  _lo_ip="192.168.16.6 192.168.12.125"
-  for i in $_lo_ip; do
-    if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
-      _pri_ip=${i}
-      break
-    fi
-  done
-fi
+test_ip () {
+  if [ -z "$_pri_ip" ]; then
+    _lo_ip="192.168.16.6 192.168.12.125"
+    for i in $_lo_ip; do
+      if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
+        _pri_ip=${i}
+        break
+      fi
+    done
+  fi
+}
 
-if [ -z "$_pri_nfsroot" ]; then
-  _lo_nfsroot="/media /tmp"
-  for i in $_lo_nfsroot; do
-    if [ -d "$i" ]; then
-      _pri_nfsroot="${i}/lavender5"
-      break
-    fi
-  done
-fi
+test_ip
+
+test_nfsroot () {
+  if [ -z "$_pri_nfsroot" ]; then
+    _lo_nfsroot="/media /tmp"
+    for i in $_lo_nfsroot; do
+      if [ -d "$i" ]; then
+        _pri_nfsroot="${i}/lavender5"
+        break
+      fi
+    done
+  fi
+}
+
+test_nfsroot
 
 _pri_nfsdw="${_pri_nfsroot}/dw"
 _pri_nfsalgaews="${_pri_nfsroot}/02_dev/algae-ws"
 _pri_nfsalgaebp="${_pri_nfsalgaews}/algae-bp"
 
+duty1k_num () {
+  [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
+  _lo_period=$1
+  [ $_lo_period -ge 1000 ] || { log_e "Too low period"; return 1; }
+  _lo_duty1k=$2
+  echo "$(( $_lo_duty1k * $_lo_period / 1000 ))"
+}
+
+usb_find () {
+  # log_d "\$1: $1"
+  _lo_list2=$(find -L /sys/bus/usb/devices/ -maxdepth 2 -iname idVendor | sed -n "/\/sys\/bus\/usb\/devices\/[0-9.-]\+\/idVendor/p")
+  for i in ${_lo_list2}; do
+    _lo_path2=$(dirname ${i})
+    _lo_bus=$(basename ${_lo_path2})
+    _lo_vid=$(cat ${_lo_path2}/idVendor)
+    _lo_pid=$(cat ${_lo_path2}/idProduct)
+    # log_d "${_lo_bus} ${_lo_vid}:${_lo_pid}"
+    if [ "${_lo_vid}:${_lo_pid}" = "$1" ]; then
+      echo "${_lo_bus}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+countdown () {
+  _lo_cdt=${1:-5}
+  shift
+  log_d "${*:-countdown }in ${_lo_cdt}"
+  for i in $(seq $_lo_cdt); do
+    sleep 1
+    log_d "${*:-countdown }in $(( _lo_cdt - i ))"
+  done
+}
+
+# shellcheck disable=SC2120
 wpa_state () {
   _lo_st=$(wpa_cli ${1:+-i${1}} status 2>/dev/null \
     | sed -n "s/^wpa_state\s*=\s*\(.*\)/\1/p")

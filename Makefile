@@ -129,11 +129,16 @@ help1:
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
 
+meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: NEEDS_EXE_WRAPPER=true
+# meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: LLVM_CONFIG=llvm-config
 meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.ini
 	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/meson-aarch64.ini \
 	    $(BUILDDIR)/meson-aarch64.ini
 	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-aarch64.ini
 	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64.ini
+# 	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(if $(NEEDS_EXE_WRAPPER),needs_exe_wrapper = true)|" $(BUILDDIR)/meson-aarch64.ini
+	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(NEEDS_EXE_WRAPPER:%=needs_exe_wrapper = '%')|" $(BUILDDIR)/meson-aarch64.ini
+	sed -i "s|\$${LLVM_CONFIG}|$(LLVM_CONFIG:%=llvm-config = '%')|" $(BUILDDIR)/meson-aarch64.ini
 
 cmake_aarch64 $(BUILDDIR)/cross-aarch64.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
 	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/cross-aarch64.cmake \
@@ -2083,7 +2088,7 @@ openssh_defconfig $(openssh_BUILDDIR)/Makefile: | $(openssh_DIR)/configure $(ope
 	      $(openssh_ACARGS_$(APP_PLATFORM))
 
 openssh_install: DESTDIR=$(BUILD_SYSROOT)
-openssh_install:
+openssh_install:  | $(openssh_BUILDDIR)/Makefile
 	$(openssh_MAKE) DESTDIR=$(DESTDIR) install-nokeys
 # ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 # 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
@@ -2249,51 +2254,12 @@ elfutils_%: | $(elfutils_BUILDDIR)/Makefile
 #------------------------------------
 # https://download.gnome.org/sources/glib/2.82/glib-2.82.1.tar.xz
 #
-glib_DEP=iconvgettext pcre2 utilinux libffi
-glib_DIR=$(PKGDIR2)/glib
-glib_BUILDDIR?=$(BUILDDIR2)/glib-$(APP_BUILD)
-glib_MESON=. $(PYVENVDIR)/bin/activate && meson
-
-glib_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
-    -I$(BUILD_SYSROOT)/include/libmount \
-	-I$(BUILD_SYSROOT)/include/blkid
-glib_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
-    -L$(BUILD_SYSROOT)/lib \
-	-liconv
-glib_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
-    $(BUILD_SYSROOT)/share/pkgconfig
-
-glib_defconfig $(glib_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
-	. $(PYVENVDIR)/bin/activate \
-	  && $(BUILD_PKGCFG_ENV) meson setup \
-	      -Dprefix=/ \
-		  -Dc_args="$(subst $(SPACE),$(SPACE),$(glib_ACARGS_CPPFLAGS))" \
-	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(glib_ACARGS_LDFLAGS))" \
-		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(glib_ACARGS_CPPFLAGS))" \
-	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(glib_ACARGS_LDFLAGS))" \
-		  -Dpkg_config_path="$(subst $(SPACE),:,$(glib_ACARGS_PKGDIR))" \
-		  -Dinstalled_tests=false \
-		  -Dselinux=disabled \
-		  -Db_coverage=false \
-		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
-		  $(glib_BUILDDIR) $(glib_DIR)
-
-glib_install: DESTDIR=$(BUILD_SYSROOT)
-glib_install: | $(glib_BUILDDIR)/build.ninja
-	$(glib_MESON) compile -C $(glib_BUILDDIR)
-	$(glib_MESON) install -C $(glib_BUILDDIR) --destdir=$(DESTDIR)
-
-$(eval $(call DEF_DESTDEP,glib))
-
-glib: | $(glib_BUILDDIR)/build.ninja
-	$(glib_MESON) compile -C $(glib_BUILDDIR)
-
-GENPYVENV+=meson ninja
+include builder/glib2.mk
 
 #------------------------------------
 #
-# include $(PROJDIR)/builder/llvm.mk
-include $(PROJDIR)/builder/llvm2.mk
+# include builder/llvm.mk
+include builder/llvm2.mk
 
 #------------------------------------
 #
@@ -2522,86 +2488,8 @@ spirvtools: | $(spirvtools_BUILDDIR)/Makefile
 # # Install bindgen
 # cargo install bindgen-cli
 #
-mesa3d_DEP=libclc expat libdrm zlib spirvllvmtranslator spirvtools
-mesa3d_DIR=$(PKGDIR2)/mesa3d
-mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
-mesa3d_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
-
-mesa3d_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
-    -I$(BUILD_SYSROOT)/include/libmount \
-    -I$(BUILD_SYSROOT)/include/blkid
-
-mesa3d_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
-    -L$(BUILD_SYSROOT)/lib \
-    -liconv -lLLVM
-
-mesa3d_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
-    $(BUILD_SYSROOT)/share/pkgconfig \
-    $(BUILD_SYSROOT)/usr/lib/pkgconfig \
-    $(BUILD_SYSROOT)/usr/share/pkgconfig
-
-mesa3d_ACARGS_VULKAN_DRIVERS_PREPARE_bp+=swrast imagination
-mesa3d_ACARGS_VULKAN_DRIVERS=$(subst $(SPACE),$(COMMA),$(sort \
-  $(mesa3d_ACARGS_VULKAN_DRIVERS_PREPARE_$(APP_PLATFORM))))
-
-
-# mesa3d_platforms+=x11,wayland
-
-mesa3d_CMAKEARGS+= \
-  -Dglx=disabled
-
-mesa3d_CMAKEARGS+= \
-  -Dshared-llvm=enabled
-
-mesa3d_CMAKEARGS+= \
-  -Dprefix=/usr \
-  -Dgallium-drivers=llvmpipe,softpipe \
-  -Dllvm=enabled
-
-mesa3d_CMAKEARGS+= \
-  -Dmicrosoft-clc=disabled
-
-mesa3d_CMAKEARGS+= \
-  -Dmesa-clc=system
-
-mesa3d_CMAKEARGS+= \
-  -Dvulkan-drivers="$(mesa3d_ACARGS_VULKAN_DRIVERS)"
-
-# mesa3d_CMAKEARGS+= \
-#   -Dspirv-tools=disabled
-
-mesa3d_CMAKEARGS+= \
-  -Dopengl=true
-
-# mesa3d_CMAKEARGS+= \
-#   -Dgallium-rusticl=true
-
-mesa3d_defconfig $(mesa3d_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
-	. $(PYVENVDIR)/bin/activate \
-	  && $(BUILD_PKGCFG_ENV) \
-	      LD_LIBRARY_PATH=$(LLVM_TOOLCHAIN_PATH)/lib$(LD_LIBRARY_PATH:%=:%) \
-	      meson setup \
-	          --cross-file=$(BUILDDIR)/meson-aarch64.ini \
-		      $(mesa3d_CMAKEARGS) \
-	          -Dc_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
-	          -Dc_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
-	          -Dcpp_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_CPPFLAGS))" \
-	          -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(mesa3d_ACARGS_LDFLAGS))" \
-	          -Dpkg_config_path="$(subst $(SPACE),:,$(mesa3d_ACARGS_PKGDIR))" \
-	          -Dplatforms=$(mesa3d_platforms) \
-	          $(mesa3d_BUILDDIR) $(mesa3d_DIR)
-
-mesa3d_install: DESTDIR=$(BUILD_SYSROOT)
-mesa3d_install: | $(mesa3d_BUILDDIR)/build.ninja
-	$(mesa3d_MESON) compile -C $(mesa3d_BUILDDIR)
-	$(mesa3d_MESON) install -C $(mesa3d_BUILDDIR) --destdir=$(DESTDIR)
-
-$(eval $(call DEF_DESTDEP,mesa3d))
-
-mesa3d: | $(mesa3d_BUILDDIR)/build.ninja
-	$(mesa3d_MESON) compile -C $(mesa3d_BUILDDIR)
-
-GENPYVENV+=meson ninja
+# include builder/mesa3d.mk
+include builder/mesa3d2.mk
 
 #------------------------------------
 #
@@ -2650,47 +2538,8 @@ kmod: | $(kmod_BUILDDIR)/build.ninja
 
 #------------------------------------
 #
-libdrm_DEP=
-libdrm_DIR=$(PKGDIR2)/libdrm
-libdrm_BUILDDIR?=$(BUILDDIR2)/libdrm-$(APP_BUILD)
-libdrm_MESON=. $(PYVENVDIR)/bin/activate && meson
-
-libdrm_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include
-libdrm_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
-    -L$(BUILD_SYSROOT)/lib
-libdrm_ACARGS_$(APP_PLATFORM)+=
-
-libdrm_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
-    $(BUILD_SYSROOT)/share/pkgconfig
-
-GENPYVENV+=meson ninja
-
-libdrm_defconfig $(libdrm_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
-	. $(PYVENVDIR)/bin/activate \
-	  && $(BUILD_PKGCFG_ENV) meson setup \
-	      -Dprefix=/ \
-		  -Dc_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_CPPFLAGS))" \
-	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_LDFLAGS))" \
-		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_CPPFLAGS))" \
-	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(libdrm_ACARGS_LDFLAGS))" \
-		  -Dpkg_config_path="$(subst $(SPACE),:,$(libdrm_ACARGS_PKGDIR))" \
-		  $(patsubst %,-D%=disabled,intel radeon amdgpu nouveau vmwgfx exynos) \
-		  $(patsubst %,-D%=disabled,freedreno tegra vc4 etnaviv) \
-		  $(patsubst %,-D%=disabled,man-pages) \
-		  $(patsubst %,-D%=true,install-test-programs) \
-		  $(libdrm_ACARGS_$(APP_PLATFORM)) \
-		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
-		  $(libdrm_BUILDDIR) $(libdrm_DIR)
-
-libdrm_install: DESTDIR=$(BUILD_SYSROOT)
-libdrm_install: | $(libdrm_BUILDDIR)/build.ninja
-	$(libdrm_MESON) compile -C $(libdrm_BUILDDIR)
-	$(libdrm_MESON) install -C $(libdrm_BUILDDIR) --destdir=$(DESTDIR)
-
-$(eval $(call DEF_DESTDEP,libdrm))
-
-libdrm: | $(libdrm_BUILDDIR)/build.ninja
-	$(libdrm_MESON) compile -C $(libdrm_BUILDDIR)
+# include builder/libdrm.mk
+include builder/libdrm2.mk
 
 #------------------------------------
 #
@@ -3251,6 +3100,9 @@ ifneq ($(strip $(filter systemd,$(APP_ATTR))),)
 dist_rootfs_phase1_pkg+=systemd
 endif
 
+# dist_rootfs_phase1_pkg+=glib
+dist_rootfs_phase1_pkg+=mesa3d
+
 dist_rootfs_phase1:
 # build package and install to sysroot
 # packages are higher priority then busybox
@@ -3258,7 +3110,7 @@ dist_rootfs_phase1:
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
-	    glib tmux mmcutils mtdutils wpasup mosquitto jsonc openocd openssh \
+	    tmux mmcutils mtdutils wpasup mosquitto jsonc openocd openssh \
 		$(dist_rootfs_phase1_pkg))
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
@@ -3479,7 +3331,7 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 
 dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 1000M)
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 500M)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 

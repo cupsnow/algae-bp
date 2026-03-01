@@ -26,7 +26,7 @@ _lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net -device virtio-net-device,ne
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
 cmd_qemu_base1="${cmd_qemu_base1} -machine virt,virtualization=on,secure=off"
-cmd_qemu_base1="${cmd_qemu_base1} -nographic"
+# cmd_qemu_base1="${cmd_qemu_base1} -nographic"
 
 cmd_qemu_bootroot1="${cmd_qemu_base1} ${_lo_qemuargs_bootdisk} ${_lo_qemuargs_rootdisk}"
 cmd_qemu_bootroot2="${cmd_qemu_bootroot1} ${_lo_qemuargs_nic1}"
