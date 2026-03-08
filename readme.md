@@ -4,13 +4,25 @@ Developer Note
 beagleplay source
 ----
 
-<!-- linux-upstream: de0a9f4486337d0eabacc23bd67ff73146eacdc0 -->
-linux-upstream: 98f7e32f20d28ec452afb208f9cffc08448a2652 or v6.11
-ti-linux-firmware: 3987d170fc522565c5e4a9293aba1db75951b8c0
-u-boot-upstream: 8937bb265a7f2251c1bd999784a4ef10e9c6080d
-optee_os-upstream: 5e26ef8f6a9ced63160f8db93c38bb397603036b
-arm-trusted-firmware-upstream: f2735ebccf5173f74c0458736ec526276106097e
-busybox-upstream: a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf
+linux-upstream:
+
+- v6.11.11
+- v6.11
+- 98f7e32f20d28ec452afb208f9cffc08448a2652
+- de0a9f4486337d0eabacc23bd67ff73146eacdc0
+
+ti-linux-firmware
+
+- 3987d170fc522565c5e4a9293aba1db75951b8c0
+
+u-boot-upstream:
+
+- v2026.01
+- 8937bb265a7f2251c1bd999784a4ef10e9c6080d
+
+optee_os-upstream: **5e26ef8f6a9ced63160f8db93c38bb397603036b**
+arm-trusted-firmware-upstream: **f2735ebccf5173f74c0458736ec526276106097e**
+busybox-upstream: **a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf**
 
 Build
 ----
@@ -20,9 +32,9 @@ Build
 Flash to SD Card
 ----
 
+    cp -a destdir/bp/boot/* destdir/bp/boot_sd/* /media/joelai/BOOT/
     umount /dev/sddx
     dd if=destdir/bp/rootfs.img of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock
-    cp -a destdir/bp/boot/* destdir/bp/boot_sd/* /media/joelai/BOOT/
 
 format emmc
 ----
@@ -38,16 +50,18 @@ format emmc
 diff and patch
 ----
 
-git diff
-
     git diff >package-001-reason.patch
+
+    diff -u pkg_org/file1 pkg/file1 >pkg.patch
 
 patch
 
     patch -p1 <package-001-reason.patch
 
-GPIO -> DAPLink
+OpenOCD
 ----
+
+Arduino nano 33 ble
 
 [cat /sys/kernel/debug/gpio](docs/bp-gpio.txt)
 
@@ -67,6 +81,8 @@ openocd -f bpgpioswd.cfg -c "program arduino_nano_33_ble_bootloader-0.9.2_s140_6
 openocd -f bpgpioswd.cfg -c "program arduino_nano_33_ble_bootloader-0.9.2-29-g6a9a6a3_s140_6.1.1.hex verify reset exit"
 
 ```
+
+build with nrf sdk
 
 make CROSS_COMPILE=/home/joelai/07_sw/pkg/toolchain-arm-none-eabi/bin/arm-none-eabi- BOARD=arduino_nano_33_ble all
 
@@ -93,8 +109,8 @@ There are two pins, DFU and FRST that bootloader will check upon reset/power:
 #endif
 ```
 
-
-
+setup tap/tun
+----
 
 sudo ip link add algaebr0 type bridge
 
@@ -133,6 +149,8 @@ sudo apt install nfs-kernel-server
 /home/joelai/Downloads 192.168.31.1/24(rw,sync,no_subtree_check,anonuid=1000)
 ```
 
+restart nfs with command `exportfs -r`
+
 ### Client
 
 Assume client runs busybox
@@ -146,6 +164,32 @@ U-Boot
 ----
 
 For BP, currently upstream version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
+
+For BP, after boot, assume to read `uboot.env` in 1st partition (FAT)
+
+### U-Boot menuconfig to read uboot.env
+
+- for SDCARD
+
+  ```Makefile
+  CONFIG_ENV_IS_NOWHERE=y
+  CONFIG_ENV_IS_IN_FAT=y
+  CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+  CONFIG_ENV_FAT_DEVICE_AND_PART="1:1"
+  CONFIG_SYS_MMC_ENV_DEV=1
+  CONFIG_SYS_MMC_ENV_PART=1
+  ```
+
+- for EMMC
+
+  ```Makefile
+  CONFIG_ENV_IS_NOWHERE=y
+  CONFIG_ENV_IS_IN_FAT=y
+  CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+  CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
+  CONFIG_SYS_MMC_ENV_DEV=0
+  CONFIG_SYS_MMC_ENV_PART=1
+  ```
 
 ### memory for boot
 | addr       | offset | related varable             | memo |

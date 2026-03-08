@@ -67,7 +67,7 @@ _pri_listfailed=""
 
 test_ip () {
   if [ -z "$_pri_ip" ]; then
-    _lo_ip="192.168.16.6 192.168.12.125"
+    _lo_ip="192.168.31.138 192.168.16.6 192.168.12.125"
     for i in $_lo_ip; do
       if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
         _pri_ip=${i}
@@ -740,17 +740,7 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
 
-    _lo_linux_builddir1="${_pri_nfsalgaews}/build/linux-bp"
-    _lo_linux_builddir2="${_pri_nfsalgaews}/build/bb-linux-bp"
-    _lo_linux_builddir=
-    for i in "${_lo_linux_builddir1}" "${_lo_linux_builddir2}"; do
-      if [ -d "$i" ]; then
-        _lo_linux_builddir=$i
-        break
-      fi
-    done
-    [ -n "${_lo_linux_builddir}" ] || _lo_linux_builddir="${_lo_linux_builddir1}"
-
+    # kernel, dtb
     cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
         "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
         "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
@@ -759,11 +749,14 @@ while test -n "$1"; do
 
     _lo_bl_num="$(( ${opt1#bl} ))"
 
+    # bl2 -> sbl, uboot, ubootenv
     if [ "${_lo_bl_num}" -ge 2 ]; then
       cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot_emmc/* \
           "/media/mmcblk0p1/" \
         || { log_e "Failed"; exit 1; }
     fi
+
+    # bl3 -> tiboot3
     if [ "${_lo_bl_num}" -ge 3 ]; then
       flash_tiboot3 "${_pri_nfsalgaebp}"/destdir/bp/boot/tiboot3.bin \
         || { log_e "Failed"; exit 1; }

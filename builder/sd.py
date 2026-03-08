@@ -74,11 +74,11 @@ def main(argv=None):
             help="Bootloader for BBB, ex: MLO,u-boot.img")
     argparser.add_argument("--fat16",
             help="Use FAT16 for 1st partition (instead of FAT32)")
-    argparser.add_argument("-t", "--dry", action="store_true",
+    argparser.add_argument("--dry", action="store_true",
             help="Do not acturally modify disk")
     argparser.add_argument("-v", "--verbose", default=0, action="count",
             help="More message output")
-    argparser.add_argument("-q", "--quiet", 
+    argparser.add_argument("-q", "--quiet", action="store_true",
             help="Less user interaction")
     argparser.add_argument("dev", help="SDCard Device")
 
@@ -130,8 +130,10 @@ def main(argv=None):
             return False
         return True
 
-    def format_disk(dev, cmd_stdin):
-        cmd = f"sudo sfdisk {dev}"
+    def format_disk(dev, cmd_stdin, sfdisk_opts=None):
+        if not sfdisk_opts:
+            sfdisk_opts = ""
+        cmd = f"sudo sfdisk {sfdisk_opts} {dev}"
         if args.dry:
             logger.debug(f"Dryrun: {cmd}, stdin\n{cmd_stdin}")
             return True
@@ -226,8 +228,10 @@ def main(argv=None):
         sys.exit(1)
 
     msg = f"!!! Ctrl-C to break or press Enter to format {args.dev}"
-    if args.dry or args.quiet:
+    if args.dry:
         print(f"Dryrun: {msg}")
+    if args.quiet:
+        print(f"Quiet: {msg}")
     else:
         input(f"{msg}")
 
@@ -251,7 +255,7 @@ def main(argv=None):
         fdiskstr += f"\n,{args.sz2}M,L"
     else:
         fdiskstr += f"\n,,L"
-    if not format_disk(args.dev, f"{fdiskstr}"):
+    if not format_disk(args.dev, f"{fdiskstr}", sfdisk_opts="--force"):
         logger.error("Failure format disk")
         sys.exit(1)
 
@@ -333,6 +337,9 @@ def main(argv=None):
     fsync()
 
 if __name__ == "__main__":
-    # main(f"sd.py -t --sz2=500 /dev/sdd".split())
+    # main((f"sd.py" 
+    #         # + f" --dry" 
+    #         + f" --quiet" 
+    #         + f" --sz2=500 /dev/sdf").split())
     main(sys.argv)
     pass

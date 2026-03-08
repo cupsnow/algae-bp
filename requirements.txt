@@ -10,3 +10,10 @@ meson
 ninja
 tornado
 mako
+setuptools
+pyyaml
+yamllint
+jsonschema
+
+# python3.9
+importlib_resources

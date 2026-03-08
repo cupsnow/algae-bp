@@ -137,7 +137,7 @@ meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.
 	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-aarch64.ini
 	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64.ini
 # 	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(if $(NEEDS_EXE_WRAPPER),needs_exe_wrapper = true)|" $(BUILDDIR)/meson-aarch64.ini
-	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(NEEDS_EXE_WRAPPER:%=needs_exe_wrapper = '%')|" $(BUILDDIR)/meson-aarch64.ini
+	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(NEEDS_EXE_WRAPPER:%=needs_exe_wrapper = %)|" $(BUILDDIR)/meson-aarch64.ini
 	sed -i "s|\$${LLVM_CONFIG}|$(LLVM_CONFIG:%=llvm-config = '%')|" $(BUILDDIR)/meson-aarch64.ini
 
 cmake_aarch64 $(BUILDDIR)/cross-aarch64.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
@@ -224,6 +224,7 @@ ti-linux-fw_DIR?=$(PKGDIR2)/ti-linux-firmware
 #   -bios ../build/uboot-qemuarm64/u-boot.bin -nographic
 #
 uboot_DIR?=$(PKGDIR2)/u-boot
+# uboot_DIR?=$(PKGDIR2)/u-boot-bp
 uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
@@ -385,7 +386,7 @@ else ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_AT
 linux_DIR?=$(PKGDIR2)/linux-bb
 linux_BUILDDIR?=$(BUILDDIR2)/bb-linux-$(APP_PLATFORM)
 else
-linux_DIR?=$(PKGDIR2)/linux
+linux_DIR?=$(PKGDIR2)/linux-bp
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
 endif
 
@@ -3349,8 +3350,8 @@ CMD_DIST_SDBOOT=rsync -a $$(realpath --relative-to=$(PWD) $(dist_DIR)/$(APP_PLAT
 CMD_DIST_SDROOT=dd if=$$(realpath --relative-to=$(PWD) $(dist_DIR)/$(APP_PLATFORM))/rootfs.img \
     of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock
 dist-bp_sd:
+	$(CMD_DIST_SDBOOT)
 	@echo "Try following commands"
-	@echo "$(CMD_DIST_SDBOOT)"
 	@echo "umount /dev/sddx"
 	@echo "$(CMD_DIST_SDROOT)"
 

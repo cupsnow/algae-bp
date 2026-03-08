@@ -4,9 +4,9 @@
 /site.mk
 /build.log
 /tmp/
+/builder/sd.log
 
 __pycache__
-
 
 # eclipse
 /.project
