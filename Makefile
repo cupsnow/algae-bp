@@ -19,7 +19,7 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 APP_ATTR_ub20?=ub20
 
 # bp wl18xx powervr ti_linux bb_linux powervr
-APP_ATTR_bp?=bp wl18xx powervr
+APP_ATTR_bp?=bp wl18xx powervr bb_linux
 
 APP_ATTR_qemuarm64?=qemuarm64
 
@@ -62,7 +62,7 @@ else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
-BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(APP_PLATFORM)
+BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
 
 # 0 remove .pc and .la after build
 # 1 remove .la after build
@@ -171,6 +171,40 @@ depgraph:
 
 depgraph_%:
 	$(MAKE) DEPDOT_PKGS="$(@:depgraph_%=%)" depgraph
+
+#------------------------------------
+#
+ifneq ($(strip $(wildcard $(TOOLCHAIN_SYSROOT)/../lib64/libstdc++.so)),)
+CMD_RSYNC_TOOLCHAIN_STDCXX=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_STDCXX invalid argument")) \
+  cd $(TOOLCHAIN_SYSROOT)/.. \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
+        $(foreach i,*.a *.o *.la *.py,--exclude="${i}") \
+        lib64 \
+        $(1)
+else
+CMD_RSYNC_TOOLCHAIN_STDCXX=true
+endif
+
+CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
+  cd $(TOOLCHAIN_SYSROOT) \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
+        $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
+            *.a *.o *.la,--exclude="${i}") \
+        lib lib64 usr/lib usr/lib64 \
+        $(1) \
+    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
+        $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
+        sbin usr/bin usr/sbin \
+        $(1) \
+  && $(call CMD_RSYNC_TOOLCHAIN_STDCXX,$(1))
+
+GENDIR+=$(BUILD_SYSROOT)
+
+build_sysroot_defconfig_$(APP_PLATFORM): $(BUILD_SYSROOT)
+
+build_sysroot_defconfig: $(BUILD_SYSROOT)
+	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(BUILD_SYSROOT)/)
+	$(MAKE) build_sysroot_defconfig_$(APP_PLATFORM)
 
 #------------------------------------
 #
@@ -386,7 +420,7 @@ else ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_AT
 linux_DIR?=$(PKGDIR2)/linux-bb
 linux_BUILDDIR?=$(BUILDDIR2)/bb-linux-$(APP_PLATFORM)
 else
-linux_DIR?=$(PKGDIR2)/linux-bp
+linux_DIR?=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
 endif
 
@@ -1002,9 +1036,13 @@ ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
 
 terminfo_BUILDDIR=$(BUILDDIR2)/terminfo-$(APP_BUILD)
 
+# TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
+#     ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
+#     vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen)))
 TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
-    ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
-    vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen)))
+    ansi dumb linux,putty,putty-256color,putty-vt100 \
+	vt100 vt100-putty vt102 vt200 vt220 \
+	xterm xterm-256color xterm-color xterm-xfree86 xterm+256color)))
 TERMINFO_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
     TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) \
 	$(PROJDIR)/tool/bin/tic
@@ -2990,7 +3028,7 @@ testsite2_install:
 define SIMPLE_APP1
 $(1)_DIR=$(or $(2),$(firstword $(wildcard $(PKGDIR)/$(1) $(PKGDIR2)/$(1))))
 $(1)_MAKE=$$(MAKE) $(foreach var, \
-    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR, \
+    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR BUILD_SYSROOT, \
     $(var)="$$($(var))") -C $$($(1)_DIR)
 
 $(1):
@@ -3000,9 +3038,8 @@ $(1)_%:
 	$$($(1)_MAKE) $$(@:$(1)_%=%)
 endef
 
-#------------------------------------
-#
 $(eval $(call SIMPLE_APP1,dummy1))
+$(eval $(call SIMPLE_APP1,tester1))
 
 #------------------------------------
 #
@@ -3013,10 +3050,6 @@ host_dummy1:
 host_dummy1_%: APP_PLATFORM=ub20
 host_dummy1_%:
 	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
-
-#------------------------------------
-#
-$(eval $(call SIMPLE_APP1,tester1))
 
 #------------------------------------
 #
@@ -3049,18 +3082,6 @@ cmake01: | $(cmake01_BUILDDIR)/Makefile
 #------------------------------------
 #
 dist_DIR=$(PROJDIR)/destdir
-
-CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
-  cd $(TOOLCHAIN_SYSROOT) \
-    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
-        $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
-	        *.a *.o *.la,--exclude="${i}") \
-        lib lib64 usr/lib usr/lib64 \
-        $(1) \
-    && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
-        $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
-        sbin usr/bin usr/sbin \
-        $(1)
 
 CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
     $(if $(strip $(wildcard $(2))), \
@@ -3104,10 +3125,15 @@ endif
 # dist_rootfs_phase1_pkg+=glib
 dist_rootfs_phase1_pkg+=mesa3d
 
-dist_rootfs_phase1:
+dist_rootfs_phase1: DESTDIR=$(dist_DIR)/rootfs
+dist_rootfs_phase1: build_sysroot_defconfig
 # build package and install to sysroot
 # packages are higher priority then busybox
+# install toolchain sysroot incase llvm link libstdc++.so from BUILD_SYSROOT
 	$(MAKE) uboot_envtools
+	for i in dev lib/firmware media proc root sys tmp var/run; do \
+	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
+	done
 	$(MAKE) $(addsuffix _destdep_install, \
 	    busybox)
 	$(MAKE) $(addsuffix _destdep_install, \
@@ -3120,7 +3146,6 @@ dist_rootfs_phase2:
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
-	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(DESTDIR)/)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/common/*)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
 	rsync -L $(RSYNC_VERBOSE) \
@@ -3201,12 +3226,16 @@ ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 dist_DTINCDIR+=$(linux_DIR)/arch/arm64/boot/dts/ti
 endif
 
+dts_bp=$(or $(wildcard linux-bb-bp.dts))
+
+dts_$(APP_PLATFORM):=$(or $(dts_bp),linux-$(APP_PLATFORM).dts)
+
 dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_dtb: DTBFILE=k3-am625-beagleplay.dtb
 dist-bp_dtb:
-	if [ -f "linux-$(APP_PLATFORM).dts" ]; then \
+	if [ -f "$(dts_$(APP_PLATFORM))" ]; then \
 	  $(call CMD_CPPDTS) $(addprefix -I,$(dist_DTINCDIR)) \
-	      -o $(BUILDDIR)/linux-$(APP_PLATFORM).dts linux-$(APP_PLATFORM).dts \
+	      -o $(BUILDDIR)/linux-$(APP_PLATFORM).dts $(dts_$(APP_PLATFORM)) \
 	  && $(call CMD_DTC2) $(addprefix -i,$(dist_DTINCDIR)) \
 	      -o $(DESTDIR)/$(DTBFILE) $(BUILDDIR)/linux-$(APP_PLATFORM).dts; \
 	else \
@@ -3295,7 +3324,9 @@ ifeq (1,1)
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/include \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/*.a \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/*.a \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib/*.a \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib64/*.a
 	### serve kmod
 	$(MAKE) INSTALL_MOD_PATH=$(dist_DIR)/$(APP_PLATFORM)/rootfs linux_modules_install
 endif
@@ -3332,7 +3363,7 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 
 dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
-	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 500M)
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 700M)
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
