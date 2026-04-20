@@ -12,6 +12,7 @@
  * @brief sys
  */
 
+#include <time.h>
 #include <aloe/sys.h>
 
 #  define log_m(_lvl, _msg, _args...) do { \

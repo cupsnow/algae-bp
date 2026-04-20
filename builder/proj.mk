@@ -43,6 +43,7 @@ READELF=$(CROSS_COMPILE)readelf
 RANLIB=$(CROSS_COMPILE)ranlib
 MKDIR=mkdir -p
 RMTREE=rm -rf
+RMEMPTY=rmdir --ignore-fail-on-non-empty
 
 DEP=$(1).d
 DEPFLAGS=-MMD -MT $(or $(1),$@) -MF $(call DEP,$(or $(1),$@)) -MP

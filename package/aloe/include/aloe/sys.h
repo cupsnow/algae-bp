@@ -30,6 +30,8 @@
 #  include "sys_ameba_lp.h"
 #elif defined(ALOE_SYS_LINUX)
 #  include "sys_linux.h"
+#else
+#  error "Unknown platform - ALOE_SYS_XXX"
 #endif
 
 #include "util.h"

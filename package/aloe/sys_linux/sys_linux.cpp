@@ -12,12 +12,22 @@
  * @brief sys_linux
  */
 
-#include <aloe/sys.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <pthread.h>
+#include <time.h>
+
+#include <aloe/sys.h>
+
 #include "../log.h"
 
 #  define log_m(_lvl, _msg, _args...) do { \

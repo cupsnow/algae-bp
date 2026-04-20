@@ -28,13 +28,11 @@ APP_PLATFORM?=bp
 # locale_posix2c coreutils systemd
 export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
-ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
-APP_BUILD=aarch64
-else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
-APP_BUILD=arm
-else
-APP_BUILD=$(APP_PLATFORM)
-endif
+APP_BUILD = $(strip \
+    $(if $(filter bp qemuarm64,$(APP_PLATFORM)),aarch64, \
+    $(if $(filter bbb xm,$(APP_PLATFORM)),arm, \
+    $(APP_PLATFORM))))
+
 
 # AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
 AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
@@ -48,19 +46,21 @@ PATH_PUSH+=$(ARM_TOOLCHAIN_PATH)/bin
 LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
 PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
 
-ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
-TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
-CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
-TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
-$(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
-else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
-TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
-CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
-TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
-$(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
-else
-TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
-endif
+TOOLCHAIN_PATH?=$(strip \
+    $(if $(filter bp qemuarm64,$(APP_PLATFORM)),$(AARCH64_TOOLCHAIN_PATH), \
+    $(if $(filter bbb xm,$(APP_PLATFORM)),$(ARM_TOOLCHAIN_PATH), \
+    )))
+
+CROSS_COMPILE?=$(strip \
+    $(if $(filter bp qemuarm64,$(APP_PLATFORM)),$(AARCH64_CROSS_COMPILE), \
+    $(if $(filter bbb xm,$(APP_PLATFORM)),$(ARM_CROSS_COMPILE), \
+    )))
+    
+TOOLCHAIN_SYSROOT?=$(strip \
+    $(if $(filter bp qemuarm64,$(APP_PLATFORM)),$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot)), \
+    $(if $(filter bbb xm,$(APP_PLATFORM)),$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot)), \
+    $(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot)))))
+
 
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
 
@@ -3036,32 +3036,20 @@ $(1):
 
 $(1)_%:
 	$$($(1)_MAKE) $$(@:$(1)_%=%)
+
+host_$(1): APP_PLATFORM=ub20
+host_$(1):
+	$$($(1)_MAKE) APP_PLATFORM=$$(APP_PLATFORM) $$(@:host_$(1)%=%)
+
+host_$(1)_%: APP_PLATFORM=ub20
+host_$(1)_%:
+	$$($(1)_MAKE) APP_PLATFORM=$$(APP_PLATFORM) $$(@:host_$(1)%=%)
+
 endef
 
 $(eval $(call SIMPLE_APP1,dummy1))
 $(eval $(call SIMPLE_APP1,tester1))
-
-#------------------------------------
-#
-host_dummy1: APP_PLATFORM=ub20
-host_dummy1:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
-
-host_dummy1_%: APP_PLATFORM=ub20
-host_dummy1_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
-
-#------------------------------------
-#
 $(eval $(call SIMPLE_APP1,cltest2))
-
-host_cltest2: APP_PLATFORM=ub20
-host_cltest2:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) cltest2$(@:host_cltest2%=%)
-
-host_cltest2_%: APP_PLATFORM=ub20
-host_cltest2_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) cltest2$(@:host_cltest2%=%)
 
 #------------------------------------
 #

@@ -27,39 +27,92 @@ ARTIFACT_INSTALL:=
 
 #------------------------------------
 #
-tester1_BUILDDIR=$(BUILDDIR)/tester1$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
-tester1_BIN=tester1
-tester1_SRCS=main.cpp
-tester1_SRCS+=mgmt.cpp cli.cpp ipc.cpp
-tester1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
-tester1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
-# tester1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
-tester1_OBJS=$(patsubst %,$(tester1_BUILDDIR)/%.o,$(filter %.c %.cpp,$(tester1_SRCS)))
-tester1_DEPS=$(tester1_OBJS:%=%.d)
-#tester1_LDFLAGS=-static $(LDFLAGS)
-tester1_CPPFLAGS+=$(CPPFLAGS)
-tester1_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+aloe_BUILDDIR=$(BUILDDIR)/aloe$(or $(APP_BUILD:%=-%),$(APP_PLATFORM:%=-%))
+aloe_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/,*.cpp *.c))
+aloe_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c))
+aloe_OBJS=$(patsubst $(PROJDIR)/package/aloe/%,$(aloe_BUILDDIR)/%.o,$(filter %.c %.cpp,$(aloe_SRCS)))
+aloe_DEPS=$(aloe_OBJS:%=%.d)
+aloe_GENDIR=$(sort $(dir $(aloe_OBJS)))
+aloe_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX
+
+GENDIR+=$(aloe_GENDIR)
+
+ARTIFACT+=aloe
+
+.PHONY: aloe
+aloe: $(aloe_OBJS)
+
+$(filter %.c.o,$(aloe_OBJS)): $(aloe_BUILDDIR)/%.o : $(PROJDIR)/package/aloe/% | $(aloe_GENDIR)
+	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(aloe_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(aloe_CFLAGS),$(CFLAGS))
+
+$(filter %.cpp.o,$(aloe_OBJS)): $(aloe_BUILDDIR)/%.o : $(PROJDIR)/package/aloe/% | $(aloe_GENDIR)
+	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(aloe_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(aloe_CXXFLAGS),$(CXXFLAGS))
+
+#------------------------------------
+#
+define APP1_BUILD
+$(1)_BUILDDIR?=$$(BUILDDIR)/$(1)$$(or $$(APP_BUILD:%=-%),$$(APP_PLATFORM:%=-%))
+$(1)_BIN?=$(1)
+$(1)_SRCS+=$(2)
+$(1)_OBJS+=$$(patsubst %,$$($(1)_BUILDDIR)/%.o,$$(filter %.c %.cpp,$$($(1)_SRCS)))
+$(1)_DEPS+=$$($(1)_OBJS:%.o=%.o.d)
+$(1)_CPPFLAGS+=$$(CPPFLAGS)
+$(1)_GENDIR+=$$(sort $$(dir $$($(1)_OBJS)))
+
+GENDIR+=$$($(1)_GENDIR)
+
+.PHONY: $(1)
+$(1): $$($(1)_BUILDDIR)/$$($(1)_BIN)
+ 
+$$($(1)_BUILDDIR)/$$($(1)_BIN): $$($(1)_OBJS) $$($(1)_SRCS)
+	$$(C++) -o $$($(1)_BUILDDIR)/$$($(1)_BIN) $$(filter %.o %.a,$$^) \
+	    $$(or $$($(1)_LDFLAGS),$$(LDFLAGS))
+
+$$(filter %.c.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/%.o : % | $$($(1)_GENDIR)
+	$$(CC) -c -o $$@ $$< $$(DEPFLAGS) $$(or $$($(1)_CPPFLAGS),$$(CPPFLAGS)) \
+	    $$(or $$($(1)_CFLAGS),$$(CFLAGS))
+
+$$(filter %.cpp.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/%.o : % | $$($(1)_GENDIR)
+	$$(C++) -c -o $$@ $$< $$(DEPFLAGS) $$(or $$($(1)_CPPFLAGS),$$(CPPFLAGS)) \
+	    $$(or $$($(1)_CXXFLAGS),$$(CXXFLAGS))
+# end of APP1_BUILD
+endef
+
+#------------------------------------
+#
+
+tester1_CPPFLAGS+=$(aloe_CPPFLAGS)
+
+$(eval $(call APP1_BUILD,tester1, \
+  main.cpp mgmt.cpp cli.cpp ipc.cpp $(aloe_OBJS) \
+))
 
 ARTIFACT+=tester1
 
-GENDIR+=$(tester1_BUILDDIR)
- 
-tester1: $(tester1_BUILDDIR)/$(tester1_BIN)
+#------------------------------------
+#
+th1_CPPFLAGS+=$(aloe_CPPFLAGS)
 
-$(tester1_BUILDDIR)/$(tester1_BIN): $(tester1_OBJS)
-	$(C++) -o $(tester1_BUILDDIR)/$(tester1_BIN) $(filter %.o %.a,$^) \
-	    $(or $(tester1_LDFLAGS),$(LDFLAGS))
+$(eval $(call APP1_BUILD,th1, \
+  th1.cpp $(aloe_OBJS) \
+))
 
-$(tester1_BUILDDIR)/%.c.o: %.c
-	[ -d "$(@D)" ] || $(MKDIR) $(@D)
-	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(tester1_CPPFLAGS),$(CPPFLAGS)) \
-	    $(or $(tester1_CFLAGS),$(CFLAGS))
+ARTIFACT+=th1
 
-$(tester1_BUILDDIR)/%.cpp.o: %.cpp
-	[ -d "$(@D)" ] || $(MKDIR) $(@D)
-	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(tester1_CPPFLAGS),$(CPPFLAGS)) \
-	    $(or $(tester1_CXXFLAGS),$(CXXFLAGS))
+#------------------------------------
+#
+th2_CPPFLAGS+=$(aloe_CPPFLAGS)
 
+$(eval $(call APP1_BUILD,th2, \
+  th2.cpp $(aloe_OBJS) \
+))
+
+ARTIFACT+=th2
+
+#------------------------------------
+#
 doxygen: OUTPUT_DIRECTORY=$(BUILDDIR)/aloe-docs
 doxygen:
 	[ -d "$(OUTPUT_DIRECTORY)" ] || $(MKDIR) $(OUTPUT_DIRECTORY)

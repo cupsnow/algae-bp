@@ -12,8 +12,14 @@
  * @brief util
  */
 
-#include <aloe/sys.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+#include <ctype.h>
 #include <stdint.h>
+
+#include <aloe/sys.h>
 #include "log.h"
 
 extern "C"
