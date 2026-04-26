@@ -1,43 +1,26 @@
 Developer Note
 ====
 
-beagleplay source
+Target
 ----
 
-linux-upstream:
+Beagleboard Play / Beagleplay / bp: [bp-devlog.md](docs/bp-devlog.md)
 
-- v6.11.11
-- v6.11
-- 98f7e32f20d28ec452afb208f9cffc08448a2652
-- de0a9f4486337d0eabacc23bd67ff73146eacdc0
+QEMU aarch64 / qemuarm64
 
-ti-linux-firmware
-
-- 3987d170fc522565c5e4a9293aba1db75951b8c0
-
-u-boot-upstream:
-
-- v2026.01
-- 8937bb265a7f2251c1bd999784a4ef10e9c6080d
-
-optee_os-upstream: **5e26ef8f6a9ced63160f8db93c38bb397603036b**
-arm-trusted-firmware-upstream: **f2735ebccf5173f74c0458736ec526276106097e**
-busybox-upstream: **a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf**
+Arduino Nano 33 BLE rev2: [nano33ble-devlog.md](docs/nano33ble-devlog.md)
 
 Build
 ----
 
-    make dist
+`make dist`
 
-Flash to SD Card
+Command example
 ----
 
-    cp -a destdir/bp/boot/* destdir/bp/boot_sd/* /media/joelai/BOOT/
-    umount /dev/sddx
-    dd if=destdir/bp/rootfs.img of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock
+example for dd: `dd if=destdir/bp/rootfs.img of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock`
 
-format emmc
-----
+example to sfdisk
 
       sfdisk /dev/mmcblk0 <<-EOSFDISK
     label:gpt
@@ -47,71 +30,18 @@ format emmc
     -,-,linux,-
     EOSFDISK
 
-diff and patch
+example for diff and patch
+
+`diff -u pkg_org/file1 pkg/file1 >pkg.patch`
+
+`git diff >package-001-reason.patch`
+
+`patch -p1 <package-001-reason.patch`
+
+example for setup TAP/TUN
 ----
 
-    git diff >package-001-reason.patch
-
-    diff -u pkg_org/file1 pkg/file1 >pkg.patch
-
-patch
-
-    patch -p1 <package-001-reason.patch
-
-OpenOCD
-----
-
-Arduino nano 33 ble
-
-[cat /sys/kernel/debug/gpio](docs/bp-gpio.txt)
-
-| gpio_sysfs | MikroBus | net      | DAPLink |
-| ---------- | -------- | -------- | ------- |
-| 640        | INT      | GPIO1_9  | SWDIO   |
-| 641        | AN       | GPIO1_10 | SWDCLK  |
-| 642        | PWM      | GPIO1_11 |         |
-| 643        | RST      | GPIO1_12 | RESET   |
-
 ```
-./devsync.sh gpio_init 640 out
-./devsync.sh gpio_init 641 out
-./devsync.sh gpio_init 643 out
-openocd -f bpgpioswd.cfg
-openocd -f bpgpioswd.cfg -c "program arduino_nano_33_ble_bootloader-0.9.2_s140_6.1.1.hex verify reset exit"
-openocd -f bpgpioswd.cfg -c "program arduino_nano_33_ble_bootloader-0.9.2-29-g6a9a6a3_s140_6.1.1.hex verify reset exit"
-
-```
-
-build with nrf sdk
-
-make CROSS_COMPILE=/home/joelai/07_sw/pkg/toolchain-arm-none-eabi/bin/arm-none-eabi- BOARD=arduino_nano_33_ble all
-
-
-There are two pins, DFU and FRST that bootloader will check upon reset/power:
-
-    Double Reset Reset twice within 500 ms will enter DFU with UF2 and CDC support (only works with nRF52840)
-    DFU = LOW and FRST = HIGH: Enter bootloader with UF2 and CDC support
-    DFU = LOW and FRST = LOW: Enter bootloader with OTA, to upgrade with a mobile application such as Nordic nrfConnect/Toolbox
-    DFU = HIGH and FRST = LOW: Factory Reset mode: erase firmware application and its data
-    DFU = HIGH and FRST = HIGH: Go to application code if it is present, otherwise enter DFU with UF2
-    The GPREGRET register can also be set to force the bootloader can enter any of above modes (plus a CDC-only mode for Arduino). GPREGRET is set by the application before performing a soft reset.
-
-```c
-#define BUTTON_1              _PINNUM(1, 11)  // D2 switch
-#define BUTTON_2              _PINNUM(1, 12)  // D3 switch
-
-#ifndef BUTTON_DFU
-#define BUTTON_DFU      BUTTON_1
-#endif
-
-#ifndef BUTTON_FRESET
-#define BUTTON_FRESET   BUTTON_2
-#endif
-```
-
-setup tap/tun
-----
-
 sudo ip link add algaebr0 type bridge
 
 sudo ip tuntap add algaetap0 mode tap user `whoami`
@@ -131,205 +61,33 @@ nmcli connection add type bridge-slave ifname wlx94186551a58a master algaebr0
 nmcli connection delete wlx94186551a58a
 ```
 
-nfs
+example to setup NFS
 ----
 
-### Host
+1. install `sudo apt install nfs-kernel-server`
 
-Assume host runs Ubuntu 24.04
+2. modify **/etc/exports**
 
-```sh
-sudo apt install nfs-kernel-server
-```
+        /home/joelai/02_dev 192.168.31.1/24(ro,sync,no_subtree_check,anonuid=1000)
+        /home/joelai/Downloads 192.168.31.1/24(rw,sync,no_subtree_check,anonuid=1000)
 
-**/etc/exports**
+3. Restart NFS with command `exportfs -r`
 
-```
-/home/joelai/02_dev 192.168.31.1/24(ro,sync,no_subtree_check,anonuid=1000)
-/home/joelai/Downloads 192.168.31.1/24(rw,sync,no_subtree_check,anonuid=1000)
-```
+4. client **busybox**
 
-restart nfs with command `exportfs -r`
+        mkdir -p /media/lavender/02_dev
+        mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
 
-### Client
-
-Assume client runs busybox
-
-```sh
-mkdir -p /media/lavender/02_dev
-mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
-```
-
-U-Boot
+Check the ELF interpreter (dynamic linker, ie. ld-linux.so)
 ----
 
-For BP, currently upstream version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
+ELF interpreter (dynamic linker, ie. ld-linux.so)
 
-For BP, after boot, assume to read `uboot.env` in 1st partition (FAT)
+`readelf -l /sbin/init | grep interpreter`
 
-### U-Boot menuconfig to read uboot.env
-
-- for SDCARD
-
-  ```Makefile
-  CONFIG_ENV_IS_NOWHERE=y
-  CONFIG_ENV_IS_IN_FAT=y
-  CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
-  CONFIG_ENV_FAT_DEVICE_AND_PART="1:1"
-  CONFIG_SYS_MMC_ENV_DEV=1
-  CONFIG_SYS_MMC_ENV_PART=1
-  ```
-
-- for EMMC
-
-  ```Makefile
-  CONFIG_ENV_IS_NOWHERE=y
-  CONFIG_ENV_IS_IN_FAT=y
-  CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
-  CONFIG_ENV_FAT_DEVICE_AND_PART="0:1"
-  CONFIG_SYS_MMC_ENV_DEV=0
-  CONFIG_SYS_MMC_ENV_PART=1
-  ```
-
-### memory for boot
-| addr       | offset | related varable             | memo |
-| ---------- | ------ | --------------------------- | ---- |
-| 0x80000000 | 0      | scriptaddr                  |
-| 0x82000000 | 32M    | loadaddr, kernel_addr_r     |
-| 0x85000000 | 80M    | kernel_comp_addr_r          |
-| 0x88000000 | 128M   | fdtaddr, fdt_addr_r         |
-| 0x89000000 | 144M   | dtboaddr, fdtoverlay_addr_r |
-| 0x90000000 | 256M   | addr_fit                    |
-
-
-### Env for SDCard
-
-### Env for EMMC
-
-### added commend to boot from sdcard
-
-- Boot from sdcard: `run sdboot`
-
-### kernel bootargs
-
-```sh
-setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
-```
-
-### write uboot to emmc
-
-commands in linux shell
-
-```
-echo "Enable Boot0 boot"
-mmc bootpart enable 1 2 /dev/mmcblk0
-mmc bootbus set single_backward x1 x8 /dev/mmcblk0
-mmc hwreset enable /dev/mmcblk0
-
-echo "Clearing eMMC boot0"
-echo '0' >> /sys/class/block/mmcblk0boot0/force_ro
-dd if=/dev/zero of=/dev/mmcblk0boot0 count=32 bs=128k
-
-mkdir /media/boot-sd && mount /dev/mmcblk1p1 /media/boot-sd
-
-echo "Write bootloader"
-dd if=/media/boot-sd/tiboot3.bin of=/dev/mmcblk0boot0 bs=128k
-
-echo "Copy the rest of the boot binaries"
-mkdir /media/boot-emmc && mount /dev/mmcblk0p1 /media/boot-emmc
-cp /media/boot-sd/tispl.bin /media/boot-emmc/
-cp /media/boot-sd/u-boot.img /media/boot-emmc/
-sync
-```
-
-### other commands
-
-```
-mmc dev 1 && fatls mmc 1:1
-
-fatload mmc 1:1 ${addr_fit} ubootenv-bp-a53.txt && env import ${addr_fit};
-
-fatload mmc 1:1 ${addr_fit} linux.itb && iminfo ${addr_fit};
-
-bootm ${addr_fit} -
-
-fatload mmc 1:1 ${addr_fit} Image
-
-setenv sdboot 'run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}'
-
-
-```
-
-yocto
-----
-
-Reference
-
-- [BeaglePlay: Part 1 – Building a base image using Yocto][guide1]
-- [meta-ti-bsp/readme][meta-ti-bsp readme]
-
-[guide1]: https://kickstartembedded.com/2023/08/06/beagleplay-part-1-building-a-base-image-using-yocto/
-[meta-ti-bsp readme]: https://git.ti.com/cgit/arago-project/meta-ti/tree/meta-ti-bsp/README?h=kirkstone
-
-### step
-
-1. Clone
-
-   ```sh
-   git clone -b kirkstone https://git.yoctoproject.org/poky poky-bp
-   cd poky-bp
-   git clone -b kirkstone git://git.yoctoproject.org/meta-arm
-   git clone -b kirkstone https://git.ti.com/cgit/arago-project/meta-ti
-   ```
-2. Startup dev console
-
-   ```sh
-   cd poky-bp
-   source oe-init-build-env build-ti
-   sudo sysctl -w fs.inotify.max_user_watches=1048576
-   ```
-
-3. Modify **poky-bp/build-ti/conf/bblayers.conf**
-
-   ```
-   BBLAYERS ?= " \
-   /home/shashank/work/yocto/poky/meta \
-   /home/shashank/work/yocto/poky/meta-poky \
-   /home/shashank/work/yocto/poky/meta-yocto-bsp \
-   /home/shashank/work/yocto/meta-arm/meta-arm-toolchain \
-   /home/shashank/work/yocto/meta-arm/meta-arm \
-   /home/shashank/work/yocto/meta-ti/meta-ti-bsp \
-   "
-   ```
-
-4. Modify **poky-bp/build-ti/conf/local.conf**
-
-   Choose target from **poky-bp/meta-ti/meta-ti-bsp/conf/machine**
-
-   ```
-   MACHINE ??= "beagleplay"
-   ```
-
-5. Run
-
-   Fetch source only
-
-   ```sh
-   bitbake core-image-minimal --runall=fetch
-   ```
-
-todo
-----
-
-- RPi NoIR Camera V2 based on IMX219
-- Waveshare 2.9inch e-Paper
-- hdmi framebuffer
 
 Garage
 ----
-
-- Check the ELF interpreter (dynamic linker, ie. ld-linux.so)
-  readelf -l /sbin/init | grep interpreter
 
 - u-boot comand collection
 

@@ -39,65 +39,91 @@ _pri_mount="busybox mount"
 _pri_umount="busybox umount"
 _pri_dd_args2="conv=fdatasync status=progress iflag=nonblock oflag=nonblock"
 
-ts_up () {
-  _lo_ts1="$(</proc/uptime awk '{ print $1 }')"
-  echo "${_lo_ts1} * 1000 / 1" | bc
+ts_uptime() {
+  echo "$(</proc/uptime awk '{ print $1 }') * 1000 / 1" | bc
 }
 
-ts_dt () {
+ts_dt() {
   date "+%y-%m-%d %H:%M:%S"
 }
 
-log_d () {
-  # func_rel && return
+log_d() {
   echo "[$(ts_dt)][Debug]${_pri_tag:+"[$_pri_tag]"} $*"
 }
 
-log_e () {
+log_e() {
   echo "[$(ts_dt)][ERROR]${_pri_tag:+"[$_pri_tag]"} $*"
 }
 
-cmd_run () {
+cmd_run() {
   log_d "Execute: $*"
   "$@"
+}
+
+logval() {
+  [ "$#" -ge 1 ] || { log_e "logval: missing arguments $#"; return 1; }
+  _lo_file=${1}
+  _lo_inc=${2:-0}
+  [ -f ${_lo_file} ] || echo 0 > ${_lo_file}
+  _lo_cnt=$(cat ${_lo_file})
+  if [ "${_lo_inc}" -ne 0 ]; then
+    _lo_cnt=$(( _lo_cnt + _lo_inc ))
+    echo ${_lo_cnt} > ${_lo_file}
+  fi
+  echo ${_lo_cnt}
+}
+
+daemon_sh_start() {
+  [ "$#" -ge 2 ] || { log_e "logval: missing arguments $#"; return 1; }
+  _lo_pid_file=$1
+  shift
+  start-stop-daemon -S -b -m -p ${_lo_pid_file} \
+    -x /bin/sh -- -c "exec $* >$(tty) 2>&1"
+}
+
+daemon_sh_stop() {
+  [ "$#" -ge 1 ] || { log_e "logval: missing arguments $#"; return 1; }
+  _lo_pid_file=$1
+  start-stop-daemon -K -p ${_lo_pid_file}
 }
 
 _pri_listok=""
 _pri_listfailed=""
 
-test_ip () {
+get_ip() {
   if [ -z "$_pri_ip" ]; then
-    _lo_ip="192.168.31.138 192.168.16.6 192.168.12.125"
-    for i in $_lo_ip; do
-      if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1"; then
+    for i in 192.168.16.6 \
+        10.0.2.2 \
+        192.168.31.138 \
+        192.168.12.125; do
+      if ping -c 1 -W 1 -n ${i} >/dev/null 2>&1; then
         _pri_ip=${i}
-        break
+        echo "$_pri_ip"
+        return 0
       fi
     done
   fi
+  return 1
 }
 
-test_ip
-
-test_nfsroot () {
+get_nfsroot() {
   if [ -z "$_pri_nfsroot" ]; then
-    _lo_nfsroot="/media /tmp"
-    for i in $_lo_nfsroot; do
+    for i in /media /tmp; do
       if [ -d "$i" ]; then
         _pri_nfsroot="${i}/lavender5"
-        break
+        echo "$_pri_nfsroot"
+        return 0;
       fi
     done
   fi
+  return 1
 }
 
-test_nfsroot
-
-_pri_nfsdw="${_pri_nfsroot}/dw"
-_pri_nfsalgaews="${_pri_nfsroot}/02_dev/algae-ws"
+_pri_nfsdw="$(get_nfsroot)/dw"
+_pri_nfsalgaews="$(get_nfsroot)/02_dev/algae-ws"
 _pri_nfsalgaebp="${_pri_nfsalgaews}/algae-bp"
 
-duty1k_num () {
+duty1k_num() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
   _lo_period=$1
   [ $_lo_period -ge 1000 ] || { log_e "Too low period"; return 1; }
@@ -105,7 +131,7 @@ duty1k_num () {
   echo "$(( $_lo_duty1k * $_lo_period / 1000 ))"
 }
 
-usb_find () {
+usb_find() {
   # log_d "\$1: $1"
   _lo_list2=$(find -L /sys/bus/usb/devices/ -maxdepth 2 -iname idVendor | sed -n "/\/sys\/bus\/usb\/devices\/[0-9.-]\+\/idVendor/p")
   for i in ${_lo_list2}; do
@@ -122,7 +148,7 @@ usb_find () {
   return 1
 }
 
-countdown () {
+countdown() {
   _lo_cdt=${1:-5}
   shift
   log_d "${*:-countdown }in ${_lo_cdt}"
@@ -133,14 +159,14 @@ countdown () {
 }
 
 # shellcheck disable=SC2120
-wpa_state () {
+wpa_state() {
   _lo_st=$(wpa_cli ${1:+-i${1}} status 2>/dev/null \
     | sed -n "s/^wpa_state\s*=\s*\(.*\)/\1/p")
   echo "$_lo_st"
   test "$_lo_st" = "COMPLETED"
 }
 
-wpa_wait () {
+wpa_wait() {
   _lo_ct=${1:-3}
   while ! _lo_st="$(wpa_state)" && [ "$_lo_ct" -gt 0 ]; do
     log_d "wait wpa complete in $_lo_ct"
@@ -151,7 +177,7 @@ wpa_wait () {
   test "$_lo_st" = "COMPLETED"
 }
 
-gen_wpa_def () {
+gen_wpa_def() {
   _lo_wpacfg="${1:-wpa_supplicant.conf}"
   _lo_country="${2:-US}"
 
@@ -168,7 +194,7 @@ update_config=1
 EOWPADEF
 }
 
-gen_wpa_conf () {
+gen_wpa_conf() {
   _lo_netcfg=${1:-wpa_network.txt}
   _lo_ssid=$2
   _lo_pw=$3
@@ -176,8 +202,7 @@ gen_wpa_conf () {
   _lo_psk=
 
   if [ -n "${_lo_pw}" ]; then
-    _lo_psk="$(wpa_passphrase "${_lo_ssid}" "${_lo_pw}")" \
-      || { log_e "Failed compose psk"; return 1; }
+    _lo_psk="$(wpa_passphrase "${_lo_ssid}" "${_lo_pw}")" || { log_e "Failed compose psk"; return 1; }
     _lo_psk="$(echo "$_lo_psk" | sed -n 's/^\s*psk=\(.*\)$/\1/p')"
   fi
 
@@ -198,13 +223,13 @@ gen_wpa_conf () {
   } > "${_lo_netcfg}"
 }
 
-wpa_cmd () {
+wpa_cmd() {
   _lo_st="$(wpa_cli "$@" 2>/dev/null)" || return 1
   # log_d "Execute wpa_cli $* -> $_lo_st"
   echo "$_lo_st" | tail -n 1 | grep -i "OK" >/dev/null
 }
 
-wpa_conn () {
+wpa_conn() {
   _lo_ssid=$1
   _lo_pw=$2
   _lo_auth=$3
@@ -215,39 +240,33 @@ wpa_conn () {
     wpa_cmd disable_network 0
   fi
   wpa_cmd select_network 0 || { log_e "Failed select network 0"; return 1; }
-  wpa_cmd set_network 0 ssid "\"${_lo_ssid}\"" \
-    || { log_e "Failed set ssid=\"${_lo_ssid}\""; return 1; }
-  wpa_cmd set_network 0 scan_ssid 1  \
-    || { log_e "Failed set scan_ssid=1"; return 1; }
+  wpa_cmd set_network 0 ssid "\"${_lo_ssid}\"" || { log_e "Failed set ssid=\"${_lo_ssid}\""; return 1; }
+  wpa_cmd set_network 0 scan_ssid 1  || { log_e "Failed set scan_ssid=1"; return 1; }
   if [ -n "${_lo_pw}" ]; then
-    wpa_cmd set_network 0 psk "\"${_lo_pw}\"" \
-      || { log_e "Failed set psk"; return 1; }
+    wpa_cmd set_network 0 psk "\"${_lo_pw}\"" || { log_e "Failed set psk"; return 1; }
   fi
   if [ "${_lo_auth}" = "open" ]; then
-    wpa_cmd set_network 0 key_mgmt NONE \
-      || { log_e "Failed set key_mgmt=NONE"; return 1; }
+    wpa_cmd set_network 0 key_mgmt NONE || { log_e "Failed set key_mgmt=NONE"; return 1; }
   elif [ "${_lo_auth}" = "wpa3-only" ]; then
-    wpa_cmd set_network 0 ieee80211w 2 \
-      || { log_e "Failed set ieee80211w=2"; return 1; }
-    wpa_cmd set_network 0 key_mgmt SAE \
-      || { log_e "Failed set key_mgmt=SAE"; return 1; }
+    wpa_cmd set_network 0 ieee80211w 2 || { log_e "Failed set ieee80211w=2"; return 1; }
+    wpa_cmd set_network 0 key_mgmt SAE || { log_e "Failed set key_mgmt=SAE"; return 1; }
   fi
 }
 
-do_ifce_down () {
+do_ifce_down() {
   for i in "$@"; do
     cmd_run ip a flush dev "$i"
     cmd_run ip l set dev "$i" down
   done
 }
 
-do_ifce_up () {
+do_ifce_up() {
   for i in "$@"; do
     cmd_run ip l set dev "$i" up
   done
 }
 
-wifi_conn () {
+wifi_conn() {
   _lo_opt_cli=${1}
   _lo_opt_ssid=${2}
   _lo_opt_pw=${3}
@@ -271,8 +290,7 @@ wifi_conn () {
   do_ifce_down wlan0
   do_ifce_up wlan0
 
-  gen_wpa_def "${_lo_wpacfg}" \
-    || { log_e "Failed generate $_lo_wpacfg"; return 1; }
+  gen_wpa_def "${_lo_wpacfg}" || { log_e "Failed generate $_lo_wpacfg"; return 1; }
 
   cmd_run ${_lo_wpasup} -Dnl80211 -iwlan0 "-c${_lo_wpacfg}" -B
   if [ -n "$_lo_opt_cli" ]; then
@@ -290,7 +308,7 @@ wifi_conn () {
   udhcpc -i wlan0 -q || { log_e "Failed dhcp"; return 1; }
 }
 
-wpa_conf () {
+wpa_conf() {
   _lo_opt_ssid=${1}
   _lo_opt_pw=${2}
   _lo_opt_auth=${3}
@@ -305,7 +323,7 @@ wpa_conf () {
   fi
 }
 
-find_mount () {
+find_mount() {
   # root@Eve_Play: ~ # cat /proc/mounts
   # ubi0:rootfs / ubifs rw,sync,relatime,assert=read-only,ubi=0,vol=0 0 0
   # devtmpfs /dev devtmpfs rw,relatime,size=51140k,nr_inodes=12785,mode=755 0 0
@@ -344,7 +362,7 @@ EOR
 }
 
 # add_list _list_name_only fn1 fn2 fn2 fn3
-add_list () {
+add_list() {
   [ "$#" -ge 2 ] || { log_e "Nothing to add"; return 1; }
   _lo_list=$1
   shift
@@ -364,7 +382,7 @@ add_list () {
 }
 
 # rm_list list_name_only fn1 fn2
-rm_list () {
+rm_list() {
   [ "$#" -ge 2 ] || { log_e "Nothing to rm"; return 1; }
   _lo_list=$1
   shift
@@ -387,7 +405,7 @@ rm_list () {
   fi
 }
 
-gpio_out () {
+gpio_out() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
   _lo_port=$1
   _lo_val=$2
@@ -397,7 +415,7 @@ gpio_out () {
 }
 
 # <port> <in|out> [value]
-gpio_init () {
+gpio_init() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
   _lo_port=$1
   _lo_dir=$2
@@ -414,7 +432,7 @@ gpio_init () {
   [ -n "$3" ] && [ "$_lo_dir" = "out" ] && gpio_out "$_lo_port" "$3"
 }
 
-pwm_en () {
+pwm_en() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
   _lo_port=$1
   _lo_en=$2
@@ -423,7 +441,7 @@ pwm_en () {
   echo "$_lo_en" > "${_lo_iof}/enable"
 }
 
-pwm_out () {
+pwm_out() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
   _lo_port=$1
   _lo_val=$2
@@ -433,7 +451,7 @@ pwm_out () {
 }
 
 # <port> <period> <duty>
-pwm_init () {
+pwm_init() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
   _lo_port=$1
   _lo_period=$2
@@ -449,7 +467,7 @@ pwm_init () {
   [ -n "$3" ] && pwm_out "$_lo_port" "$3"
 }
 
-boot_tiboot3 () {
+boot_tiboot3() {
   _lo_tiboot3=${1:-tiboot3.bin}
   [ -f "${_lo_tiboot3}" ] || { log_e "Miss ${_lo_tiboot3}"; return 1; }
 
@@ -465,7 +483,7 @@ boot_tiboot3 () {
   cmd_run eval "dd if=${_lo_tiboot3} of=/dev/mmcblk0boot0 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
 }
 
-do_insmod () {
+do_insmod() {
   [ -n "$1" ] || { log_e "do_insmod invalid parameter"; return 1; }
   _lo_modname=$(basename $1)
   _lo_modname="$(echo "${_lo_modname%.*}" | tr '-' '_')"
@@ -478,17 +496,18 @@ do_insmod () {
   fi
 }
 
-add_ok () {
+add_ok() {
   rm_list _pri_listfailed "$@"
   add_list _pri_listok "$@"
 }
 
-add_failed () {
+add_failed() {
   rm_list _pri_listok "$@"
   add_list _pri_listfailed "$@"
 }
 
-devmount () {
+# mount device, ie. not nfs
+devmount() {
   [ "$#" -ge 1 ] || { log_e "Invalid argument"; return 1; }
   _lo_src="$1"
   _lo_tgt="${2:-/media/$(basename ${_lo_src})}"
@@ -501,8 +520,9 @@ devmount () {
   return 0
 }
 
-nfsumount () {
-  _lo_tgt="${1:-${_pri_nfsroot}/02_dev}"
+nfsumount() {
+  [ "$#" -ge 1 ] || { log_e "Invalid arguments"; return 1; }
+  _lo_tgt="${1:-$(get_nfsroot)/02_dev}"
   find_mount "*" "${_lo_tgt}" >/dev/null || { return 0; }
   cmd_run eval "$_pri_umount $_lo_tgt" || {
     cmd_run eval "$_pri_umount -f $_lo_tgt" || { return 1; }
@@ -513,22 +533,20 @@ nfsumount () {
   return 0
 }
 
-nfsmount () {
+nfsmount() {
   _lo_src="${1:-/home/joelai/02_dev}"
-  _lo_tgt="${2:-${_pri_nfsroot}/$(basename ${_lo_src})}"
-  _lo_ip="${3:-${_pri_ip}}"
+  _lo_tgt="${2:-$(get_nfsroot)/$(basename ${_lo_src})}"
+  _lo_ip="${3:-$(get_ip)}" || { log_e "Failed get IP"; return 1; }
 
   find_mount "*" "${_lo_tgt}" >/dev/null && { log_d "already mounted ${_lo_tgt}"; return 0; }
 
-  cmd_run eval "ping -c 1 -W 1 ${_lo_ip} >/dev/null 2>&1" || { log_e "failed ping to ${_lo_ip}"; return 1; }
-
   [ -d "${_lo_tgt}" ] || mkdir -p "${_lo_tgt}"
-  cmd_run eval "$_pri_mount -o nolock \"${_lo_ip}:${_lo_src}\" \"${_lo_tgt}\"" || return 1
+  cmd_run eval "$_pri_mount -o nolock \"${_lo_ip}:${_lo_src}\" \"${_lo_tgt}\"" || { log_e "Failed nfsmount"; return 1; }
   log_d "mounted ${_lo_tgt}"
   return 0
 }
 
-nfsget_n () {
+nfsget_n() {
   [ "$#" -ge 1 ] || { log_e "Invalid arguments"; return 1; }
   _lo_tgt="${2:-$(basename "$1")}"
 
@@ -540,7 +558,7 @@ nfsget_n () {
   return 0
 }
 
-nfsget_s () {
+nfsget_s() {
   [ "$#" -ge 1 ] || { log_e "Invalid arguments"; return 1; }
   _lo_tgt="${2:-$(basename "$1")}"
   _mdsum1="1"
@@ -556,13 +574,13 @@ nfsget_s () {
   nfsget_n "$@"
 }
 
-nfsget_x () {
+nfsget_x() {
   [ "$#" -ge 1 ] || { log_e "Invalid arguments"; return 1; }
   _lo_tgt="${2:-$(basename "$1")}"
   nfsget_n "$@" && cmd_run chmod +x "$_lo_tgt"
 }
 
-flash_tiboot3 () {
+flash_tiboot3() {
   [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
 
   _lo_tiboot3=$1
@@ -593,7 +611,7 @@ flash_tiboot3 () {
     || { log_e "Failed"; return 1; }
 }
 
-do_sfdisk () {
+do_sfdisk() {
   sfdisk /dev/mmcblk0 <<-EOSFDISK || { log_e Failed; return 1; }
 label:gpt
 -,200M,uefi,*
@@ -603,11 +621,17 @@ label:gpt
 EOSFDISK
 }
 
-rootfs_cmdline () {
+rootfs_cmdline() {
   sed -nE "s/.*root=\/dev\/(mmcblk[0-9]p[0-9]).*/\1/p" /proc/cmdline
 }
 
-show_help () {
+destpkg_install() {
+  if nfsget_n "${_pri_nfsalgaews}"/build/$1; then
+    tar -Jxvf $1 --strip-components=1 -C /
+  fi
+}
+
+show_help() {
 cat <<-EOHELP
 USAGE
   ${1:-$(basename "$0")} [OPTIONS] [COMMANDS]
@@ -627,6 +651,7 @@ COMMANDS
   flash_tiboot3 <tiboot3.bin>
   flash_tispl <tispl.bin>
   flash_uboot <u-boot.img>
+  destpkg_install <mesa3d-aarch64-destpkg.tar.xz>
 EOHELP
 }
 
@@ -665,7 +690,9 @@ fi
 if [ -n "$opt_nfsmount" ]; then
   case "$opt_nfsmount" in
   0)
-    nfsumount || exit
+    nfsumount ${_pri_nfsdw}
+    nfsumount $(get_nfsroot)/02_dev
+    nfsumount $(get_nfsroot)/02_exdev
     for i in ${_pri_nfsdw} /media/mmcblk0p1 /media/mmcblk0p2 /media/mmcblk1p1; do 
       nfsumount "$i" || exit
     done
@@ -740,16 +767,16 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
 
-    # kernel, dtb
-    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
-        "/media/mmcblk0p1/" \
-      || { log_e "Failed"; exit 1; }
+    # # kernel, dtb
+    # cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
+    #     "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
+    #     "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+    #     "/media/mmcblk0p1/" \
+    #   || { log_e "Failed"; exit 1; }
 
     _lo_bl_num="$(( ${opt1#bl} ))"
 
-    # bl2 -> sbl, uboot, ubootenv
+    # bl2 -> tispl.bin, uboot.env, u-boot.img, uboot-redund.env
     if [ "${_lo_bl_num}" -ge 2 ]; then
       cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot_emmc/* \
           "/media/mmcblk0p1/" \
@@ -764,65 +791,86 @@ while test -n "$1"; do
     sync; sync
     exit
     ;;
-  ota|ota[2,3])
+  ota|ota[2-3]|"ota?")
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
+
+    # kernel, dtb
+    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
 
     # _pri_uenv_txt="uenv.txt"
     _pri_uenv_txt="/media/mmcblk0p1/uenv.txt"
     _pri_uenv_bootset="$(( $(sed -n "s/^[[:space:]]*bootset=\(\d*\)/\1/p" ${_pri_uenv_txt} 2>/dev/null) ))"
-    _lo_opt1_lvl="$(( ${opt1#ota} ))"
-    _pri_rt_rootfs="$(rootfs_cmdline)"
-    _pri_rt_bootset="$(( ${_pri_rt_rootfs#mmcblk0p} ))"
+    if [ "$opt1" = "ota" ]; then
+      _lo_ota_num="0"
+    else
+      # number or ?
+      _lo_ota_num="${opt1#ota}"
+    fi
+    _lo_curr_rootfs="$(rootfs_cmdline)"
+
+    # boot from sdcard mmcblk1p2 -> _lo_curr_bootset=0
+    # boot from emmc mmcblk0p2 -> _lo_curr_bootset=2
+    # boot from emmc mmcblk0p3 -> _lo_curr_bootset=3
+    _lo_curr_bootset="$(( ${_lo_curr_rootfs#mmcblk0p} ))"
 
     log_d "_pri_uenv_bootset: ${_pri_uenv_bootset}"
-    log_d "_lo_opt1_lvl: ${_lo_opt1_lvl}"
-    log_d "_pri_rt_rootfs: ${_pri_rt_rootfs}"
-    log_d "_pri_rt_bootset: ${_pri_rt_bootset}"
+    log_d "_lo_ota_num: ${_lo_ota_num}"
+    log_d "_lo_curr_rootfs: ${_lo_curr_rootfs}"
+    log_d "_lo_curr_bootset: ${_lo_curr_bootset}"
 
-    _lo_bootset=2
-    if [ "${_lo_opt1_lvl}" -ge "2" ]; then
-      _lo_bootset=${_lo_opt1_lvl}
-      log_d "_lo_bootset: ${_lo_bootset}, from command line"
-    elif [ "${_pri_rt_bootset}" -eq 2 ]; then
-      _lo_bootset=3
-      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}"
-    elif [ "${_pri_rt_bootset}" -ge 3 ]; then
-      _lo_bootset=2
-      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}"
+    # decision priority: cli -> curr boot from emmc -> uenv_bootset
+    if test [ "${_lo_ota_num}" -ge "2" ]>/dev/null 2>&1; then
+      # if _lo_ota_num == "?" -> above test will failed with error message
+      _lo_tgt_bootset=${_lo_ota_num}
+    elif [ "${_lo_curr_bootset}" -eq 2 ]; then
+      _lo_tgt_bootset=3
+    elif [ "${_lo_curr_bootset}" -ge 3 ]; then
+      # if _lo_curr_bootset == 0 -> curr boot from sdcard -> above test will failed
+      _lo_tgt_bootset=2
     elif [ "${_pri_uenv_bootset}" -eq 2 ]; then
-      _lo_bootset=3
-      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}, _pri_uenv_bootset ${_pri_uenv_bootset}"
-    elif [ "${_pri_uenv_bootset}" -ge 3 ]; then
-      _lo_bootset=2
-      log_d "_lo_bootset: ${_lo_bootset}, boot from ${_pri_rt_rootfs}, _pri_uenv_bootset ${_pri_uenv_bootset}"
+      _lo_tgt_bootset=3
     else
-      _lo_bootset=3
-      log_d "_lo_bootset: ${_lo_bootset}, default"
+      _lo_tgt_bootset=2
     fi
+    log_d "ota target emmc: mmcblk0p${_lo_tgt_bootset}"
+
+    # show info only
+    [ "$_lo_ota_num" == "?" ] && exit
 
     # shellcheck disable=SC2086
     cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" \
-        of=/dev/mmcblk0p${_lo_bootset} bs=4M ${_pri_dd_args2} \
+        of=/dev/mmcblk0p${_lo_tgt_bootset} bs=4M ${_pri_dd_args2} \
       || { log_e "Failed"; exit 1; }
 
     touch $_pri_uenv_txt
-    if [ "$_lo_bootset" -ge 2 ]; then
+    if [ "$_lo_tgt_bootset" -ge 2 ]; then
         if cmd_run eval "grep '^[[:space:]]*bootset=' $_pri_uenv_txt"; then
           # existed
-          cmd_run eval "sed -i -e 's/^[[:space:]]*bootset=.*$/bootset=${_lo_bootset}/' $_pri_uenv_txt"
+          cmd_run eval "sed -i -e 's/^[[:space:]]*bootset=.*$/bootset=${_lo_tgt_bootset}/' $_pri_uenv_txt"
         else
           # append
-          cmd_run eval "echo 'bootset=${_lo_bootset}' >> $_pri_uenv_txt"
+          cmd_run eval "echo 'bootset=${_lo_tgt_bootset}' >> $_pri_uenv_txt"
         fi
     fi
     sync; sync
     exit
     ;;
+  destpkg_install)
+    nfsmount || exit
+    for i in $*; do
+      destpkg_install $i
+    done
+    exit
+    ;;
   esac
 
   case "$opt1" in
-  "$(basename "$self")")
+  $(basename "$self")|$(basename "$self" ".sh"))
     nfsmount || exit
     nfsget_x "${_pri_nfsalgaebp}/builder/$(basename "$self")"
     ;;
@@ -836,17 +884,33 @@ while test -n "$1"; do
   openocd)
     nfsget_n "${_pri_nfsalgaebp}"/builder/bpgpioswd.cfg
     ;;
-  tester)
-    nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/tester1
-    nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/tester_fb
-    nfsget_x "${_pri_nfsalgaebp}"/build/dummy1-aarch64/dummy1
-    nfsget_n "${_pri_nfsalgaebp}"/docs/demo1.bmp
+  mesa3d)
+    nfsmount || exit
+    destpkg_install mesa3d-aarch64-destpkg.tar.xz
+    ;;
+  tester1|tester1_*)
+    nfsmount || exit
+    _lo_sel=$(expr "$opt1" : "tester1_\(.*\)$")
+    log_d "_lo_sel: $_lo_sel"
+    if [ "$opt1" = "tester1" ]; then
+      _lo_tgt="tester_ev3 tester_fb2 tester_egl2"
+      _lo_tgt="${_lo_tgt} tester_egl3 tester_egl5 tester_egl6"
+      for i in ${_lo_tgt}; do
+        nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/${i}
+      done
+      nfsget_x "${_pri_nfsalgaebp}"/build/dummy1-aarch64/dummy1
+      nfsget_n "${_pri_nfsalgaebp}"/docs/demo1.bmp
+    elif [ -n "$_lo_sel" ]; then
+      nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/tester_${_lo_sel}
+    fi
     ;;
   sh|sh[2-3])
     nfsmount || exit
     lo_tgt="etc/init.d/func_involved etc/init.d/eth etc/init.d/wifi"
     lo_tgt="${lo_tgt} etc/init.d/persist etc/init.d/syslogd-initd"
     lo_tgt="${lo_tgt} etc/init.d/sshd-initd"
+    lo_tgt="${lo_tgt} etc/init.d/cputemp"
+    lo_tgt="${lo_tgt} etc/init.d/tidss"
     lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
     for i in $lo_tgt; do
       if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then
@@ -869,12 +933,16 @@ while test -n "$1"; do
   esac
 done  
 
-if [ -n "$_pri_listfailed" ]; then
-  log_d "Failed list:"
-  _lo_cnt=0
-  for i in $_pri_listfailed; do
-    _lo_cnt=$(( $_lo_cnt + 1 ))
-    log_d "Failed item${_lo_cnt}: $i"
-  done
-  log_d "Total failed $_lo_cnt items"
-fi
+# if [ -n "$_pri_listfailed" ]; then
+#   log_d "Failed list:"
+#   _lo_cnt=0
+#   for i in $_pri_listfailed; do
+#     _lo_cnt=$(( $_lo_cnt + 1 ))
+#     log_d "Failed item${_lo_cnt}: $i"
+#   done
+#   log_d "Total failed $_lo_cnt items"
+# fi
+[ -n "$_pri_listok" ] && echo && echo "Ok: " && ls -l $_pri_listok
+[ -n "$_pri_listfailed" ] && {
+  echo && echo "Failed:" && ls -l $_pri_listfailed
+}

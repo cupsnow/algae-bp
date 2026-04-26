@@ -12,7 +12,7 @@ llvm_LLVM_ENABLE_PROJECTS=$(subst $(SPACE),;,$(sort \
   $(llvm_LLVM_ENABLE_PROJECTS_PREPARE_$(APP_PLATFORM))))
 
 # libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp;llvm-libgcc;offload;flang-rt;libclc
-llvm_LLVM_ENABLE_RUNTIMES_PREPARE_ub20+=libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp;libclc
+llvm_LLVM_ENABLE_RUNTIMES_PREPARE_ub20+=libc;libcxxabi;libcxx;openmp;libclc
 llvm_LLVM_ENABLE_RUNTIMES=$(subst $(SPACE),;,$(sort \
   $(llvm_LLVM_ENABLE_RUNTIMES_PREPARE_$(APP_PLATFORM))))
 
@@ -87,6 +87,9 @@ llvm_CMAKEARGS_bp+= \
 llvm_CMAKEARGS_bp+= \
   -DLLVM_BUILD_RUNTIME=Off \
 
+llvm_CMAKEARGS_bp+= \
+  -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link=$(TOOLCHAIN_SYSROOT)/../lib64"
+
 llvm_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(llvm_BUILDDIR)
 
 GENDIR+=$(llvm_BUILDDIR)
@@ -100,6 +103,8 @@ llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_BUILDDIR) $(llvm_cross_cmake_
 	. $(PYVENVDIR)/bin/activate \
 	    && $(BUILD_PKGCFG_ENV) cmake -B $(llvm_BUILDDIR) -S $(llvm_DIR) \
 	        -DCMAKE_BUILD_TYPE=Release \
+	        -DCMAKE_INSTALL_PREFIX=/usr \
+			$(CMAKE_STAGING_PREFIX:%=-DCMAKE_STAGING_PREFIX=%) \
 	        $(foreach i,COMPILE LINK TABLEGEN,-DLLVM_PARALLEL_$(i)_JOBS=15) \
 	        $(llvm_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE="%") \
 	        -DLLVM_ENABLE_PROJECTS="$(llvm_LLVM_ENABLE_PROJECTS)" \
@@ -107,13 +112,12 @@ llvm_defconfig $(llvm_BUILDDIR)/Makefile: | $(llvm_BUILDDIR) $(llvm_cross_cmake_
 	        -DLLVM_TARGETS_TO_BUILD="$(llvm_LLVM_TARGETS_TO_BUILD)" \
 	        $(llvm_CMAKEARGS_$(APP_PLATFORM)) $(llvm_CMAKEARGS)
 
-llvm_install: DESTDIR=$(BUILD_SYSROOT)/usr/llvm
-llvm_install: PREFIX=/
+llvm_install: DESTDIR=$(BUILD_SYSROOT)/
 llvm_install:
 	$(MAKE) llvm
 	. $(PYVENVDIR)/bin/activate \
 	    && cd $(llvm_BUILDDIR) \
-	    && DESTDIR=$(DESTDIR) cmake --install . --prefix=/ # -DCMAKE_INSTALL_PREFIX=$(DESTDIR)
+	    && DESTDIR=$(DESTDIR) cmake --install .
 # ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 # 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,llvm)
 # endif
@@ -124,8 +128,40 @@ $(eval $(call DEF_DESTDEP,llvm))
 llvm: | $(llvm_BUILDDIR)/Makefile
 	$(llvm_MAKE) $(PARALLEL_BUILD)
 
+
 #------------------------------------
-#
+llvm_host2_DIR=$(llvm_DIR)
+llvm_host2_BUILDDIR?=$(BUILDDIR2)/llvm-ub20
+
+GENDIR+=$(llvm_host2_BUILDDIR)
+
+llvm_host2_defconfig $(llvm_host2_BUILDDIR)/Makefile: CMAKE_STAGING_PREFIX=$(call BUILD_SYSROOT,bp)/usr
+llvm_host2_defconfig $(llvm_host2_BUILDDIR)/Makefile: | $(llvm_host2_BUILDDIR)
+	. $(PYVENVDIR)/bin/activate \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(llvm_host2_BUILDDIR) -S $(llvm_host2_DIR) \
+	        -G Ninja \
+	        -DCMAKE_BUILD_TYPE=Release \
+	        -DCMAKE_INSTALL_PREFIX=/usr \
+	        $(CMAKE_STAGING_PREFIX:%=-DCMAKE_STAGING_PREFIX=%) \
+	        $(foreach i,COMPILE LINK TABLEGEN,-DLLVM_PARALLEL_$(i)_JOBS=15) \
+	        -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+	        -DLLVM_ENABLE_PROJECTS="clang;lld;lldb" \
+	        -DLLVM_ENABLE_RUNTIMES="libc;libcxxabi;libcxx;openmp;libclc" \
+	        -DLLVM_TARGETS_TO_BUILD="AArch64;ARM;BPF;SPIRV;WebAssembly;X86" \
+	        -DLLVM_INSTALL_UTILS=ON \
+			-DLLVM_ENABLE_RTTI=ON \
+			-DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_EH=ON -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_ZLIB=OFF \
+			-DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF 
+			-DLLVM_LINK_LLVM_DYLIB=ON \
+			-DLLVM_BUILD_LLVM_DYLIB=ON
+
+
+llvm_host2: $(llvm_host2_BUILDDIR)/Makefile
+	. $(PYVENVDIR)/bin/activate \
+	    && ninja -C $(llvm_host2_BUILDDIR)
+
+#------------------------------------
+# CMAKE_STAGING_PREFIX
 llvm_host_BUILDDIR?=$(BUILDDIR2)/llvm-ub20
 
 llvm_host_install: DESTDIR=$(or $(LLVM_TOOLCHAIN_PATH),$(BUILD_SYSROOT))
@@ -152,13 +188,42 @@ llvm_host_destdep_install: $(foreach iter,$(llvm_host_DEP),$(iter)_destdep_insta
 
 llvm_host_%: APP_PLATFORM=ub20
 llvm_host_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) llvm_$*
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) CMAKE_STAGING_PREFIX=$(call BUILD_SYSROOT,bp) llvm_$*
 
 llvm_host: APP_PLATFORM=ub20
 llvm_host:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) llvm
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) CMAKE_STAGING_PREFIX=$(call BUILD_SYSROOT,bp) llvm
 
 #------------------------------------
+llvm_defconfig2: | $(llvm_BUILDDIR)
+	. $(PYVENVDIR)/bin/activate \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(llvm_BUILDDIR) -S $(llvm_DIR) \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+			-DCMAKE_SYSTEM_NAME=Linux \
+			-DCMAKE_SYSTEM_PROCESSOR=AArch64 \
+			-DCMAKE_C_COMPILER=$(CC) \
+			-DCMAKE_CXX_COMPILER=$(C++) \
+			-DLLVM_USE_HOST_TOOLS=TRUE \
+			-DLLVM_NATIVE_TOOL_DIR=$(PROJDIR)/destdir-llvm_host/usr/local/bin \
+	        -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra"
+
+#------------------------------------
+llvm_host2_defconfig2: | $(llvm_host_BUILDDIR)
+	. $(PYVENVDIR)/bin/activate \
+	    && $(BUILD_PKGCFG_ENV) cmake -B $(llvm_host_BUILDDIR) -S $(llvm_DIR) \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_INSTALL_PREFIX:PATH=/usr \
+			-DCMAKE_SYSTEM_NAME=Linux \
+	        -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" 
+
+llvm_host2_install: DESTDIR=$(PROJDIR)/destdir-llvm_host
+llvm_host2_install:
+	$(MAKE) -C $(llvm_host_BUILDDIR) $(PARALLEL_BUILD) DESTDIR=$(DESTDIR) install
+
+llvm_host2:
+	$(MAKE) -C $(llvm_host_BUILDDIR) $(PARALLEL_BUILD)
+
 #------------------------------------
 #------------------------------------
 #------------------------------------

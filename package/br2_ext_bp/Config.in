@@ -1,0 +1,2 @@
+# Refer external.desc for the NAME to form BR2_EXTERNAL_$(NAME)_PATH
+# source "$BR2_EXTERNAL_ALGAE_BP_PATH/package/package2/Config.in"

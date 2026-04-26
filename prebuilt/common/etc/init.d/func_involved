@@ -323,6 +323,19 @@ do_insmod () {
   fi
 }
 
+do_modprobe () {
+  [ -n "$1" ] || { log_e "do_modprobe invalid parameter"; return 1; }
+  local modname=$(basename $1)
+  modname="$(echo ${modname%.*} | tr '-' '_')"
+  if [ -e "/sys/module/${modname}" ]; then
+    log_d "module already loaded: ${modname}, skip $*"
+  elif modprobe $*; then
+    log_d "module loaded: $*"
+  else
+    return 1
+  fi
+}
+
 get_led () {
   cat $1 | sed -n -e 's/.*"led"\s*\:\s*\[\(.*\)\].*/\1/' \
     -e 's/.*\s*"color"\s*:\s*"white".*"pin"\s*:\s*\([0-9]*\).*/\1/p'

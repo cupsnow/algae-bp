@@ -57,6 +57,7 @@ bootcmd=run sdboot_fit
 # uboot startup load environment from 1:1 -> sdcard, 0:1 -> emmc
 envdev=mmc 0:1
 
+# expect overwrite by importenv
 # <empty> -> sdcard, 2..3 -> emmc partition
 bootset=2
 

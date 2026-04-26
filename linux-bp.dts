@@ -42,7 +42,6 @@
 
 	chosen {
 		stdout-path = "serial2:115200n8";
-		framebuffer = <&framebuffer0>;
 	};
 
 	memory@80000000 {
@@ -66,6 +65,14 @@
 			pmsg-size = <0x8000>;
 		};
 
+		/* global cma region */
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x00 0x8000000>;
+			linux,cma-default;
+		};
+
 		secure_tfa_ddr: tfa@9e780000 {
 			reg = <0x00 0x9e780000 0x00 0x80000>;
 			no-map;
@@ -76,26 +83,11 @@
 			no-map;
 		};
 
-		wkup_r5fss0_core0_dma_memory_region: r5f-dma-memory@9db00000 {
+		wkup_r5fss0_core0_dma_memory_region: memory@9db00000 {
 			compatible = "shared-dma-pool";
 			reg = <0x00 0x9db00000 0x00 0xc00000>;
 			no-map;
 		};
-
-		framebuffer@9c000000 {
-			reg = <0x00 0x9c000000 0x00 0x00800000>;
-			no-map;
-		};
-	};
-
-	framebuffer0: framebuffer@9c000000 {
-		compatible = "simple-framebuffer";
-		format = "a8r8g8b8";
-		reg = <0x00 0x9c000000 0x00 0x00800000>;
-		width = <1920>;
-		height = <1080>;
-		stride = <7680>;
-		status = "okay";
 	};
 
 	sdio_pwrseq: sdio-pwrseq {
@@ -431,8 +423,13 @@
 		pinctrl-single,pins = <
 			AM62X_IOPAD(0x019c, PIN_INPUT, 7) /* (B18) MCASP0_AXR1.GPIO1_9 */
 			AM62X_IOPAD(0x01a0, PIN_INPUT, 7) /* (E18) MCASP0_AXR0.GPIO1_10 */
-			AM62X_IOPAD(0x01a4, PIN_INPUT, 7) /* (E18) MCASP0_AXR0.GPIO1_11 */
 			AM62X_IOPAD(0x01a8, PIN_INPUT, 7) /* (D20) MCASP0_AFSX.GPIO1_12 */
+		>;
+	};
+
+	mikrobus_pwm_pins_default: mikrobus-pwm-default-pins {
+		pinctrl-single,pins = <
+			AM62X_IOPAD(0x01a4, PIN_INPUT, 2) /* (B20) MCASP0_ACLKX.ECAP2_IN_APWM_OUT */
 		>;
 	};
 
@@ -593,10 +590,11 @@
 		    <&gbe_pmx_obsclk>;
 	assigned-clocks = <&k3_clks 157 70>, <&k3_clks 157 20>;
 	assigned-clock-parents = <&k3_clks 157 72>, <&k3_clks 157 22>;
+	status = "okay";
 };
 
 &cpsw_port1 {
-	phy-mode = "rgmii-rxid";
+	phy-mode = "rgmii-id";
 	phy-handle = <&cpsw3g_phy0>;
 };
 
@@ -621,7 +619,7 @@
 		reg = <1>;
 		reset-gpios = <&main_gpio1 5 GPIO_ACTIVE_LOW>;
 		reset-assert-us = <25>;
-		reset-deassert-us = <60000>; /* T2 */
+		reset-deassert-us = <35>;
 	};
 };
 
@@ -831,22 +829,13 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&mikrobus_spi_pins_default>;
 	status = "okay";
-
-	spidev@0 {
-		compatible = "spidev";
-		spi-max-frequency = <1000000>;
-		reg = <0>;
-		status = "disabled";
-		#address-cells = < 0x01 >;
-		#size-cells = < 0x00 >;	
-	};
 };
 
 &sdhci0 {
 	bootph-all;
+	non-removable;
 	pinctrl-names = "default";
 	pinctrl-0 = <&emmc_pins_default>;
-	disable-wp;
 	status = "okay";
 };
 
@@ -861,8 +850,6 @@
 	disable-wp;
 	cd-gpios = <&main_gpio1 48 GPIO_ACTIVE_LOW>;
 	cd-debounce-delay-ms = <100>;
-	/* non-removable; */
-	/* broken-cd; */
 	ti,fails-without-test-cd;
 	status = "okay";
 };
@@ -916,7 +903,8 @@
 
 	mcu {
 		compatible = "ti,cc1352p7";
-		reset-gpios = <&main_gpio0 72 GPIO_ACTIVE_LOW>;
+		bootloader-backdoor-gpios = <&main_gpio0 13 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&main_gpio0 14 GPIO_ACTIVE_HIGH>;
 		vdds-supply = <&vdd_3v3>;
 	};
 };
@@ -952,4 +940,10 @@
 	       0 0 0 0
 	       0 0 0 0
 	>;
+};
+
+&ecap2 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mikrobus_pwm_pins_default>;
 };

@@ -60,6 +60,11 @@ start_uboot () {
 start_kernel () {
   # shellcheck disable=SC2086
   _lo_cmd_qemu="${cmd_qemu_bootroot2}"
+
+  # _lo_cmd_qemu="${_lo_cmd_qemu} -nographic"
+  _lo_cmd_qemu="${_lo_cmd_qemu} -display gtk -device virtio-gpu"
+  _lo_cmd_qemu="${_lo_cmd_qemu} -serial mon:stdio"
+  
   _lo_kernel="${_pri_destdir}/boot/Image"
   _lo_bootargs="console=ttyAMA0 root=/dev/vda rw rootwait"
   _lo_bootargs="${_lo_bootargs:+${_lo_bootargs} }init=/sbin/init rdinit=/bin/sh debug"

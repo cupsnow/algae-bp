@@ -3,7 +3,7 @@ set -euo pipefail
 
 # === Configuration ===
 TARGET=aarch64-linux-gnu
-BUILDDIR="$(pwd)/cross"
+BUILDDIR="$(pwd)/cross_tmp"
 PREFIX=${BUILDDIR}/$TARGET
 SYSROOT=$PREFIX/$TARGET/sysroot
 SRC=${BUILDDIR}/src

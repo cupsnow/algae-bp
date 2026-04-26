@@ -10,7 +10,7 @@ _lo_tidss_ko="fb display-connector ite-it66121 tidss"
 
 tidss_start () {
   for ko in $_lo_tidss_ko; do
-    cmd_run modprobe $ko || { echo "Failure modprobe $ko"; return 1; }
+    cmd_run do_modprobe $ko || { echo "Failure modprobe $ko"; return 1; }
   done
 }
 

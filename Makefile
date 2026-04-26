@@ -18,8 +18,8 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
 
-# bp wl18xx powervr ti_linux bb_linux powervr
-APP_ATTR_bp?=bp wl18xx powervr bb_linux
+# bp wl18xx powervr ti_linux bb_linux powervr gdbserver
+APP_ATTR_bp?=bp wl18xx powervr bb_linux gdbserver
 
 APP_ATTR_qemuarm64?=qemuarm64
 
@@ -2298,7 +2298,8 @@ include builder/glib2.mk
 #------------------------------------
 #
 # include builder/llvm.mk
-include builder/llvm2.mk
+# include builder/llvm2.mk
+include builder/llvm3.mk
 
 #------------------------------------
 #
@@ -2528,7 +2529,8 @@ spirvtools: | $(spirvtools_BUILDDIR)/Makefile
 # cargo install bindgen-cli
 #
 # include builder/mesa3d.mk
-include builder/mesa3d2.mk
+# include builder/mesa3d2.mk
+include builder/mesa3d3.mk
 
 #------------------------------------
 #
@@ -3010,6 +3012,76 @@ openocd_%: | $(openocd_BUILDDIR)/Makefile
 	$(openocd_MAKE) $(PARALLEL_BUILD) $(@:openocd_%=%)
 
 #------------------------------------
+#
+admin2_DEP=cjson
+admin2_DIR?=$(PROJDIR)/package/admin2
+admin2_BUILDDIR?=$(BUILDDIR)/admin2-$(APP_BUILD)
+admin2_MAKE=$(MAKE) -C $(admin2_BUILDDIR)
+
+GENDIR+=$(admin2_BUILDDIR)
+
+$(admin2_DIR)/configure: $(admin2_DIR)/configure.ac $(admin2_DIR)/Makefile.am
+	cd $(admin2_DIR) \
+	  && if [ -x "autogen.sh" ]; then \
+	    . autogen.sh; \
+	  else \
+	    autoreconf -fiv; \
+	  fi
+
+admin2_defconfig $(admin2_BUILDDIR)/Makefile: | $(admin2_BUILDDIR) $(admin2_DIR)/configure
+	cd $(admin2_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) \
+	      $(admin2_DIR)/configure \
+	      --host=$$($(CC) -dumpmachine) --prefix= \
+	      CPPFLAGS="-I$(BUILD_SYSROOT)/include" \
+	      LDFLAGS="-L$(BUILD_SYSROOT)/lib"
+
+admin2_host:
+	$(MAKE) APP_PLATFORM=ub20 admin2
+
+admin2_host_%:
+	$(MAKE) APP_PLATFORM=ub20 $(@:admin2_host%=admin2%)
+
+admin2_distclean:
+	if [ -d "$(admin2_BUILDDIR)" ]; then \
+	  $(RMTREE) $(admin2_BUILDDIR); \
+	fi
+	cd $(admin2_DIR) \
+	  && ./distclean.sh
+
+admin2: $(admin2_BUILDDIR)/Makefile
+	$(admin2_MAKE) $(PARALLEL_BUILD)
+
+admin2_%: $(admin2_BUILDDIR)/Makefile
+	$(admin2_MAKE) $(PARALLEL_BUILD) $*
+
+#------------------------------------
+br2_DIR=$(PKGDIR2)/br2
+ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
+br2_EXTDIR=$(PKGDIR)/br2_ext_$(APP_PLATFORM)
+endif
+br2_DLDIR=$(HOME)/02_dev/br2_dl
+br2_BUILDDIR=$(BUILDDIR2)/br2-$(APP_BUILD)
+
+br2_MAKE=$(MAKE) -C $(br2_DIR) \
+	$(br2_EXTDIR:%=BR2_EXTERNAL=%) \
+    BR2_DL_DIR=$(br2_DLDIR) \
+    O=$(br2_BUILDDIR)
+
+br2_defconfig-bp=beagleplay_defconfig
+
+GENDIR+=$(br2_BUILDDIR) $(br2_DLDIR)
+
+br2_defconfig $(br2_BUILDDIR)/.config: | $(br2_BUILDDIR) $(br2_DLDIR)
+	$(br2_MAKE) $(br2_defconfig-bp)
+
+br2: | $(br2_BUILDDIR)/.config
+	$(br2_MAKE) $(PARALLEL_BUILD)
+
+br2_%: | $(br2_BUILDDIR)/.config
+	$(br2_MAKE) $(PARALLEL_BUILD) $(@:br2_%=%)
+
+#------------------------------------
 # use mod_setenv to set LD_LIBRARY_PATH for cgi
 # DESTDIR=`pwd`/build/sysroot-ub20 LD_LIBRARY_PATH=`pwd`/build/sysroot-ub20/lib `pwd`/build/sysroot-ub20/sbin/lighttpd -m `pwd`/build/sysroot-ub20/lib -f `pwd`/build/sysroot-ub20/etc/lighttpd.conf -D
 #
@@ -3126,10 +3198,9 @@ endif
 dist_rootfs_phase1_pkg+=mesa3d
 
 dist_rootfs_phase1: DESTDIR=$(dist_DIR)/rootfs
-dist_rootfs_phase1: build_sysroot_defconfig
+dist_rootfs_phase1:
 # build package and install to sysroot
 # packages are higher priority then busybox
-# install toolchain sysroot incase llvm link libstdc++.so from BUILD_SYSROOT
 	$(MAKE) uboot_envtools
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
@@ -3146,8 +3217,13 @@ dist_rootfs_phase2:
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
+	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(DESTDIR)/)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/common/*)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
+ifneq ($(strip $(filter gdbserver,$(APP_ATTR))),)
+	$(CP) -v $(TOOLCHAIN_SYSROOT)/usr/bin/gdbserver \
+	    $(dist_DIR)/rootfs/sbin/ $(if $(dist_log),&>> $(dist_log))
+endif
 	rsync -L $(RSYNC_VERBOSE) \
 	    $$(find $(DESTDIR)/etc/skel/ -maxdepth 1 -type f) \
 		$(DESTDIR)/root/
