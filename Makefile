@@ -3056,6 +3056,82 @@ admin2_%: $(admin2_BUILDDIR)/Makefile
 	$(admin2_MAKE) $(PARALLEL_BUILD) $*
 
 #------------------------------------
+#
+libconfuse_DIR=$(PROJDIR)/package/libconfuse
+libconfuse_BUILDDIR=$(BUILDDIR)/libconfuse-$(APP_BUILD)
+libconfuse_MAKE=$(MAKE) -C $(libconfuse_BUILDDIR)
+
+GENDIR+=$(libconfuse_BUILDDIR)
+
+$(libconfuse_DIR)/configure: | $(libconfuse_DIR)/configure.ac $(libconfuse_DIR)/autogen.sh
+	cd $(libconfuse_DIR) && ./autogen.sh
+
+libconfuse_host_install: DESTDIR=$(PROJDIR)/tool
+libconfuse_host_install:
+	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) libconfuse_install
+
+libconfuse_host:
+	$(MAKE) APP_PLATFORM=ub20 libconfuse
+
+libconfuse_host_%:
+	$(MAKE) APP_PLATFORM=ub20 libconfuse_$(*)
+
+libconfuse_defconfig $(libconfuse_BUILDDIR)/Makefile: | $(libconfuse_DIR)/configure $(libconfuse_BUILDDIR)
+	cd $(libconfuse_BUILDDIR) \
+	  && $(call BUILD_PKGCFG_ENV,$(PROJDIR)/tool) $(libconfuse_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(libconfuse_ACARGS_$(APP_PLATFORM))
+
+libconfuse_install: DESTDIR=$(BUILD_SYSROOT)
+libconfuse_install: | $(libconfuse_BUILDDIR)/Makefile
+	$(libconfuse_MAKE) DESTDIR=$(DESTDIR) $(PARALLEL_BUILD) install
+
+libconfuse: | $(libconfuse_BUILDDIR)/Makefile
+	$(libconfuse_MAKE) $(PARALLEL_BUILD)
+
+libconfuse_%: | $(libconfuse_BUILDDIR)/Makefile
+	$(libconfuse_MAKE) $(PARALLEL_BUILD) $*
+
+#------------------------------------
+#
+genimage_DEP=libconfuse
+genimage_DIR=$(PROJDIR)/package/genimage
+genimage_BUILDDIR=$(BUILDDIR)/genimage-$(APP_BUILD)
+genimage_MAKE=$(MAKE) -C $(genimage_BUILDDIR)
+
+GENDIR+=$(genimage_BUILDDIR)
+
+$(genimage_DIR)/configure: | $(genimage_DIR)/configure.ac $(genimage_DIR)/autogen.sh
+	cd $(genimage_DIR) && ./autogen.sh
+
+genimage_host_install: DESTDIR=$(PROJDIR)/tool
+genimage_host_install: 
+	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) genimage_install
+
+genimage_host:
+	$(MAKE) APP_PLATFORM=ub20 genimage
+
+genimage_host_%:
+	$(MAKE) APP_PLATFORM=ub20 genimage_$(*)
+
+genimage_defconfig $(genimage_BUILDDIR)/Makefile: | $(genimage_DIR)/configure $(genimage_BUILDDIR)
+	cd $(genimage_BUILDDIR) \
+	  && $(call BUILD_PKGCFG_ENV,$(PROJDIR)/tool) $(genimage_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(genimage_ACARGS_$(APP_PLATFORM))
+
+genimage_install: DESTDIR=$(PROJDIR)/tool
+genimage_install: | $(genimage_BUILDDIR)/Makefile
+	$(genimage_MAKE) DESTDIR=$(DESTDIR) $(PARALLEL_BUILD) install
+
+genimage: | $(genimage_BUILDDIR)/Makefile
+	$(genimage_MAKE) $(PARALLEL_BUILD)
+
+genimage_%: | $(genimage_BUILDDIR)/Makefile
+	$(genimage_MAKE) $(PARALLEL_BUILD) $*
+
+#------------------------------------
+#
 br2_DIR=$(PKGDIR2)/br2
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 br2_EXTDIR=$(PKGDIR)/br2_ext_$(APP_PLATFORM)
