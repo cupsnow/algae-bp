@@ -3130,6 +3130,10 @@ genimage: | $(genimage_BUILDDIR)/Makefile
 genimage_%: | $(genimage_BUILDDIR)/Makefile
 	$(genimage_MAKE) $(PARALLEL_BUILD) $*
 
+$(PROJDIR)/tool/bin/genimage:
+	$(MAKE) libconfuse_host_install
+	$(MAKE) genimage_host_install
+
 #------------------------------------
 #
 br2_DIR=$(PKGDIR2)/br2
@@ -3235,17 +3239,17 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
     $(if $(strip $(wildcard $(2))), \
       rsync -a $(RSYNC_VERBOSE) -I $(wildcard $(2)) $(1))
 
-CMD_GENROOT_EXT4= \
+CMD_GENROOT_EXT4=$(if $(2),,$(error "CMD_GENROOT_EXT4 invalid argument")) \
   $(RMTREE) $(2) \
     && truncate -s $(or $(3),400M) $(2) \
     && fakeroot mkfs.ext4 -F -d $(1) $(2)
 
-CMD_VFATIMG_CREATE= \
+CMD_VFATIMG_CREATE=$(if $(1),,$(error "CMD_VFATIMG_CREATE invalid argument")) \
   $(RMTREE) $(2) \
     && truncate -s $(or $(2),250M) $(1) \
 	&& mkfs.vfat -n BOOT $(1)
 
-CMD_VFATIMG_ADD= \
+CMD_VFATIMG_ADD=$(if $(2),,$(error "CMD_VFATIMG_ADD invalid argument")) \
   mcopy -i $(1) $(2) ::
 
 # dist_partdisk_phase1: DIST_PARTDISK_PHASE1_IMG=partdisk
@@ -3270,22 +3274,22 @@ ifneq ($(strip $(filter systemd,$(APP_ATTR))),)
 dist_rootfs_phase1_pkg+=systemd
 endif
 
+# dist_rootfs_phase1_pkg+=libdrm mesa3d mosquitto openocd openssh
+
 # dist_rootfs_phase1_pkg+=glib
-dist_rootfs_phase1_pkg+=mesa3d
 
 dist_rootfs_phase1: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase1:
 # build package and install to sysroot
-# packages are higher priority then busybox
 	$(MAKE) uboot_envtools
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
+# busybox command replaced by standalone package
+	$(MAKE) busybox_destdep_install
 	$(MAKE) $(addsuffix _destdep_install, \
-	    busybox)
-	$(MAKE) $(addsuffix _destdep_install, \
-	    tmux mmcutils mtdutils wpasup mosquitto jsonc openocd openssh \
-		$(dist_rootfs_phase1_pkg))
+	    tmux mmcutils mtdutils wpasup jsonc \
+	    $(dist_rootfs_phase1_pkg))
 
 dist_rootfs_phase2: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase2:
@@ -3293,33 +3297,28 @@ dist_rootfs_phase2:
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
+# risk toolchain sysroot may overwrite standalone library
 	$(call CMD_RSYNC_TOOLCHAIN_SYSROOT,$(DESTDIR)/)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/common/*)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
 ifneq ($(strip $(filter gdbserver,$(APP_ATTR))),)
-	$(CP) -v $(TOOLCHAIN_SYSROOT)/usr/bin/gdbserver \
-	    $(dist_DIR)/rootfs/sbin/ $(if $(dist_log),&>> $(dist_log))
+	$(CP) -v $(TOOLCHAIN_SYSROOT)/usr/bin/gdbserver $(DESTDIR)/sbin/
 endif
-	rsync -L $(RSYNC_VERBOSE) \
-	    $$(find $(DESTDIR)/etc/skel/ -maxdepth 1 -type f) \
+	rsync -L $(RSYNC_VERBOSE) $$(find $(DESTDIR)/etc/skel/ -maxdepth 1 -type f) \
 		$(DESTDIR)/root/
-	[ -f $(DESTDIR)/root/.exrc ] \
-	  && chmod 0700 $(DESTDIR)/root/.exrc
+	[ ! -f $(DESTDIR)/root/.exrc ] || chmod 0700 $(DESTDIR)/root/.exrc
 	rsync -a $(RSYNC_VERBOSE) $(wlregdb_DIR)/regulatory.db \
 	    $(wlregdb_DIR)/regulatory.db.p7s \
 	    $(DESTDIR)/lib/firmware/
 	ln -sfn /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
 	ln -sfn /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
 	rsync -L $(RSYNC_VERBOSE) $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
-	{ \
-	  $(foreach var, \
-	    APP_PLATFORM APP_ATTR, \
+	{ $(foreach var,APP_PLATFORM APP_ATTR, \
 	    echo "$(var)=$($(var))";) \
 	} >$(DESTDIR)/etc/algae.conf
 
 dist-qemuarm64_phase1:
-	$(MAKE) uboot linux $(kernelrelease)
-	$(MAKE) linux_modules linux_dtbs
+	$(MAKE) uboot linux $(kernelrelease) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) INSTALL_MOD_PATH=$(BUILD_SYSROOT) linux_modules_install
@@ -3343,11 +3342,11 @@ dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	$(busybox_DIR)/examples/depmod.pl \
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
 	    -F $(linux_BUILDDIR)/System.map
-	. $(PYVENVDIR)/bin/activate && \
-	  python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
+	. $(PYVENVDIR)/bin/activate && python3 builder/elfstrip.py \
+	      $(ELFSTRIP_VERBOSE) \
 	      -l $(BUILDDIR)/elfstrip.log \
 	      --strip=$(TOOLCHAIN_PATH)/bin/$(STRIP) \
-		  --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
+	      --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
 	      $(dist_DIR)/$(APP_PLATFORM)/rootfs
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
 
@@ -3398,17 +3397,21 @@ dist-bp_dtb:
 	dtc -I dtb -O dts $(DTC_LINUX_WNO) $(DESTDIR)/$(DTBFILE) \
 	    > $(BUILDDIR)/$(DTBFILE:%.dtb=%).dts
 
+dist_bp_phase1_pkg+=
+
 dist-bp_phase1:
+# build all package
 	$(MAKE) atf optee linux uboot $(kernelrelease)
 	$(MAKE) linux_modules linux_dtbs
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) $(addsuffix _destdep_install, \
-	    libdrm)
+	    libdrm \
+		$(dist_bp_phase1_pkg))
 	$(MAKE) dist_rootfs_phase1
 
 dist-bp_bootpart: bootpart_prefix=$(dist_DIR)/$(APP_PLATFORM)/boot
-dist-bp_bootpart:
+dist-bp_bootpart: | $(PROJDIR)/tool/bin/genimage
 	$(call CMD_VFATIMG_CREATE,$(bootpart_prefix)_sd.img)
 	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_sd.img,$(dist_DIR)/$(APP_PLATFORM)/boot/*)
 	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_sd.img,$(dist_DIR)/$(APP_PLATFORM)/boot_sd/*)
@@ -3516,6 +3519,30 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 700M)
+	### genimage
+	for i in root input output; do \
+	  $(MKDIR) $(BUILDDIR)/genimage_work/$$i; \
+	done
+	cp -v $(PROJDIR)/builder/genimage_bp.cfg \
+	  $(BUILDDIR)/genimage_work/genimage.cfg
+	cp -v $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/tispl.bin \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/u-boot.img \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot.env \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot-redund.env \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot/Image.gz \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay.dtb \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot/linux.itb \
+	  $(BUILDDIR)/genimage_work/
+	cp -v $(dist_DIR)/$(APP_PLATFORM)/rootfs.img \
+	  $(BUILDDIR)/genimage_work/rootfs.ext4
+	genimage \
+	  --rootpath $(BUILDDIR)/genimage_work/root \
+	  --tmppath $(BUILDDIR)/genimage_work/tmp \
+	  --inputpath $(BUILDDIR)/genimage_work \
+	  --outputpath $(dist_DIR)/$(APP_PLATFORM) \
+	  --config $(BUILDDIR)/genimage_work/genimage.cfg
+	$(RMTREE) $(BUILDDIR)/genimage_work
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
