@@ -88,6 +88,9 @@ ARTIFACT_DOXYGEN+=tester_aloe_doxygen
 ifneq ($(strip $(BUILD_SYSROOT)),)
 mesa3d_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lEGL -lGLESv2 -lgbm -lgallium-26.1.0-devel -ldrm -lexpat -lz
 mesa3d_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/usr/include/drm -I$(BUILD_SYSROOT)/include -I$(BUILD_SYSROOT)/include/drm
+
+libnl_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lnl-3 -lnl-genl-3
+libnl_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include/libnl3 -I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/include/libnl3 -I$(BUILD_SYSROOT)/include
 endif
 
 #------------------------------------
@@ -101,6 +104,18 @@ $(eval $(call TESTER1_APP2,tester_ev3, \
 ))
 
 ARTIFACT+=tester_ev3
+
+#------------------------------------
+#
+tester_wifi2_LDFLAGS+=$(tester_aloe_LDFLAGS) $(libnl_LDFLAGS)
+tester_wifi2_CPPFLAGS+=$(tester_aloe_CPPFLAGS) $(libnl_CPPFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_wifi2, \
+    $(tester_aloe_OBJS) \
+    wifi2_main.cpp mgmt.cpp cli.cpp ipc.cpp wifi.cpp \
+))
+
+ARTIFACT+=tester_wifi2
 
 #------------------------------------
 #
