@@ -114,7 +114,7 @@ struct aloe_thread_rec {
 
 int aloe_file_nonblock(int fd, int en);
 int aloe_so_reuseaddr(int fd);
-int aloe_so_keepalive(int fd);
+int aloe_so_keepalive(int fd, int time, int retry, int interval);
 
 typedef struct {
 	void *fmem;

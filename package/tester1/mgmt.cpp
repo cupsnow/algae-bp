@@ -118,7 +118,7 @@ static void mgmt1_accept_cb(int fd, unsigned ev, void *cbarg) {
 	} while(0);
 #endif
 	if (aloe_file_nonblock(client_fd, 1) != 0
-			// || aloe_so_reuseaddr(client_fd) != 0
+			|| aloe_so_reuseaddr(client_fd) != 0
 			// || aloe_so_keepalive(client_fd) != 0
 		) {
 		log_e("failure set nonblock or socket flag\n");
@@ -194,7 +194,7 @@ void* mgmt1_init(void *evctx, const char *path) {
 	if (aloe_file_nonblock(mgmt->evconn.fd, 1) != 0
 #if 1
 			|| aloe_so_reuseaddr(mgmt->evconn.fd) != 0
-			|| aloe_so_keepalive(mgmt->evconn.fd) != 0
+//			|| aloe_so_keepalive(mgmt->evconn.fd, 0, 0, 0) != 0
 #endif
 			) {
 		log_e("failure set nonblock or socket flag\n");

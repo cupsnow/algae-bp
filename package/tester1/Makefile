@@ -21,6 +21,7 @@ LDFLAGS+=
 GENDIR:=
 
 ARTIFACT:=
+ARTIFACT_EGL:=
 ARTIFACT_INSTALL:=
 ARTIFACT_DOXYGEN:=
 
@@ -122,7 +123,7 @@ $(eval $(call TESTER1_APP2,tester_egl2, \
     $(tester_aloe_OBJS) \
     tester_egl2.c))
 
-ARTIFACT+=tester_egl2
+ARTIFACT_EGL+=tester_egl2
 
 #------------------------------------
 #
@@ -133,7 +134,7 @@ $(eval $(call TESTER1_APP2,tester_egl3, \
   $(tester_aloe_OBJS) \
   tester_egl3.c))
 
-ARTIFACT+=tester_egl3
+ARTIFACT_EGL+=tester_egl3
 
 #------------------------------------
 #
@@ -144,7 +145,7 @@ $(eval $(call TESTER1_APP2,tester_egl4, \
   $(tester_aloe_OBJS) \
   tester_egl4.c))
 
-ARTIFACT+=tester_egl4
+ARTIFACT_EGL+=tester_egl4
 
 #------------------------------------
 #
@@ -155,7 +156,7 @@ $(eval $(call TESTER1_APP2,tester_egl5, \
   $(tester_aloe_OBJS) \
   tester_egl5.c))
 
-ARTIFACT+=tester_egl5
+ARTIFACT_EGL+=tester_egl5
 
 #------------------------------------
 #
@@ -166,7 +167,7 @@ $(eval $(call TESTER1_APP2,tester_egl6, \
   $(tester_aloe_OBJS) \
   tester_egl6.c))
 
-ARTIFACT+=tester_egl6
+ARTIFACT_EGL+=tester_egl6
 
 #------------------------------------
 #
@@ -177,10 +178,11 @@ $(eval $(call TESTER1_APP2,tester_egl7, \
   $(tester_aloe_OBJS) \
   tester_egl7.c))
 
-ARTIFACT+=tester_egl7
+ARTIFACT_EGL+=tester_egl7
 
 #------------------------------------
 #
+#ARTIFACT+=ARTIFACT_EGL
 artifact: $(ARTIFACT) $(ARTIFACT_DOXYGEN)
 
 -include $(sort $(foreach iter,$(ARTIFACT),$(${iter}_DEPS)))

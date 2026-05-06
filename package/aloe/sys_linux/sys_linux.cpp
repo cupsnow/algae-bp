@@ -15,9 +15,12 @@
 #include <aloe/sys.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
 #include "../log.h"
 
 #  define log_m(_lvl, _msg, _args...) do { \
@@ -282,7 +285,7 @@ int aloe_so_reuseaddr(int fd) {
 }
 
 extern "C"
-int aloe_so_keepalive(int fd) {
+int aloe_so_keepalive(int fd, int time, int retry, int interval) {
 	int r, opt;
 
 	opt = 1;
@@ -290,6 +293,19 @@ int aloe_so_keepalive(int fd) {
 		r = errno;
 		log_e("Failed to set SO_KEEPALIVE: %s(%d)\n", strerror(r), r);
 		return r;
+	}
+
+	if (time > 0 && (r = setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &time, sizeof(time))) != 0) {
+		r = errno;
+		log_e("Failed to set TCP_KEEPIDLE: %s(%d)\n", strerror(r), r);
+	}
+	if (retry > 0 && (r = setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &retry, sizeof(retry))) != 0) {
+		r = errno;
+		log_e("Failed to set TCP_KEEPCNT: %s(%d)\n", strerror(r), r);
+	}
+	if (interval > 0 && (r = setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &interval, sizeof(interval))) != 0) {
+		r = errno;
+		log_e("Failed to set TCP_KEEPINTVL: %s(%d)\n", strerror(r), r);
 	}
 	return 0;
 }

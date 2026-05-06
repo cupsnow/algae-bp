@@ -3197,11 +3197,21 @@ $(eval $(call SIMPLE_APP1,tester1))
 #
 host_dummy1: APP_PLATFORM=ub20
 host_dummy1:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1
 
 host_dummy1_%: APP_PLATFORM=ub20
 host_dummy1_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1$(@:host_dummy1%=%)
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1_$*
+
+#------------------------------------
+#
+host_tester1: APP_PLATFORM=ub20
+host_tester1:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) tester1
+
+host_tester1_%: APP_PLATFORM=ub20
+host_tester1_%:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) tester1_$*
 
 #------------------------------------
 #
