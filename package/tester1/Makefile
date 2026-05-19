@@ -95,8 +95,8 @@ endif
 
 #------------------------------------
 #
-tester_ev3_LDFLAGS+=$(tester_aloe_LDFLAGS)
-tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+tester_ev3_LDFLAGS+=$(tester_aloe_LDFLAGS) $(LDFLAGS)
+tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS) $(CPPFLAGS)
 
 $(eval $(call TESTER1_APP2,tester_ev3, \
     $(tester_aloe_OBJS) \
@@ -107,8 +107,8 @@ ARTIFACT+=tester_ev3
 
 #------------------------------------
 #
-tester_wifi2_LDFLAGS+=$(tester_aloe_LDFLAGS) $(libnl_LDFLAGS)
-tester_wifi2_CPPFLAGS+=$(tester_aloe_CPPFLAGS) $(libnl_CPPFLAGS)
+tester_wifi2_LDFLAGS+=$(tester_aloe_LDFLAGS) $(libnl_LDFLAGS) $(LDFLAGS)
+tester_wifi2_CPPFLAGS+=$(tester_aloe_CPPFLAGS) $(libnl_CPPFLAGS) $(CPPFLAGS)
 
 $(eval $(call TESTER1_APP2,tester_wifi2, \
     $(tester_aloe_OBJS) \

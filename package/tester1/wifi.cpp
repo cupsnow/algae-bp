@@ -38,259 +38,299 @@
 #include "wifi.h"
 #include "priv_ev.h"
 
-#define IFACE "wlan0"
+//#define IFACE "wlan0"
 #define MAX_EVENTS 8
 
-//====================
-// State machine
-//====================
-/*
-| Current State  | Event            | Next State     |
-| -------------- | ---------------- | -------------- |
-| IF_UP          | start            | SCANNING       |
-| SCANNING       | scan done        | AUTHENTICATING |
-| AUTHENTICATING | connect success  | CONNECTED_L2   |
-| AUTHENTICATING | disconnect       | RETRY_BACKOFF  |
-| CONNECTED_L2   | start DHCP       | DHCP           |
-| DHCP           | IP assigned      | CONNECTED_L3   |
-| ANY            | disconnect event | DISCONNECTED   |
-| ANY            | timeout          | RESET          |
-*/
 typedef enum {
-    ST_INIT,
-    ST_IF_DOWN,
-    ST_IF_UP,
-    ST_SCANNING,
-    ST_CONNECTING,
-    ST_CONNECTED_L2,
-    ST_DHCP,
-    ST_CONNECTED_L3,
-    ST_RETRY,
-    ST_RESET
+	ST_INIT,
+	ST_IF_DOWN,
+	ST_IF_UP,
+	ST_SCANNING,
+	ST_CONNECTING,
+	ST_CONNECTED_L2,
+	ST_DHCP,
+	ST_CONNECTED_L3,
+	ST_RETRY,
+	ST_RESET
 } state_t;
 
 typedef struct {
 	evconn_t evconn;
+	state_t state;
+	int ifindex;
+	int epfd;
+	int timer_fd;
+	int rtnl_fd;
+	struct nl_sock *nl_sock;
+	int nl80211_id;
+	char iface[16];
 } wifi2_t;
 
-static state_t state = ST_INIT;
-
-//====================
-// Globals
-//====================
-static int ifindex;
-static int epfd;
-static int timer_fd;
-static int rtnl_fd;
-
-static struct nl_sock *nl_sock;
-static int nl80211_id;
-
-//====================
-// Utility
-//====================
-static void set_timer(int sec)
-{
-    struct itimerspec its = {0};
-    its.it_value.tv_sec = sec;
-    timerfd_settime(timer_fd, 0, &its, NULL);
+extern "C" {
+void *wifi2_global;
 }
 
-static void iface_set_up(int up)
-{
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "ip link set %s %s", IFACE, up ? "up" : "down");
-    system(cmd);
+static const char* st_str(int st) {
+	struct {
+		const char *name;
+		unsigned flag;
+	} lut[] = {
+		{"ST_INIT", ST_INIT},
+		{"ST_IF_DOWN", ST_IF_DOWN},
+		{"ST_IF_UP", ST_IF_UP},
+		{"ST_SCANNING", ST_SCANNING},
+		{"ST_CONNECTING", ST_CONNECTING},
+		{"ST_CONNECTED_L2", ST_CONNECTED_L2},
+		{"ST_DHCP", ST_DHCP},
+		{"ST_CONNECTED_L3", ST_CONNECTED_L3},
+		{"ST_RETRY", ST_RETRY},
+		{"ST_RESET", ST_RESET},
+		{NULL}
+	}, *lut_iter;
+	int pos = 0, r;
+	
+	for (lut_iter = lut; lut_iter->name; lut_iter++) {
+		if (st == lut_iter->flag) return lut_iter->name;
+	}
+	return "";
 }
 
-//====================
-// DHCP control
-//====================
-static void dhcp_start(void)
-{
-    system("killall udhcpc 2>/dev/null");
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "udhcpc -i %s -n &", IFACE);
-    system(cmd);
+static int ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep) {
+	struct {
+		const char *name;
+		unsigned flag;
+	} lut[] = {
+		{"UP", IFF_UP},
+		{"BROADCAST", IFF_BROADCAST},
+		{"LOOPBACK", IFF_LOOPBACK},
+		{"RUNNING", IFF_RUNNING},
+		{"PROMISC", IFF_PROMISC},
+		{"MULTICAST", IFF_MULTICAST},
+		{"PORTSEL", IFF_PORTSEL},
+		{"AUTOMEDIA", IFF_AUTOMEDIA},
+		{"DYNAMIC", IFF_DYNAMIC},
+		{NULL}
+	}, *lut_iter;
+	int pos = 0, r;
+	unsigned found = 0;
+
+	if (!sep) sep = ", ";
+	for (lut_iter = lut; lut_iter->name; lut_iter++) {
+		if (!(iflag & lut_iter->flag)) continue;
+		if (pos >= str_sz || (r = snprintf(str + pos, str_sz - pos, 
+				"%s%s", (pos > 0 ? sep : ""), lut_iter->name)) < 0 
+				|| (r + pos) >= str_sz) {
+			goto finally;
+		}
+		pos += r;
+		found |= lut_iter->flag;
+	}
+finally:
+	if (pos < str_sz && (iflag != found) && (r = snprintf(str + pos, str_sz - pos,
+			"%s%s", (pos > 0 ? sep : ""), "...") > 0 && (r + pos) < str_sz)) {
+		pos += r;
+	}
+	if (pos >= str_sz) pos = str_sz - 1;
+	str[pos] = '\0';
+	return pos;
 }
 
-//====================
-// nl80211 helpers
-//====================
-static int send_connect(void)
-{
-    struct nl_msg *msg = nlmsg_alloc();
-    if (!msg) return -1;
+static void set_timer(wifi2_t *wifi2, int sec) {
+	struct itimerspec its = {0};
 
-    genlmsg_put(msg, 0, 0, nl80211_id, 0, 0,
-                NL80211_CMD_CONNECT, 0);
-
-    nla_put_u32(msg, NL80211_ATTR_IFINDEX, ifindex);
-    nla_put(msg, NL80211_ATTR_SSID, 4, "TEST"); // <-- change SSID
-
-    int ret = nl_send_auto(nl_sock, msg);
-    nlmsg_free(msg);
-    return ret;
+	its.it_value.tv_sec = sec;
+	timerfd_settime(wifi2->timer_fd, 0, &its, NULL);
 }
 
-static int send_scan(void)
-{
-    struct nl_msg *msg = nlmsg_alloc();
-    if (!msg) return -1;
+static void iface_set_up(wifi2_t *wifi2, int up) {
+	char cmd[128];
 
-    genlmsg_put(msg, 0, 0, nl80211_id, 0, 0,
-                NL80211_CMD_TRIGGER_SCAN, 0);
-
-    nla_put_u32(msg, NL80211_ATTR_IFINDEX, ifindex);
-
-    int ret = nl_send_auto(nl_sock, msg);
-    nlmsg_free(msg);
-    return ret;
+	snprintf(cmd, sizeof(cmd), "ip link set %s %s", wifi2->iface, up ? "up" : "down");
+	system(cmd);
 }
 
-//====================
-// nl80211 event handler
-//====================
-static int nl_event_handler(struct nl_msg *msg, void *arg)
-{
-    struct nlmsghdr *nlh = (struct nlmsghdr*)nlmsg_hdr(msg);
-    struct genlmsghdr *ghdr = (struct genlmsghdr*)nlmsg_data(nlh);
+static void dhcp_start(wifi2_t *wifi2) {
+	char cmd[128];
 
-    switch (ghdr->cmd) {
-    case NL80211_CMD_CONNECT:
-        printf("NL: CONNECTED\n");
-        state = ST_CONNECTED_L2;
-        break;
-
-    case NL80211_CMD_DISCONNECT:
-        printf("NL: DISCONNECTED\n");
-        state = ST_RETRY;
-        break;
-
-    case NL80211_CMD_NEW_SCAN_RESULTS:
-        printf("NL: SCAN DONE\n");
-        state = ST_CONNECTING;
-        break;
-    }
-    return NL_OK;
+	system("killall udhcpc 2>/dev/null");
+	snprintf(cmd, sizeof(cmd), "udhcpc -i %s -n &", wifi2->iface);
+	system(cmd);
 }
 
-//====================
-// rtnetlink handler
-//====================
-static void handle_rtnl(void)
-{
-    char buf[4096];
-    int len = recv(rtnl_fd, buf, sizeof(buf), 0);
+static int send_connect(wifi2_t *wifi2) {
+	struct nl_msg *msg;
 
-    for (struct nlmsghdr *nh = (struct nlmsghdr *)buf;
-         NLMSG_OK(nh, len);
-         nh = NLMSG_NEXT(nh, len)) {
+	if ((msg = nlmsg_alloc()) == NULL) return -1;
 
-        if (nh->nlmsg_type == RTM_NEWADDR) {
-            printf("RTNL: IP assigned\n");
-            if (state == ST_DHCP)
-                state = ST_CONNECTED_L3;
-        }
+	genlmsg_put(msg, 0, 0, wifi2->nl80211_id, 0, 0, NL80211_CMD_CONNECT, 0);
 
-        if (nh->nlmsg_type == RTM_NEWLINK) {
-            struct ifinfomsg *ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
-            if (ifi->ifi_index == ifindex) {
-                if (!(ifi->ifi_flags & IFF_RUNNING)) {
-                    printf("RTNL: LINK DOWN\n");
-                    state = ST_RETRY;
-                }
-            }
-        }
-    }
+	nla_put_u32(msg, NL80211_ATTR_IFINDEX, wifi2->ifindex);
+	nla_put(msg, NL80211_ATTR_SSID, 4, "TEST"); // <-- change SSID
+
+	int ret = nl_send_auto(wifi2->nl_sock, msg);
+	nlmsg_free(msg);
+	return ret;
 }
 
-//====================
-// State machine runner
-//====================
-static void run_sm(void)
-{
-    switch (state) {
+static int send_scan(wifi2_t *wifi2) {
+	struct nl_msg *msg;
+	int ret;
 
-    case ST_INIT:
-        iface_set_up(0);
-        state = ST_IF_DOWN;
-        break;
+	if ((msg = nlmsg_alloc()) == NULL) return -1;
 
-    case ST_IF_DOWN:
-        iface_set_up(1);
-        set_timer(1);
-        state = ST_IF_UP;
-        break;
+	genlmsg_put(msg, 0, 0, wifi2->nl80211_id, 0, 0, NL80211_CMD_TRIGGER_SCAN,
+			0);
 
-    case ST_IF_UP:
-        printf("→ SCAN\n");
-        send_scan();
-        set_timer(5);
-        state = ST_SCANNING;
-        break;
+	nla_put_u32(msg, NL80211_ATTR_IFINDEX, wifi2->ifindex);
 
-    case ST_SCANNING:
-        break;
-
-    case ST_CONNECTING:
-        printf("→ CONNECT\n");
-        send_connect();
-        set_timer(10);
-        break;
-
-    case ST_CONNECTED_L2:
-        printf("→ DHCP\n");
-        dhcp_start();
-        set_timer(8);
-        state = ST_DHCP;
-        break;
-
-    case ST_DHCP:
-        break;
-
-    case ST_CONNECTED_L3:
-        printf("CONNECTED OK\n");
-        break;
-
-    case ST_RETRY:
-        printf("→ RETRY\n");
-        set_timer(2);
-        state = ST_RESET;
-        break;
-
-    case ST_RESET:
-        iface_set_up(0);
-        iface_set_up(1);
-        state = ST_IF_UP;
-        break;
-    }
+	ret = nl_send_auto(wifi2->nl_sock, msg);
+	nlmsg_free(msg);
+	return ret;
 }
 
-//====================
-// Init
-//====================
-static void init_nl(void)
-{
-    nl_sock = nl_socket_alloc();
-    genl_connect(nl_sock);
+static int nl_event_handler(struct nl_msg *msg, void *arg) {
+	wifi2_t *wifi2 = (wifi2_t*)arg;
+	struct nlmsghdr *nlh = (struct nlmsghdr*)nlmsg_hdr(msg);
+	struct genlmsghdr *ghdr = (struct genlmsghdr*)nlmsg_data(nlh);
 
-    nl80211_id = genl_ctrl_resolve(nl_sock, "nl80211");
+	switch (ghdr->cmd) {
+	case NL80211_CMD_CONNECT:
+		log_d("NL: CONNECTED\n");
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_CONNECTED_L2));
+		wifi2->state = ST_CONNECTED_L2;
+		break;
 
-    nl_socket_modify_cb(nl_sock, NL_CB_VALID,
-                        NL_CB_CUSTOM, nl_event_handler, NULL);
+	case NL80211_CMD_DISCONNECT:
+		log_d("NL: DISCONNECTED\n");
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RETRY));
+		wifi2->state = ST_RETRY;
+		break;
+
+	case NL80211_CMD_NEW_SCAN_RESULTS:
+		log_d("NL: SCAN DONE\n");
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_CONNECTING));
+		wifi2->state = ST_CONNECTING;
+		break;
+	}
+	return NL_OK;
 }
 
-static void init_rtnl(void)
-{
-    rtnl_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+static void handle_rtnl(wifi2_t *wifi2) {
+	char buf[4096];
+	int len;
+
+	len = recv(wifi2->rtnl_fd, buf, sizeof(buf), 0);
+
+	for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, len);
+			nh = NLMSG_NEXT(nh, len)) {
+
+		if (nh->nlmsg_type == RTM_NEWADDR) {
+			log_d("RTNL: IP assigned\n");
+			if (wifi2->state == ST_DHCP) {
+				log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_CONNECTED_L3));
+				wifi2->state = ST_CONNECTED_L3;
+			}
+		}
+
+		if (nh->nlmsg_type == RTM_NEWLINK) {
+			struct ifinfomsg *ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
+			if (ifi->ifi_index == wifi2->ifindex) {
+				char flag_str[128];
+
+				ifflag_str(flag_str, sizeof(flag_str), ifi->ifi_flags, NULL);
+
+				log_d("flag: 0x%x (%s)\n", ifi->ifi_flags, flag_str);
+				if (!(ifi->ifi_flags & IFF_RUNNING)) {
+					log_d("RTNL: LINK DOWN\n");
+					log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RETRY));
+					wifi2->state = ST_RETRY;
+				}
+			}
+		}
+	}
+}
+
+static void run_sm(wifi2_t *wifi2) {
+	switch (wifi2->state) {
+	case ST_INIT:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_IF_DOWN));
+		iface_set_up(wifi2, 0);
+		wifi2->state = ST_IF_DOWN;
+		break;
+
+	case ST_IF_DOWN:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_IF_UP));
+		iface_set_up(wifi2, 1);
+		set_timer(wifi2, 1);
+		wifi2->state = ST_IF_UP;
+		break;
+
+	case ST_IF_UP:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_SCANNING));
+		send_scan(wifi2);
+		set_timer(wifi2, 5);
+		wifi2->state = ST_SCANNING;
+		break;
+
+	case ST_SCANNING:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(wifi2->state));
+		break;
+
+	case ST_CONNECTING:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(wifi2->state));
+		send_connect(wifi2);
+		set_timer(wifi2, 10);
+		break;
+
+	case ST_CONNECTED_L2:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_DHCP));
+		dhcp_start(wifi2);
+		set_timer(wifi2, 8);
+		wifi2->state = ST_DHCP;
+		break;
+
+	case ST_DHCP:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(wifi2->state));
+		break;
+
+	case ST_CONNECTED_L3:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(wifi2->state));
+		break;
+
+	case ST_RETRY:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RESET));
+		set_timer(wifi2, 2);
+		wifi2->state = ST_RESET;
+		break;
+
+	case ST_RESET:
+		log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_IF_UP));
+		iface_set_up(wifi2, 0);
+		iface_set_up(wifi2, 1);
+		wifi2->state = ST_IF_UP;
+		break;
+	}
+}
+
+static void init_nl(wifi2_t *wifi2) {
+	wifi2->nl_sock = nl_socket_alloc();
+	genl_connect(wifi2->nl_sock);
+
+	wifi2->nl80211_id = genl_ctrl_resolve(wifi2->nl_sock, "nl80211");
+
+	nl_socket_modify_cb(wifi2->nl_sock, NL_CB_VALID, NL_CB_CUSTOM,
+			nl_event_handler, wifi2);
+}
+
+static void init_rtnl(wifi2_t *wifi2) {
+    wifi2->rtnl_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 
     struct sockaddr_nl addr = {
         .nl_family = AF_NETLINK,
         .nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
     };
 
-    bind(rtnl_fd, (struct sockaddr*)&addr, sizeof(addr));
+    bind(wifi2->rtnl_fd, (struct sockaddr*)&addr, sizeof(addr));
 }
 
 static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
@@ -298,30 +338,29 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 	struct epoll_event events[MAX_EVENTS];
 	int n;
 
-	if (wifi2->evconn.fd != epfd) {
+	if (wifi2->evconn.fd != wifi2->epfd) {
 		log_e("sanity check mismatch epfd\n");
 		return;
 	}
 
-	n = epoll_wait(epfd, events, MAX_EVENTS, -1);
+	n = epoll_wait(wifi2->epfd, events, MAX_EVENTS, -1);
 
 	for (int i = 0; i < n; i++) {
 
-		if (events[i].data.fd == rtnl_fd)
-			handle_rtnl();
-
-		else if (events[i].data.fd == nl_socket_get_fd(nl_sock))
-			nl_recvmsgs_default(nl_sock);
-
-		else if (events[i].data.fd == timer_fd) {
+		if (events[i].data.fd == wifi2->rtnl_fd) {
+			handle_rtnl(wifi2);
+		} else if (events[i].data.fd == nl_socket_get_fd(wifi2->nl_sock)) {
+			nl_recvmsgs_default(wifi2->nl_sock);
+		} else if (events[i].data.fd == wifi2->timer_fd) {
 			uint64_t exp;
-			read(timer_fd, &exp, sizeof(exp));
-			printf("TIMER\n");
-			state = ST_RESET;
+			read(wifi2->timer_fd, &exp, sizeof(exp));
+			log_d("TIMER\n");
+			log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RESET));
+			wifi2->state = ST_RESET;
 		}
 	}
 
-	run_sm();
+	run_sm(wifi2);
 finally:
 	// keep listen
 	if ((wifi2->evconn.ev = aloe_ev_put(wifi2->evconn.ev_ctx, wifi2->evconn.fd,
@@ -331,46 +370,71 @@ finally:
 	}
 }
 
-void* wifi2_init(void *evctx)
-{
+void* wifi2_init(void *evctx, const char *iface) {
 	struct epoll_event ev;
 	wifi2_t *wifi2 = NULL;
+	int ret = -1, r;
 
 	if ((wifi2 = (wifi2_t*)aloe_calloc(1, sizeof(*wifi2))) == NULL) {
 		log_e("failed alloc wifi2\n");
 		goto finally;
 	}
+	wifi2->timer_fd = wifi2->epfd = wifi2->rtnl_fd = -1;
+	wifi2->ifindex = 0;
+	wifi2->state = ST_INIT;
+	strncpy(wifi2->iface, (iface ? iface : "wlan0"), sizeof(wifi2->iface));
+	wifi2->iface[sizeof(wifi2->iface) - 1] = '\0';
 
-    ifindex = if_nametoindex(IFACE);
+	if ((wifi2->ifindex = if_nametoindex(wifi2->iface)) == 0) {
+		r = errno;
+		log_e("failed get interface %s index; %s\n", wifi2->iface, strerror(r));
+		goto finally;
+	}
 
-    init_nl();
-    init_rtnl();
+	init_nl(wifi2);
+	init_rtnl(wifi2);
 
-    timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
+	wifi2->timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
 
-    epfd = epoll_create1(0);
+	wifi2->epfd = epoll_create1(0);
 
-    memset(&ev, 0, sizeof(ev));
+	memset(&ev, 0, sizeof(ev));
 
-    ev.events = EPOLLIN;
-    ev.data.fd = rtnl_fd;
-    epoll_ctl(epfd, EPOLL_CTL_ADD, rtnl_fd, &ev);
+	ev.events = EPOLLIN;
+	ev.data.fd = wifi2->rtnl_fd;
+	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, wifi2->rtnl_fd, &ev);
 
-    ev.data.fd = nl_socket_get_fd(nl_sock);
-    epoll_ctl(epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
+	ev.data.fd = nl_socket_get_fd(wifi2->nl_sock);
+	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
 
-    ev.data.fd = timer_fd;
-    epoll_ctl(epfd, EPOLL_CTL_ADD, timer_fd, &ev);
+	ev.data.fd = wifi2->timer_fd;
+	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, wifi2->timer_fd, &ev);
 
-    wifi2->evconn.fd = epfd;
-    wifi2->evconn.ev_ctx = evctx;
+	wifi2->evconn.fd = wifi2->epfd;
+	wifi2->evconn.ev_ctx = evctx;
 	if ((wifi2->evconn.ev = aloe_ev_put(wifi2->evconn.ev_ctx, wifi2->evconn.fd,
 			&wifi2_epoll_cb, wifi2, aloe_ev_flag_read, ALOE_EV_INFINITE,
 			0)) == NULL) {
 		log_e("Failure aloe_ev_put\n");
 		goto finally;
 	}
-
+	log_d("wifi2 initialized, ctx: 0x%x\n", (unsigned)(unsigned long)wifi2);
+	ret = 0;
 finally:
+	if (ret != 0 && wifi2) {
+		if (wifi2->evconn.ev) aloe_ev_cancel(wifi2->evconn.ev_ctx, wifi2->evconn.ev);
+		if (wifi2->epfd != -1) close(wifi2->epfd);
+		if (wifi2->timer_fd != -1) close(wifi2->timer_fd);
+		if (wifi2->rtnl_fd) close(wifi2->rtnl_fd);
+		if (wifi2->nl_sock) nl_socket_free(wifi2->nl_sock);
+		aloe_free(wifi2);
+		wifi2 = NULL;
+	}
 	return wifi2;
+}
+
+int wifi2_cli(void*, int argc, const char **argv) {
+
+	dump_argv(argc, argv);
+	return 0;
 }

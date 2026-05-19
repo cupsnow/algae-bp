@@ -105,6 +105,8 @@ static int cli_help(void *cbarg, int argc, const char **argv) {
 		if (tgt) return 0;
 	}
 
+	if (!cli) cli = (cli1_t*)cli_global;
+
 	if (cli) {
 		cli_ref = NULL;
 		while ((cli_ref = cli_cmdq_foreach(&cli->cmdq, cli_ref))) {
@@ -178,9 +180,14 @@ static int cli_input_line(cli1_t *cli, const char *line_start, size_t line_sz) {
 		log_e("Command %s not found\n", argv[1]);
 		return -1;
 	}
+#if 1
+	r = (*cli_ref->run)(cli_ref->cbarg, argc, &argv[1]);
+#else
 	argv[0] = "cli";
 	argc++;
-	if ((r = (*cli_ref->run)(cli_ref->cbarg, argc, argv)) == 0) {
+	r = (*cli_ref->run)(cli_ref->cbarg, argc, argv);
+#endif
+	if (r == 0) {
 		log_d("Command %s return %d\n", argv[1], r);
 		return 0;
 	}
@@ -334,7 +341,7 @@ void* cli1_init(void *evctx) {
 		goto finally;
 	}
 
-	cli1_cmd_add(cli, "help2", &cli_help, cli, "Show this help");
+//	cli1_cmd_add(cli, "help2", &cli_help, cli, "Show this help");
 
 	log_d("listen on cli\n");
 	ret = 0;

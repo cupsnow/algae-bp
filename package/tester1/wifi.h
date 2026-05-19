@@ -20,13 +20,13 @@
 extern "C" {
 #endif
 
-void* wifi2_init(void *evctx);
+extern void *wifi2_global;
+
+void* wifi2_init(void *evctx, const char *iface);
+int wifi2_cli(void*, int argc, const char **argv);
 
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
-
-
-
 
 #endif /* WIFI_H_ */

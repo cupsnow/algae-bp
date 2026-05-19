@@ -32,6 +32,10 @@ extern "C" {
 #  define log_d(...) log_m("Debug", __VA_ARGS__)
 #  define log_e(...) log_m("ERROR", __VA_ARGS__)
 
+#define dump_argv(_argc, _argv) for (int i = 0; i < _argc; i++) { \
+	log_d("argv[%d/%d]: %s\n", i + 1, _argc, _argv[i]); \
+}
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
