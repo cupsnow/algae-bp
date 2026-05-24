@@ -27,6 +27,23 @@ ARTIFACT_DOXYGEN:=
 
 .DEFAULT_GOAL:=artifact
 
+
+
+#------------------------------------
+#
+
+
+
+
+
+
+
+
+
+
+
+
+
 #------------------------------------
 #
 define TESTER1_OBJ2
@@ -83,6 +100,70 @@ tester_aloe_doxygen: | $(BUILDDIR)/tester_aloe-docs
 
 ARTIFACT_DOXYGEN+=tester_aloe_doxygen
 
+
+#------------------------------------
+#
+TESTER1_ALOE_SRCS+=$(wildcard \
+  $(PROJDIR)/package/aloe/*.cpp \
+  $(PROJDIR)/package/aloe/*.c \
+  $(PROJDIR)/package/aloe/sys_linux/*.cpp \
+  $(PROJDIR)/package/aloe/sys_linux/*.c)
+
+#------------------------------------
+#
+TESTER1_EV3_BUILDDIR=$(PROJDIR)/build/tester1_ev3
+TESTER1_EV3_BIN=tester1_ev3
+TESTER1_EV3_ATTR+=USE_WIFIMGR
+
+TESTER1_EV3_OWN_SRCS+=ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp
+TESTER1_EV3_OWN_BUILDDIR=$(TESTER1_EV3_BUILDDIR)/ev3
+TESTER1_EV3_OWN_OBJS+=$(patsubst %,$(TESTER1_EV3_OWN_BUILDDIR)/%.o,$(filter %.c %.cpp,$(TESTER1_EV3_OWN_SRCS)))
+
+TESTER1_EV3_ALOE_BUILDDIR=$(TESTER1_EV3_BUILDDIR)/aloe
+TESTER1_EV3_ALOE_OBJS+=$(patsubst $(PROJDIR)/package/aloe/%,$(TESTER1_EV3_ALOE_BUILDDIR)/%.o,$(filter %.c %.cpp,$(TESTER1_ALOE_SRCS)))
+TESTER1_EV3_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+
+TESTER1_EV3_OBJS+=$(TESTER1_EV3_ALOE_OBJS) $(TESTER1_EV3_OWN_OBJS)
+TESTER1_EV3_OBJDEPS+=$(addsuffix .d,$(TESTER1_EV3_ALOE_OBJS) $(TESTER1_EV3_OWN_OBJS))
+TESTER1_GENDIR+=$(sort $(TESTER1_EV3_BUILDDIR) \
+  $(dir $(TESTER1_EV3_ALOE_OBJS) \
+    $(TESTER1_EV3_OWN_OBJS)) \
+)
+
+ifneq ($(filter USE_WIFIMGR,$(TESTER1_EV3_ATTR)),)
+TESTER1_EV3_OWN_SRCS+=wifi.cpp
+TESTER1_EV3_CPPFLAGS+=-DUSE_WIFIMGR=1
+TESTER1_EV3_CPPFLAGS+=$(libnl_CPPFLAGS)
+TESTER1_EV3_LDFLAGS+=$(libnl_LDFLAGS)
+endif
+
+GENDIR+=$(TESTER1_GENDIR)
+
+.PHONY: $(TESTER1_EV3_BIN)
+$(TESTER1_EV3_BIN): $(TESTER1_EV3_BUILDDIR)/$(TESTER1_EV3_BIN)
+
+$(TESTER1_EV3_BUILDDIR)/$(TESTER1_EV3_BIN): $(TESTER1_EV3_OBJS) | $(filter .a .o,$(TESTER1_EV3_OWN_SRCS))
+	$(if $(filter %.cpp.o,$(TESTER1_EV3_OBJS) $(TESTER1_EV3_OWN_SRCS)),$(C++),$(CC)) -o $@ \
+	    $(filter %.o %.a,$^) $(or $(TESTER1_EV3_LDFLAGS),$(LDFLAGS))
+
+$(filter %.c.o,$(TESTER1_EV3_ALOE_OBJS)): $(TESTER1_EV3_ALOE_BUILDDIR)/%.o: $(PROJDIR)/package/aloe/% | $(TESTER1_GENDIR)
+	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(TESTER1_EV3_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(TESTER1_EV3_CFLAGS),$(CFLAGS))
+
+$(filter %.cpp.o,$(TESTER1_EV3_ALOE_OBJS)): $(TESTER1_EV3_ALOE_BUILDDIR)/%.o: $(PROJDIR)/package/aloe/% | $(TESTER1_GENDIR)
+	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(TESTER1_EV3_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(TESTER1_EV3_CXXFLAGS),$(CXXFLAGS))
+
+$(filter %.c.o,$(TESTER1_EV3_OWN_OBJS)): $(TESTER1_EV3_OWN_BUILDDIR)/%.o: % | $(TESTER1_GENDIR)
+	$(CC) -c -o $@ $< $(DEPFLAGS) $(or $(TESTER1_EV3_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(TESTER1_EV3_CFLAGS),$(CFLAGS))
+
+$(filter %.cpp.o,$(TESTER1_EV3_OWN_OBJS)): $(TESTER1_EV3_OWN_BUILDDIR)/%.o: % | $(TESTER1_GENDIR)
+	$(C++) -c -o $@ $< $(DEPFLAGS) $(or $(TESTER1_EV3_CPPFLAGS),$(CPPFLAGS)) \
+	    $(or $(TESTER1_EV3_CXXFLAGS),$(CXXFLAGS))
+
+-include $(sort $(TESTER1_EV3_OBJDEPS))
+
 #------------------------------------
 #
 ifneq ($(strip $(BUILD_SYSROOT)),)
@@ -95,15 +176,15 @@ endif
 
 #------------------------------------
 #
-tester_ev3_LDFLAGS+=$(tester_aloe_LDFLAGS) $(LDFLAGS)
-tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS) $(CPPFLAGS)
+# tester_ev3_LDFLAGS+=$(tester_aloe_LDFLAGS) $(LDFLAGS)
+# tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS) $(CPPFLAGS)
 
-$(eval $(call TESTER1_APP2,tester_ev3, \
-    $(tester_aloe_OBJS) \
-    ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp \
-))
+# $(eval $(call TESTER1_APP2,tester_ev3, \
+#     $(tester_aloe_OBJS) \
+#     ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp \
+# ))
 
-ARTIFACT+=tester_ev3
+# ARTIFACT+=tester_ev3
 
 #------------------------------------
 #

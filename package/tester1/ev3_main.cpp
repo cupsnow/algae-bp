@@ -15,17 +15,22 @@
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h> // For TCP_KEEPIDLE, TCP_KEEPINTVL, etc. (Linux)
+#include <getopt.h>
 
 #include "priv_ev.h"
 
 #include "mgmt.h"
 #include "cli.h"
 #include "ipc.h"
+#ifdef USE_WIFIMGR
+#  include "wifi.h"
+#endif
 
 static struct {
 	void *ev_ctx;
 	char quit;
 	struct timespec cycle_ts, cycle_td;
+	int log_level;
 } impl;
 
 #define dump_argv(_argc, _argv) for (int i = 0; i < _argc; i++) { \
@@ -79,6 +84,20 @@ static int cli_cmd_cycle_time(void*, int, const char**) {
 	return 0;
 }
 
+#ifdef USE_WIFIMGR
+static int cli_cmd_wifi(void*, int argc, const char **argv) {
+	dump_argv(argc, argv);
+	if (!wifi2_global) {
+		const char *iface = argc >= 2 ? argv[1] : NULL;
+		wifi2_global = wifi2_init(impl.ev_ctx, iface);
+	}
+	if (wifi2_global) {
+		return wifi2_cli(wifi2_global, argc, argv);
+	}
+	return 0;
+}
+#endif
+
 static void tester_proc2(void *args) {
 	int *msg_seq = (int*)args;
 
@@ -104,13 +123,83 @@ finally:
 	return (void*)(unsigned long)r;
 }
 
+static const char opt_short[] = "hv";
+enum {
+	opt_key_reflags = 0x201,
+	opt_key_ctrlpath,
+	opt_key_ctrlport,
+	opt_key_max
+};
+
+static struct option opt_long[] = {
+	{"help", no_argument, NULL, 'h'},
+	{"verbose", no_argument, NULL, 'v'},
+	{"ctrlpath", required_argument, NULL, opt_key_ctrlpath},
+	{"ctrlport", required_argument, NULL, opt_key_ctrlport},
+	{0},
+};
+
+static void help(int argc, const char **argv) {
+	int i;
+
+	dump_argv(argc, argv)
+
+	fprintf(stdout,
+"COMMAND\n"
+"    %s [OPTIONS] [APPLET]\n"
+"\n"
+"OPTIONS\n"
+"    -h, --help          Show help\n"
+"    -v, --verbose       Verbose output (default mimic debug and more)\n"
+"    --ctrlpath=<FILE>   Start admin service, unix socket FILE for control\n"
+"        interface\n"
+"    --ctrlport=<PORT>   Start admin service, bound PORT for control\n"
+"        interface\n"
+"\n", ((argc > 0) && argv && argv[0] ? argv[0] : "Program"));
+}
+
 int main(int argc, const char **argv) {
-	int ret = -1;
+	enum {
+		opt_flag_show_help = (1 << 0),
+	};
+	int ret = -1, opt_op, opt_idx, i, opt_exit = 0;
 	pthread_t tester = {};
 
 	log_d("%s\n", aloe_version(NULL, 0));
 
 	dump_argv(argc, argv)
+
+	optind = 0;
+	while ((opt_op = getopt_long(argc, (char* const*)argv, opt_short, opt_long,
+			&opt_idx)) != -1) {
+		if (opt_op == 'h') {
+			opt_exit |= opt_flag_show_help;
+			continue;
+		}
+		if (opt_op == opt_key_ctrlpath) {
+//			ctrl_path = optarg;
+			continue;
+		}
+		if (opt_op == opt_key_ctrlport) {
+//			ctrl_port = strtol(optarg, NULL, 10);
+			continue;
+		}
+		if (opt_op == 'v') {
+			/*if (impl.log_level < aloe_log_level_verb) */impl.log_level++;
+			continue;
+		}
+	}
+
+#if 1
+	for (i = optind; i < argc; i++) {
+		log_d("non-option argv[%d]: %s\n", i, argv[i]);
+	}
+#endif
+
+	if (opt_exit) {
+		if (opt_exit & opt_flag_show_help) help(argc, argv);
+		goto finally;
+	}
 
 	if (0) {
 		cli1_test1();
@@ -132,6 +221,9 @@ int main(int argc, const char **argv) {
 	ipc_global = ipc1_init(impl.ev_ctx);
 
 	cli1_cmd_add(cli_global, "cycle_time", &cli_cmd_cycle_time, NULL, "event cycle time");
+#ifdef USE_WIFIMGR
+	cli1_cmd_add(cli_global, "wifi", &cli_cmd_wifi, NULL, "wifi manager");
+#endif
 
 #if 0
 	pthread_create(&tester, NULL, &tester_ipc, NULL);
