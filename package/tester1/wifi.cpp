@@ -42,7 +42,7 @@
 #define MAX_EVENTS 8
 
 typedef enum {
-	ST_INIT,
+	ST_INIT = 0,
 	ST_IF_DOWN,
 	ST_IF_UP,
 	ST_SCANNING,
@@ -56,11 +56,11 @@ typedef enum {
 
 typedef struct {
 	evconn_t evconn;
-	state_t state;
+	state_t state, pause;
 	int ifindex;
 	int epfd;
 	int timer_fd;
-	int rtnl_fd;
+	int nlrt_fd;
 	struct nl_sock *nl_sock;
 	int nl80211_id;
 	char iface[16];
@@ -116,9 +116,11 @@ static int ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep)
 
 	if (!sep) sep = ", ";
 	for (lut_iter = lut; lut_iter->name; lut_iter++) {
+		log_d("pos %d, name %s\n", pos, lut_iter->name);
 		if (!(iflag & lut_iter->flag)) continue;
+		log_d("pos %d, name %s, 0x%x\n", pos, lut_iter->name, iflag & lut_iter->flag);
 		if (pos >= str_sz || (r = snprintf(str + pos, str_sz - pos, 
-				"%s%s", (pos > 0 ? sep : ""), lut_iter->name)) < 0 
+				"%s%s", (pos > 0 ? sep : ""), lut_iter->name)) <= 0
 				|| (r + pos) >= str_sz) {
 			goto finally;
 		}
@@ -193,6 +195,8 @@ static int nl_event_handler(struct nl_msg *msg, void *arg) {
 	struct nlmsghdr *nlh = (struct nlmsghdr*)nlmsg_hdr(msg);
 	struct genlmsghdr *ghdr = (struct genlmsghdr*)nlmsg_data(nlh);
 
+	log_d("cmd: %d\n", (int)ghdr->cmd);
+
 	switch (ghdr->cmd) {
 	case NL80211_CMD_CONNECT:
 		log_d("NL: CONNECTED\n");
@@ -215,21 +219,24 @@ static int nl_event_handler(struct nl_msg *msg, void *arg) {
 	return NL_OK;
 }
 
-static void handle_rtnl(wifi2_t *wifi2) {
+static void handle_nlrt(wifi2_t *wifi2) {
 	char buf[4096];
 	int len;
 
-	len = recv(wifi2->rtnl_fd, buf, sizeof(buf), 0);
+	len = recv(wifi2->nlrt_fd, buf, sizeof(buf), 0);
+
+	log_d("recv len %d\n", len);
 
 	for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, len);
 			nh = NLMSG_NEXT(nh, len)) {
 
 		if (nh->nlmsg_type == RTM_NEWADDR) {
-			log_d("RTNL: IP assigned\n");
+			log_d("nlrt: IP assigned\n");
 			if (wifi2->state == ST_DHCP) {
 				log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_CONNECTED_L3));
 				wifi2->state = ST_CONNECTED_L3;
 			}
+			continue;
 		}
 
 		if (nh->nlmsg_type == RTM_NEWLINK) {
@@ -239,14 +246,29 @@ static void handle_rtnl(wifi2_t *wifi2) {
 
 				ifflag_str(flag_str, sizeof(flag_str), ifi->ifi_flags, NULL);
 
-				log_d("flag: 0x%x (%s)\n", ifi->ifi_flags, flag_str);
+				log_d("RTM_NEWLINK flag: 0x%x (%s)\n", ifi->ifi_flags, flag_str);
 				if (!(ifi->ifi_flags & IFF_RUNNING)) {
-					log_d("RTNL: LINK DOWN\n");
+					log_d("NLRT: LINK DOWN\n");
 					log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RETRY));
 					wifi2->state = ST_RETRY;
 				}
 			}
+			continue;
 		}
+
+		if (nh->nlmsg_type == RTM_DELADDR) {
+			struct ifinfomsg *ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
+			if (ifi->ifi_index == wifi2->ifindex) {
+				char flag_str[128];
+
+				ifflag_str(flag_str, sizeof(flag_str), ifi->ifi_flags, NULL);
+
+				log_d("RTM_DELADDR flag: 0x%x (%s)\n", ifi->ifi_flags, flag_str);
+			}
+			continue;
+		}
+
+		log_d("nlmsg_type: %d\n", (int)nh->nlmsg_type);
 	}
 }
 
@@ -322,15 +344,15 @@ static void init_nl(wifi2_t *wifi2) {
 			nl_event_handler, wifi2);
 }
 
-static void init_rtnl(wifi2_t *wifi2) {
-    wifi2->rtnl_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+static void init_nlrt(wifi2_t *wifi2) {
+    wifi2->nlrt_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 
     struct sockaddr_nl addr = {
         .nl_family = AF_NETLINK,
         .nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
     };
 
-    bind(wifi2->rtnl_fd, (struct sockaddr*)&addr, sizeof(addr));
+    bind(wifi2->nlrt_fd, (struct sockaddr*)&addr, sizeof(addr));
 }
 
 static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
@@ -342,13 +364,11 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 		log_e("sanity check mismatch epfd\n");
 		return;
 	}
-
-	n = epoll_wait(wifi2->epfd, events, MAX_EVENTS, -1);
-
+	n = epoll_wait(wifi2->epfd, events, MAX_EVENTS, 0);
 	for (int i = 0; i < n; i++) {
-
-		if (events[i].data.fd == wifi2->rtnl_fd) {
-			handle_rtnl(wifi2);
+		log_d("event[%d/%d]\n", i + 1, n);
+		if (events[i].data.fd == wifi2->nlrt_fd) {
+			handle_nlrt(wifi2);
 		} else if (events[i].data.fd == nl_socket_get_fd(wifi2->nl_sock)) {
 			nl_recvmsgs_default(wifi2->nl_sock);
 		} else if (events[i].data.fd == wifi2->timer_fd) {
@@ -359,8 +379,7 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 			wifi2->state = ST_RESET;
 		}
 	}
-
-	run_sm(wifi2);
+	if (!wifi2->pause) run_sm(wifi2);
 finally:
 	// keep listen
 	if ((wifi2->evconn.ev = aloe_ev_put(wifi2->evconn.ev_ctx, wifi2->evconn.fd,
@@ -379,7 +398,7 @@ void* wifi2_init(void *evctx, const char *iface) {
 		log_e("failed alloc wifi2\n");
 		goto finally;
 	}
-	wifi2->timer_fd = wifi2->epfd = wifi2->rtnl_fd = -1;
+	wifi2->timer_fd = wifi2->epfd = wifi2->nlrt_fd = -1;
 	wifi2->ifindex = 0;
 	wifi2->state = ST_INIT;
 	strncpy(wifi2->iface, (iface ? iface : "wlan0"), sizeof(wifi2->iface));
@@ -392,7 +411,7 @@ void* wifi2_init(void *evctx, const char *iface) {
 	}
 
 	init_nl(wifi2);
-	init_rtnl(wifi2);
+	init_nlrt(wifi2);
 
 	wifi2->timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
 
@@ -401,8 +420,8 @@ void* wifi2_init(void *evctx, const char *iface) {
 	memset(&ev, 0, sizeof(ev));
 
 	ev.events = EPOLLIN;
-	ev.data.fd = wifi2->rtnl_fd;
-	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, wifi2->rtnl_fd, &ev);
+	ev.data.fd = wifi2->nlrt_fd;
+	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, wifi2->nlrt_fd, &ev);
 
 	ev.data.fd = nl_socket_get_fd(wifi2->nl_sock);
 	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
@@ -425,7 +444,7 @@ finally:
 		if (wifi2->evconn.ev) aloe_ev_cancel(wifi2->evconn.ev_ctx, wifi2->evconn.ev);
 		if (wifi2->epfd != -1) close(wifi2->epfd);
 		if (wifi2->timer_fd != -1) close(wifi2->timer_fd);
-		if (wifi2->rtnl_fd) close(wifi2->rtnl_fd);
+		if (wifi2->nlrt_fd) close(wifi2->nlrt_fd);
 		if (wifi2->nl_sock) nl_socket_free(wifi2->nl_sock);
 		aloe_free(wifi2);
 		wifi2 = NULL;
@@ -433,8 +452,35 @@ finally:
 	return wifi2;
 }
 
-int wifi2_cli(void*, int argc, const char **argv) {
+int wifi2_cli(void *_wifi2, int argc, const char **argv) {
+	wifi2_t *wifi2 = (wifi2_t*)_wifi2;
 
-	dump_argv(argc, argv);
-	return 0;
+//	dump_argv(argc, argv);
+
+	if (argc < 2 || strcasecmp(argv[1], "help") == 0) {
+		printf(
+"wifi commands:\n"
+"  state - show current state\n"
+"  pause - toggle state machine\n");
+
+		return 0;
+	}
+	if (!wifi2) {
+		log_e("wifi2 absent\n");
+		return 1;
+	}
+	if (argc >= 2 && strcasecmp(argv[1], "state") == 0) {
+		log_d("%s (%d)%s\n", st_str(wifi2->state), wifi2->state,
+				(wifi2->pause ? "(paused)" : ""));
+		return 0;
+	}
+	if (argc >= 2 && strcasecmp(argv[1], "pause") == 0) {
+		wifi2->pause = wifi2->pause ? ST_INIT : ST_RESET;
+		log_d("%s (%d)%s\n", st_str(wifi2->state), wifi2->state,
+				(wifi2->pause ? "(paused)" : ""));
+		return 0;
+	}
+
+
+	return 1;
 }

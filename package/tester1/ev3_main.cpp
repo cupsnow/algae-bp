@@ -33,10 +33,6 @@ static struct {
 	int log_level;
 } impl;
 
-#define dump_argv(_argc, _argv) for (int i = 0; i < _argc; i++) { \
-	log_d("argv[%d/%d]: %s\n", i + 1, _argc, _argv[i]); \
-}
-
 static int test_mm1(void*,int,const char**) {
 	char *mm;
 
@@ -86,15 +82,16 @@ static int cli_cmd_cycle_time(void*, int, const char**) {
 
 #ifdef USE_WIFIMGR
 static int cli_cmd_wifi(void*, int argc, const char **argv) {
-	dump_argv(argc, argv);
+//	dump_argv(argc, argv);
 	if (!wifi2_global) {
 		const char *iface = argc >= 2 ? argv[1] : NULL;
 		wifi2_global = wifi2_init(impl.ev_ctx, iface);
+		return 0;
 	}
 	if (wifi2_global) {
 		return wifi2_cli(wifi2_global, argc, argv);
 	}
-	return 0;
+	return -1;
 }
 #endif
 
@@ -142,7 +139,7 @@ static struct option opt_long[] = {
 static void help(int argc, const char **argv) {
 	int i;
 
-	dump_argv(argc, argv)
+//	dump_argv(argc, argv)
 
 	fprintf(stdout,
 "COMMAND\n"
@@ -167,7 +164,7 @@ int main(int argc, const char **argv) {
 
 	log_d("%s\n", aloe_version(NULL, 0));
 
-	dump_argv(argc, argv)
+//	dump_argv(argc, argv)
 
 	optind = 0;
 	while ((opt_op = getopt_long(argc, (char* const*)argv, opt_short, opt_long,
@@ -222,8 +219,13 @@ int main(int argc, const char **argv) {
 
 	cli1_cmd_add(cli_global, "cycle_time", &cli_cmd_cycle_time, NULL, "event cycle time");
 #ifdef USE_WIFIMGR
+#  if 1
+	wifi2_global = wifi2_init(impl.ev_ctx, NULL);
+#  endif
 	cli1_cmd_add(cli_global, "wifi", &cli_cmd_wifi, NULL, "wifi manager");
 #endif
+
+
 
 #if 0
 	pthread_create(&tester, NULL, &tester_ipc, NULL);

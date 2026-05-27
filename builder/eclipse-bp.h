@@ -20,6 +20,7 @@ extern "C" {
 #endif
 
 #define ALOE_SYS_LINUX 1
+#define USE_WIFIMGR 1
 
 #ifdef __cplusplus
 } /* extern "C" */
