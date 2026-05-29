@@ -14,7 +14,7 @@
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h> // For TCP_KEEPIDLE, TCP_KEEPINTVL, etc. (Linux)
-#include "priv_ev.h"
+#include "priv.h"
 #include "cli.h"
 
 typedef struct cli_cmd_rec {
@@ -58,6 +58,10 @@ static cli_cmd_t* cli_cmdq_find(cli_cmdq_t *cmdq, const char *str) {
 
 static void cli_cmdq_add(cli_cmdq_t *cmdq, cli_cmd_t *cmd) {
 	RB_INSERT(cli_cmdq_rec, cmdq, cmd);
+}
+
+static void cli_cmdq_del(cli_cmdq_t *cmdq, cli_cmd_t *cmd) {
+	RB_REMOVE(cli_cmdq_rec, cmdq, cmd);
 }
 
 static cli_cmd_t* cli_cmdq_foreach(cli_cmdq_t *cmdq, cli_cmd_t *cmd) {
@@ -353,6 +357,19 @@ finally:
 		}
 	}
 	return cli;
+}
+
+extern "C"
+void cli1_destroy(void *_clictx) {
+	cli1_t *cli = (cli1_t*)_clictx;
+	cli_cmd_t *cli_ref;
+
+	while ((cli_ref = cli_cmdq_foreach(&cli->cmdq, NULL))) {
+		cli_cmdq_del(&cli->cmdq, cli_ref);
+		aloe_free(cli_ref);
+	}
+	if (cli->evconn.fd != -1) close(cli->evconn.fd);
+	aloe_free(cli);
 }
 
 extern "C"

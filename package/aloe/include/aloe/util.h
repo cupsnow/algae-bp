@@ -161,6 +161,8 @@ double aloe_avg_calc_f(aloe_buf_t *rec, double val, double *weight,
 __attribute__((format(printf, 3, 4)))
 void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...);
 
+int aloe_ip_str(char *str, size_t str_sz, struct sockaddr *sa, unsigned flag);
+
 /** @} ALOE */
 
 #ifdef __cplusplus

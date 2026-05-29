@@ -14,6 +14,7 @@
 
 #include <aloe/sys.h>
 #include <stdint.h>
+#include <arpa/inet.h>
 #include "log.h"
 
 extern "C"
@@ -210,4 +211,58 @@ void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...) {
 		printf("%s\n", line_buffer);
 #endif
 	}
+}
+
+extern "C"
+int aloe_ip_str(char *str, size_t str_sz, struct sockaddr *sa, unsigned flag) {
+#define aloe_ip_str_addr 1
+#define aloe_ip_str_port 2
+	int ret = -1, pos = 0, r;
+
+	if (flag == 0) flag == 1;
+
+	if (sa->sa_family == AF_INET) {
+		if (flag & aloe_ip_str_addr) {
+			if (!inet_ntop(AF_INET, &((struct sockaddr_in*)sa)->sin_addr,
+					(char*)str + pos, (socklen_t)str_sz - pos - 1)) {
+				goto finally;
+			}
+			pos += strlen((char*)str + pos);
+		}
+		if (flag & aloe_ip_str_port) {
+			if (pos >= str_sz || (r = snprintf((char*)str + pos, str_sz - pos,
+					":%d", ntohs(((struct sockaddr_in*)sa)->sin_port))) <= 0
+					|| pos + r >= str_sz) {
+				goto finally;
+			}
+			pos += r;
+		}
+		ret = 0;
+		goto finally;
+	}
+
+	if (sa->sa_family == AF_INET6) {
+		if (flag & aloe_ip_str_addr) {
+			if (!inet_ntop(AF_INET6, &((struct sockaddr_in6*)sa)->sin6_addr,
+					(char*)str + pos, (socklen_t)str_sz - pos - 1)) {
+				goto finally;
+			}
+			pos += strlen((char*)str + pos);
+		}
+		if (flag & aloe_ip_str_port) {
+			if (pos >= str_sz || (r = snprintf((char*)str + pos, str_sz - pos,
+					":%d", ntohs(((struct sockaddr_in6*)sa)->sin6_port))) <= 0) {
+				goto finally;
+			}
+			pos += r;
+		}
+		ret = 0;
+		goto finally;
+	}
+finally:
+	if (ret != 0) pos = 0;
+	str[pos] = '\0';
+	return pos;
+#undef aloe_ip_str_addr
+#undef aloe_ip_str_port
 }

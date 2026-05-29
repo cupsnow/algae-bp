@@ -14,7 +14,7 @@
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h> // For TCP_KEEPIDLE, TCP_KEEPINTVL, etc. (Linux)
-#include "priv_ev.h"
+#include "priv.h"
 #include "ipc.h"
 
 typedef enum {
@@ -42,7 +42,7 @@ typedef struct __attribute__((packed)) {
 #define IPC1_MSG_LEADNG_INITIALIZER 1, 0xa5, 1, 0x5a
 static const uint8_t IPC1_MSG_LEADNG[sizeof(aloe_member_of(ipc1_msg_t, leading))] = {IPC1_MSG_LEADNG_INITIALIZER};
 
-static pthread_mutex_t ipc_global_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t ipc_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 extern "C" {
 void *ipc_global;
@@ -197,14 +197,19 @@ int ipc1_write(void *_ipc, int type, int *seq, const void *data,
 		ipc1_msg_t base;
 		uint8_t _data[1024];
 	} msg = {
-		.base = {
-			.leading = {IPC1_MSG_LEADNG_INITIALIZER}, .type = (uint16_t)type,
-			.length = (uint16_t)data_sz
-		},
+//		.base = {
+//			.leading = {IPC1_MSG_LEADNG_INITIALIZER}, .type = (uint16_t)type,
+//			.length = (uint16_t)data_sz
+//		},
 	};
 	size_t hdr_len = aloe_offsetafter(ipc1_msg_t, length);
 
-	if ((pthread_mutex_lock(&ipc_global_mutex)) != 0) {
+	memcpy(msg.base.leading, IPC1_MSG_LEADNG, sizeof(IPC1_MSG_LEADNG));
+//	msg.base.leading = {IPC1_MSG_LEADNG_INITIALIZER};
+	msg.base.type = (uint16_t)type;
+	msg.base.length = (uint16_t)data_sz;
+
+	if ((pthread_mutex_lock(&ipc_mutex)) != 0) {
 		r = errno;
 		log_e("failed lock: %s\n", strerror(r));
 		goto finally;
@@ -253,7 +258,7 @@ int ipc1_write(void *_ipc, int type, int *seq, const void *data,
 	ret = data_pos;
 finally:
 	if (locked) {
-		pthread_mutex_unlock(&ipc_global_mutex);
+		pthread_mutex_unlock(&ipc_mutex);
 	}
 	return ret;
 }
@@ -307,6 +312,30 @@ finally:
 		}
 	}
 	return ipc;
+}
+
+extern "C"
+void ipc1_destroy(void *_ipc) {
+	ipc1_t *ipc = (ipc1_t*)_ipc;
+	int r;
+	char locked = 0;
+
+	if ((pthread_mutex_lock(&ipc_mutex)) != 0) {
+		r = errno;
+		log_e("failed lock: %s\n", strerror(r));
+		goto finally;
+	}
+	locked = 1;
+
+	if (ipc->evconn.fd != -1) close(ipc->evconn.fd);
+	for (int i = 0; i < aloe_arraysize(ipc->fd); i++) {
+		if (ipc->fd[i] != -1) close(ipc->fd[i]);
+	}
+	aloe_free(ipc);
+finally:
+	if (locked) {
+		pthread_mutex_unlock(&ipc_mutex);
+	}
 }
 
 extern "C"

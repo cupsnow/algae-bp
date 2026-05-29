@@ -11,13 +11,15 @@
 
 #include <iostream>
 #include <unistd.h>
+#include <getopt.h>
+#include <ifaddrs.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h> // For TCP_KEEPIDLE, TCP_KEEPINTVL, etc. (Linux)
-#include <getopt.h>
 
-#include "priv_ev.h"
+#include "priv.h"
 
 #include "mgmt.h"
 #include "cli.h"
@@ -93,7 +95,54 @@ static int cli_cmd_wifi(void*, int argc, const char **argv) {
 	}
 	return -1;
 }
-#endif
+#endif // USE_WIFIMGR
+
+static int cli_cmd_ifce(void*, int argc, const char **argv) {
+	int ret = -1, r;
+	struct sockaddr_in sin;
+	struct ifaddrs *ifaddr = NULL;
+
+	if (getifaddrs(&ifaddr) != 0) {
+		r = errno;
+		log_e("getifaddrs -> %s\n", strerror(r));
+		goto finally;
+	}
+
+	for (struct ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+		char str_buf[128];
+
+		log_d("ifa_name: %s\n", ifa->ifa_name);
+		aloe_ifflag_str(str_buf, sizeof(str_buf), ifa->ifa_flags, NULL);
+		log_d("ifa_flags: 0x%x (%s)\n", ifa->ifa_flags, str_buf);
+
+	}
+
+finally:
+	if (ifaddr) freeifaddrs(ifaddr);
+	return ret;
+}
+
+/** cmd.
+ *
+ * example:
+ * wext wlx94186551a58a
+ */
+static int cli_cmd_wext(void*, int argc, const char **argv) {
+	char str_buf[256];
+	const char *ifce = (argc >= 2 ? argv[1] : "wlan0");
+
+	aloe_wext_info(ifce, str_buf, sizeof(str_buf));
+	log_d("%s\n", str_buf);
+	return 0;
+}
+
+static int cli_cmd_quit(void*, int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+
+	impl.quit = 1;
+	return 0;
+}
 
 static void tester_proc2(void *args) {
 	int *msg_seq = (int*)args;
@@ -161,6 +210,7 @@ int main(int argc, const char **argv) {
 	};
 	int ret = -1, opt_op, opt_idx, i, opt_exit = 0;
 	pthread_t tester = {};
+	void *mgmt = NULL;
 
 	log_d("%s\n", aloe_version(NULL, 0));
 
@@ -208,28 +258,32 @@ int main(int argc, const char **argv) {
 		goto finally;
 	}
 
+	mgmt = mgmt1_init(impl.ev_ctx, "mgmt1.socket");
+	cli_global = cli1_init(impl.ev_ctx);
+	ipc_global = ipc1_init(impl.ev_ctx);
+
+#if 1
 	if (aloe_ev_put(impl.ev_ctx, -1, &cycletime_cb, NULL, 0, 0, 0) == NULL) {
 		log_e("Failure aloe_ev_put\n");
 		goto finally;
 	}
-
-	mgmt1_init(impl.ev_ctx, "mgmt1.socket");
-	cli_global = cli1_init(impl.ev_ctx);
-	ipc_global = ipc1_init(impl.ev_ctx);
-
 	cli1_cmd_add(cli_global, "cycle_time", &cli_cmd_cycle_time, NULL, "event cycle time");
-#ifdef USE_WIFIMGR
-#  if 1
-	wifi2_global = wifi2_init(impl.ev_ctx, NULL);
-#  endif
-	cli1_cmd_add(cli_global, "wifi", &cli_cmd_wifi, NULL, "wifi manager");
 #endif
 
-
+#ifdef USE_WIFIMGR
+	wifi2_global = wifi2_init(impl.ev_ctx, NULL);
+	cli1_cmd_add(cli_global, "wifi", &cli_cmd_wifi, NULL, "wifi manager");
+#endif
 
 #if 0
 	pthread_create(&tester, NULL, &tester_ipc, NULL);
 #endif
+
+	cli1_cmd_add(cli_global, "wext", &cli_cmd_wext, NULL, "wext [ifce] -> wireless extension info");
+	cli1_cmd_add(cli_global, "ifce", &cli_cmd_ifce, NULL, "ifce [ifce] -> net interface info");
+	cli1_cmd_add(cli_global, "quit", &cli_cmd_quit, NULL, "quit -> quit program");
+	cli1_cmd_add(cli_global, "exit", &cli_cmd_quit, NULL, "exit -> quit program");
+	cli1_cmd_add(cli_global, "q", &cli_cmd_quit, NULL, "q -> quit program");
 
 	while (!impl.quit) {
 		aloe_ev_once(impl.ev_ctx);
@@ -239,5 +293,9 @@ finally:
 	if (impl.ev_ctx) {
 		aloe_ev_destroy(impl.ev_ctx);
 	}
+	if (mgmt) mgmt1_destroy(mgmt);
+	cli1_destroy(cli_global);
+	ipc1_destroy(ipc_global);
+
 	return ret;
 }

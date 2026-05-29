@@ -125,6 +125,9 @@ aloe_mmap_t* aloe_mmap_reset(aloe_mmap_t *mm);
 int aloe_mmap_file(const char *fn, aloe_mmap_t *mm);
 void aloe_munmap(aloe_mmap_t *mm);
 
+int aloe_ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep);
+int aloe_wext_info(const char *ifce, char *wext, size_t wext_len);
+
 /** @} ALOE_LINUX */
 
 #ifdef __cplusplus

@@ -19,6 +19,7 @@ extern "C" {
 #endif
 
 void* mgmt1_init(void *evctx, const char *path);
+void mgmt1_destroy(void *_mgmtctx);
 
 #ifdef __cplusplus
 } // extern "C"

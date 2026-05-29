@@ -14,7 +14,7 @@
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h> // For TCP_KEEPIDLE, TCP_KEEPINTVL, etc. (Linux)
-#include "priv_ev.h"
+#include "priv.h"
 #include "mgmt.h"
 
 typedef struct mgmt1_client_rec {
@@ -229,3 +229,18 @@ finally:
 	}
 	return mgmt;
 }
+
+extern "C"
+void mgmt1_destroy(void *_mgmtctx) {
+	mgmt1_t *mgmt = (mgmt1_t*)_mgmtctx;
+	evconn_t *evconn;
+
+	while ((evconn = evconn_list_foreach(&mgmt->client_list, NULL))) {
+		mgmt1_client_t *client = aloe_containerof(evconn, mgmt1_client_t, evconn);
+		mgmt1_client_rm(mgmt, client);
+		if (client->evconn.fd) close(client->evconn.fd);
+		aloe_free(client);
+	}
+	aloe_free(mgmt);
+}
+

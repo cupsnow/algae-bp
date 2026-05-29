@@ -13,9 +13,9 @@
 PROJDIR?=$(PWD)
 include $(PROJDIR)/builder/proj.mk
 
-CPPFLAGS+=-g
-CFLAGS+=
-CXXFLAGS+=
+CPPFLAGS+=
+CFLAGS+=-g
+CXXFLAGS+=-g
 LDFLAGS+=
 
 GENDIR:=
@@ -29,6 +29,8 @@ ARTIFACT_DOXYGEN:=
 
 ifneq ($(filter sa7715,$(APP_PLATFORM)),)
 SA7715_SYSROOT=$(HOME)/02_dev/eveplay-ws/build/sysroot-sa7715
+else ifneq ($(filter esh,$(APP_PLATFORM)),)
+ESH_SYSROOT=$(HOME)/02_exdev2/agt-ws/esghub/buildroot/output/staging
 endif
 
 #------------------------------------
@@ -39,6 +41,12 @@ mesa3d_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/usr/include/d
 ifneq ($(filter sa7715,$(APP_PLATFORM)),)
 libnl_LDFLAGS+=-L$(SA7715_SYSROOT)/usr/lib64 -L$(SA7715_SYSROOT)/lib64 -L$(SA7715_SYSROOT)/usr/lib -L$(SA7715_SYSROOT)/lib -lnl-3 -lnl-genl-3
 libnl_CPPFLAGS+=-I$(SA7715_SYSROOT)/usr/include/libnl3 -I$(SA7715_SYSROOT)/usr/include -I$(SA7715_SYSROOT)/include/libnl3 -I$(SA7715_SYSROOT)/include
+else ifneq ($(filter esh,$(APP_PLATFORM)),)
+libnl_LDFLAGS+=-L$(ESH_SYSROOT)/usr/lib64 -L$(ESH_SYSROOT)/lib64 -L$(ESH_SYSROOT)/usr/lib -L$(ESH_SYSROOT)/lib -lnl-3 -lnl-genl-3
+libnl_CPPFLAGS+=-I$(ESH_SYSROOT)/usr/include/libnl3 -I$(ESH_SYSROOT)/usr/include -I$(ESH_SYSROOT)/include/libnl3 -I$(ESH_SYSROOT)/include
+TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
+CXXFLAGS+=-std=gnu++11 --sysroot=$(TOOLCHAIN_SYSROOT)
+LDFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT)
 else
 libnl_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lnl-3 -lnl-genl-3
 libnl_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include/libnl3 -I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/include/libnl3 -I$(BUILD_SYSROOT)/include
@@ -70,9 +78,9 @@ GENDIR+=$$($(1)_GENDIR)
 .PHONY: $$($(1)_BIN)
 $$($(1)_BIN): $$($(1)_BUILDDIR)/$$($(1)_BIN)
 
-$$($(1)_BUILDDIR)/$$($(1)_BIN): $$($(1)_OBJS) | $$(filter .a .o,$$($(1)_SRCS))
-	$$(if $$(filter %.cpp.o,$$^),$$(C++),$$(CC)) -o $$@ \
-	    $$(filter %.o %.a,$$^) $$(or $$($(1)_LDFLAGS),$$(LDFLAGS))
+$$($(1)_BUILDDIR)/$$($(1)_BIN): $$($(1)_OBJS) | $$(filter %.a %.o,$$($(1)_SRCS))
+	$$(if $$(filter %.cpp.o,$$^ $$|),$$(C++),$$(CC)) -o $$@ \
+	    $$(filter %.o %.a,$$^ $$|) $$(or $$($(1)_LDFLAGS),$$(LDFLAGS))
 
 $$(filter $$($(1)_BUILDDIR)/objs/%.c.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/objs/%.o: $$(PROJDIR)/package/% | $$($(1)_GENDIR)
 	$$(CC) -c -o $$@ $$< $$(DEPFLAGS) $$(or $$($(1)_CPPFLAGS),$$(CPPFLAGS)) \
@@ -88,17 +96,40 @@ endef
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR
+help: testmk 
+
+a.o b.o c.o d.a:
+testmk: a.o b.o | c.o d.a
+	echo "testmk $$|"
+	echo $^
+	echo $|
+
+#------------------------------------
+#
+tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT
 tester_ev3_SRCS+=$(abspath $(tester_aloe_SRCS))
+
+tester_ev3_CPPFLAGS+=$(CPPFLAGS)
+tester_ev3_CFLAGS+=$(CFLAGS)
+tester_ev3_CXXFLAGS+=$(CXXFLAGS)
+tester_ev3_LDFLAGS+=$(CFLAGS)
+
 tester_ev3_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 ifneq ($(filter USE_WIFIMGR,$(tester_ev3_ATTR)),)
 tester_ev3_SRCS+=$(abspath wifi.cpp)
 tester_ev3_CPPFLAGS+=-DUSE_WIFIMGR=1 $(libnl_CPPFLAGS)
+tester_ev3_CXXFLAGS+=$(libnl_CXXFLAGS)
 tester_ev3_LDFLAGS+=$(libnl_LDFLAGS)
+
+ifneq ($(filter USE_WPASUPCLIENT,$(tester_ev3_ATTR)),)
+tester_ev3_CPPFLAGS+=-DUSE_WPASUPCLIENT=1 -I$(BUILD_SYSROOT)/include
+tester_ev3_SRCS+=$(BUILD_SYSROOT)/lib/libwpa_client.a
+endif
+
 endif
 
 $(eval $(call TESTER1_APP2,tester_ev3, \
-    ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp))
+    ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp))
 
 ARTIFACT+=$(tester_ev3_BIN)
 
@@ -115,7 +146,7 @@ tester_aloe_doxygen: | $(tester_aloe_DOCSDIR)
 		&& echo "OUTPUT_DIRECTORY=$(tester_aloe_DOCSDIR)" \
 		&& echo ""; } | doxygen - >$(BUILDDIR)/doxygen.log 2>&1
 
-ARTIFACT_DOXYGEN+=tester_aloe_doxygen
+#ARTIFACT_DOXYGEN+=tester_aloe_doxygen
 
 #------------------------------------
 #
@@ -125,7 +156,7 @@ tester_fb2_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 $(eval $(call TESTER1_APP2,tester_fb2, \
     tester_fb1.c))
 
-ARTIFACT+=$(tester_fb2_BIN)
+#ARTIFACT+=$(tester_fb2_BIN)
 
 #------------------------------------
 #

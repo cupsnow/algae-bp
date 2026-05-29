@@ -53,7 +53,7 @@ TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
 $(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
-else ifneq ($(strip $(filter bbb xm sa7715,$(APP_PLATFORM))),)
+else ifneq ($(strip $(filter bbb xm sa7715 esh,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
@@ -1744,6 +1744,7 @@ openssl_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssl_BUILDDIR)
 
 openssl_ACARGS_ub20+=linux-x86_64
 openssl_ACARGS_bp+=linux-aarch64
+openssl_ACARGS_sa7715+=linux-armv4
 openssl_ACARGS_qemuarm64+=linux-aarch64
 
 GENDIR+=$(openssl_BUILDDIR)
@@ -2673,7 +2674,7 @@ mosquitto_%: | $(mosquitto_BUILDDIR)/Makefile
 hostap_DIR=$(PKGDIR2)/hostap
 
 wpasup_DEP=openssl libnl
-wpasup_BUILDDIR=$(BUILDDIR2)/wpasup-$(APP_BUILD)
+wpasup_BUILDDIR?=$(BUILDDIR2)/wpasup-$(APP_BUILD)
 
 wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC -I$(BUILD_SYSROOT)/include
 wpasup_MAKEPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib -L$(BUILD_SYSROOT)/lib64 -lm
@@ -2710,8 +2711,9 @@ wpasup_defconfig $(wpasup_BUILDDIR)/wpa_supplicant/.config: | $(wpasup_BUILDDIR)
 	  done; \
 
 wpasup_install: DESTDIR=$(BUILD_SYSROOT)
-wpasup_install: wpasup_all
+wpasup_install: wpasup_all wpasup_libwpa_client.a
 	$(wpasup_MAKE) DESTDIR=$(DESTDIR) $(PARALLEL_BUILD) install
+	cp $(wpasup_BUILDDIR)/wpa_supplicant/libwpa_client.a $(DESTDIR)/lib/
 
 $(eval $(call DEF_DESTDEP,wpasup))
 

@@ -21,7 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "../log.h"
+//#include "../log.h"
 
 #  define log_m(_lvl, _msg, _args...) do { \
 	struct timespec ts; \

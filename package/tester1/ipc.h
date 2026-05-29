@@ -29,6 +29,7 @@ typedef enum {
 } ipc1_type_t;
 
 void* ipc1_init(void *evctx);
+void ipc1_destroy(void *_ipcctx);
 int ipc1_write(void *ipc, int type, int *seq, const void *data, size_t data_sz);
 
 typedef struct {
