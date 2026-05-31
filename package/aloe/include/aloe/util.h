@@ -163,6 +163,12 @@ void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...);
 
 int aloe_ip_str(char *str, size_t str_sz, struct sockaddr *sa, unsigned flag);
 
+__attribute__((format(printf, 2, 0)))
+int aloe_buf_zvprintf(aloe_buf_t *fb, const char *fmt, va_list va);
+
+__attribute__((format(printf, 2, 3)))
+int aloe_buf_zprintf(aloe_buf_t *fb, const char *fmt, ...);
+
 /** @} ALOE */
 
 #ifdef __cplusplus

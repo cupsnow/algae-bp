@@ -23,17 +23,20 @@
 #include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <arpa/inet.h>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <asm/types.h>
 #include <netlink/netlink.h>
 #include <netlink/genl/genl.h>
 #include <netlink/genl/ctrl.h>
 #include <netlink/msg.h>
 #include <netlink/attr.h>
+#include <linux/if_link.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/nl80211.h>
@@ -55,17 +58,19 @@ typedef enum {
 	ST_INIT = 0,
 	ST_IF_DOWN,
 	ST_IF_UP,
-	ST_WPA_START,
-	ST_WPA_READY,
-	ST_WPA_COMPLETED,
 	ST_SCANNING,
 	ST_CONNECTING,
-	ST_ASSOCIATING,
 	ST_CONNECTED_L2,
 	ST_DHCP,
 	ST_CONNECTED_L3,
 	ST_RETRY,
 	ST_RESET,
+
+	ST_WPA_START = ST_IF_DOWN,
+	ST_WPA_READY = ST_IF_UP,
+	ST_ASSOCIATING = ST_CONNECTING,
+	ST_WPA_COMPLETED = ST_CONNECTED_L2,
+	ST_WPA_CONNECTED = ST_CONNECTED_L3,
 
 //	not used for FSM
 	ST_PAUSE
@@ -123,14 +128,18 @@ static const char* st_str(int st) {
 static void set_timer(wifi2_t *wifi2, int sec) {
 	struct itimerspec its = {0};
 
-	its.it_value.tv_sec = sec;
+	if (sec > 0) {
+		its.it_value.tv_sec = sec;
+	}
 	timerfd_settime(wifi2->timer_fd, 0, &its, NULL);
 }
 
-static void set_deadline_ms(wifi2_t *wifi2, int ms) {
+static void set_deadline_ms(wifi2_t *wifi2, unsigned long ms) {
 	struct itimerspec its = {0};
-	its.it_value.tv_sec = ms / 1000;
-	its.it_value.tv_nsec = (ms % 1000) * 1000000;
+	if (ms > 0) {
+		its.it_value.tv_sec = ms / 1000;
+		its.it_value.tv_nsec = (ms % 1000) * 1000000;
+	}
 	timerfd_settime(wifi2->timer_fd, 0, &its, NULL);
 }
 
@@ -407,6 +416,7 @@ static int nl_event_handler(struct nl_msg *msg, void *arg) {
 static void handle_rtnl(wifi2_t *wifi2) {
 	char buf[4096];
 	int len, nlmsg_idx = 0;
+	char flag_str[128];
 
 	len = recv(wifi2->rtnl_fd, buf, sizeof(buf), 0);
 
@@ -415,43 +425,92 @@ static void handle_rtnl(wifi2_t *wifi2) {
 	for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, len);
 			nh = NLMSG_NEXT(nh, len), nlmsg_idx++) {
 
-		if (nh->nlmsg_type == RTM_NEWADDR) {
-			log_d("nlmsg[%d], RTM_NEWADDR\n", nlmsg_idx);
+		if (nh->nlmsg_type == RTM_NEWADDR || nh->nlmsg_type == RTM_DELADDR) {
+			const char *nlmsg_type_str = ((nh->nlmsg_type == RTM_NEWADDR) ? "RTM_NEWADDR" :
+					(nh->nlmsg_type == RTM_DELADDR) ? "RTM_DELADDR" :
+					"unknown");
+			const struct ifaddrmsg *ifa = (struct ifaddrmsg*)NLMSG_DATA(nh);
+			const struct rtattr *rta = IFA_RTA(ifa);
+			int rem = nh->nlmsg_len - NLMSG_LENGTH(sizeof(*ifa));
+			char addr_str[INET6_ADDRSTRLEN], scope_str[16];
 
-			if (wifi2->state == ST_DHCP) {
-				log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_CONNECTED_L3));
-				wifi2->state = ST_CONNECTED_L3;
+			aloe_rtscope_str(scope_str, sizeof(scope_str), ifa->ifa_scope);
+			log_d("nlmsg[%d], %s\n", nlmsg_idx, nlmsg_type_str);
+
+			log_d("ifa_family: %s, ifa_prefixlen: %d, ifa_flags: 0x%x, ifa_scope: %s (0x%x)\n",
+					(ifa->ifa_family == AF_INET ? "IPv4" :
+					ifa->ifa_family == AF_INET6 ? "IPv6" :
+					"unknown"), (int)ifa->ifa_prefixlen, (unsigned)ifa->ifa_flags,
+					(scope_str ? scope_str : "unknown"), (int)ifa->ifa_scope);
+
+			// AF_INET prefer IFA_LOCAL
+			// AF_INET6 use IFA_ADDRESS
+			for (; RTA_OK(rta, rem); rta = RTA_NEXT(rta, rem)) {
+				if (rta->rta_type == IFA_LABEL) {
+					strcpy(addr_str, (char*)RTA_DATA(rta));
+					log_d("IFA_LABEL: %s\n", addr_str);
+				} else if (rta->rta_type == IFA_LOCAL) {
+					if (ifa->ifa_family == AF_INET) {
+						if (inet_ntop(AF_INET, RTA_DATA(rta),
+								addr_str, sizeof(addr_str)) == NULL) {
+							log_e("insufficient buffer to compose address\n");
+							continue;
+						}
+						log_d("IFA_LOCAL IPv4: %s/%d\n", addr_str, ifa->ifa_prefixlen);
+					} else if (ifa->ifa_family == AF_INET6) {
+						if (inet_ntop(AF_INET6, RTA_DATA(rta),
+								addr_str, sizeof(addr_str)) == NULL) {
+							log_e("insufficient buffer to compose address\n");
+							continue;
+						}
+						log_d("IFA_LOCAL IPv6: %s/%d\n", addr_str, ifa->ifa_prefixlen);
+					}
+				} else if (rta->rta_type == IFA_ADDRESS) {
+					if (ifa->ifa_family == AF_INET6) {
+						if (inet_ntop(AF_INET6, RTA_DATA(rta),
+								addr_str, sizeof(addr_str)) == NULL) {
+							log_e("insufficient buffer to compose address\n");
+							continue;
+						}
+						log_d("IFA_ADDRESS IPv6: %s/%d\n", addr_str, ifa->ifa_prefixlen);
+					} else if (ifa->ifa_family == AF_INET) {
+						if (inet_ntop(AF_INET, RTA_DATA(rta),
+								addr_str, sizeof(addr_str)) == NULL) {
+							log_e("insufficient buffer to compose address\n");
+							continue;
+						}
+						log_d("IFA_ADDRESS IPv4: %s/%d\n", addr_str, ifa->ifa_prefixlen);
+					}
+				}
 			}
-			continue;
-		}
 
-		if (nh->nlmsg_type == RTM_NEWLINK) {
-			struct ifinfomsg *ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
-			if (ifi->ifi_index == wifi2->ifindex) {
-				char flag_str[128];
+			if (ifa->ifa_index != wifi2->ifindex) {
+				log_d("not monitor interface but %d\n", ifa->ifa_index);
+				continue;
+			}
 
-				aloe_ifflag_str(flag_str, sizeof(flag_str), ifi->ifi_flags, NULL);
-
-				log_d("nlmsg[%d], RTM_NEWLINK flag: 0x%x (%s)\n", nlmsg_idx,
-						ifi->ifi_flags, flag_str);
-				if (!(ifi->ifi_flags & IFF_RUNNING)) {
-					log_d("RTNL: LINK DOWN\n");
-					log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RETRY));
-					wifi2->state = ST_RETRY;
+			if (nh->nlmsg_type == RTM_NEWADDR) {
+				if (wifi2->state == ST_DHCP) {
+//					log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_CONNECTED_L3));
+					wifi2->state = ST_CONNECTED_L3;
 				}
 			}
 			continue;
 		}
 
-		if (nh->nlmsg_type == RTM_DELADDR) {
-			struct ifinfomsg *ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
+		if (nh->nlmsg_type == RTM_NEWLINK) {
+			const struct ifinfomsg *ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
+
+			aloe_ifflag_str(flag_str, sizeof(flag_str), ifi->ifi_flags, NULL);
+			log_d("nlmsg[%d], RTM_NEWLINK flag: 0x%x (%s)\n", nlmsg_idx,
+					ifi->ifi_flags, flag_str);
+
 			if (ifi->ifi_index == wifi2->ifindex) {
-				char flag_str[128];
-
-				aloe_ifflag_str(flag_str, sizeof(flag_str), ifi->ifi_flags, NULL);
-
-				log_d("nlmsg[%d], RTM_DELADDR flag: 0x%x (%s)\n", nlmsg_idx,
-						ifi->ifi_flags, flag_str);
+				if (!(ifi->ifi_flags & IFF_RUNNING)) {
+//					log_d("RTNL: LINK DOWN\n");
+//					log_d("%s -> %s\n", st_str(wifi2->state), st_str(ST_RETRY));
+					wifi2->state = ST_RETRY;
+				}
 			}
 			continue;
 		}
@@ -498,14 +557,14 @@ static void run_sm(wifi2_t *wifi2) {
 	case ST_DHCP:
 		break;
 
-	case ST_CONNECTED:
+	case ST_WPA_CONNECTED:
 		printf("FULLY CONNECTED\n");
 		break;
 
 	case ST_RETRY:
 		printf("Retrying...\n");
-		set_timer(2);
-		state = ST_RESET;
+		set_timer(wifi2, 2);
+		wifi2->state = ST_RESET;
 		break;
 
 	case ST_RESET:
@@ -617,18 +676,18 @@ finally:
 #endif // USE_NLCONN
 
 static void init_rtnl(wifi2_t *wifi2) {
-    wifi2->rtnl_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	struct sockaddr_nl addr = {};
+	int r;
 
-    struct sockaddr_nl addr = {
-//        .nl_family = AF_NETLINK,
-//        .nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR
-    };
+	wifi2->rtnl_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 
-    addr.nl_family = AF_NETLINK;
-    addr.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR;
+	addr.nl_family = AF_NETLINK;
+	addr.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
 
-
-    bind(wifi2->rtnl_fd, (struct sockaddr*)&addr, sizeof(addr));
+	if (bind(wifi2->rtnl_fd, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+		r = errno;
+		log_e("bind NETLINK_ROUTE; %s\n", strerror(r));
+	}
 }
 
 static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
@@ -642,7 +701,7 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 	}
 	n = epoll_wait(wifi2->epfd, events, MAX_EVENTS, 0);
 	for (int i = 0; i < n; i++) {
-		log_d("event[%d/%d]\n", i + 1, n);
+//		log_d("event[%d/%d]\n", i + 1, n);
 		if (events[i].data.fd == wifi2->rtnl_fd) {
 			handle_rtnl(wifi2);
 #if defined(USE_NLCONN)
@@ -782,7 +841,15 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 				(wifi2->pause ? "(paused)" : ""));
 		return 0;
 	}
+	if (argc >= 2 && strcasecmp(argv[1], "timer") == 0) {
+		unsigned long dur = argc >= 3 ? strtol(argv[2], NULL, 0) : -1ul;
 
+		if (dur != -1ul) {
+			set_deadline_ms(wifi2, dur);
+			log_d("set %lu milliseconds latter\n", dur);
+		}
+		return 0;
+	}
 
 	return 1;
 }

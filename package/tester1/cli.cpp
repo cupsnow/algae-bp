@@ -192,7 +192,7 @@ static int cli_input_line(cli1_t *cli, const char *line_start, size_t line_sz) {
 	r = (*cli_ref->run)(cli_ref->cbarg, argc, argv);
 #endif
 	if (r == 0) {
-		log_d("Command %s return %d\n", argv[1], r);
+//		log_d("Command %s return %d\n", argv[1], r);
 		return 0;
 	}
 	log_e("Command %s return code: %d\n", argv[1], r);

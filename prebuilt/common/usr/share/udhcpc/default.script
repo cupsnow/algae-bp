@@ -23,11 +23,11 @@ case "$1" in
   ip_del_ifce $interface
   ;;
 "bound"|"renew")
-  ifconfig $interface $ip $BROADCAST $NETMASK
+  cmd_run ifconfig $interface $ip $BROADCAST $NETMASK
 
   if [ -n "$router" ]; then
     log_d "deleting routers"
-    while route del default gw 0.0.0.0 dev $interface; do
+    while cmd_run route del default gw 0.0.0.0 dev $interface; do
       :
     done
 

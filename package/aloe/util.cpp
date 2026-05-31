@@ -266,3 +266,29 @@ finally:
 #undef aloe_ip_str_addr
 #undef aloe_ip_str_port
 }
+
+extern "C"
+int aloe_buf_zvprintf(aloe_buf_t *fb, const char *fmt, va_list va) {
+	int r;
+
+	if (fb->pos >= fb->lmt || !fmt) return 0;
+	r = vsnprintf((char*)fb->data + fb->pos, fb->lmt - fb->pos, fmt, va);
+	if (r >= 0 && fb->pos + r < fb->lmt) {
+		fb->pos += r;
+	} else {
+		r = 0;
+	}
+	if (fb->pos < fb->lmt) ((char*)fb->data)[fb->pos] = '\0';
+	return r;
+}
+
+extern "C"
+int aloe_buf_zprintf(aloe_buf_t *fb, const char *fmt, ...) {
+	int r;
+	va_list va;
+
+	va_start(va, fmt);
+	r = aloe_buf_zvprintf(fb, fmt, va);
+	va_end(va);
+	return r;
+}

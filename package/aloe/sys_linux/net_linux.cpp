@@ -17,6 +17,7 @@
 #include <sys/ioctl.h>
 #include <linux/if.h>
 #include <linux/wireless.h>
+#include <linux/rtnetlink.h>
 
 #define log_m(_lvl, _msg, _args...) do { \
 	struct timespec ts; \
@@ -84,6 +85,38 @@ int aloe_ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep) {
 			"%s0x%x", (pos > 0 ? sep : ""), unknown_flag)) > 0
 			&& (r + pos) < str_sz) {
 		pos += r;
+	}
+finally:
+	if (pos >= str_sz) pos = str_sz - 1;
+	str[pos] = '\0';
+	return pos;
+}
+
+int aloe_rtscope_str(char *str, size_t str_sz, unsigned rtscope) {
+	struct {
+		const char *name;
+		unsigned val;
+		const char *desc;
+	} lut[] = {
+		{"UNIVERSE", RT_SCOPE_UNIVERSE, "Globally reachable address"},
+		{"SITE", RT_SCOPE_SITE, "Site-local"},
+		{"LINK", RT_SCOPE_LINK, "Local link"},
+		{"HOST", RT_SCOPE_HOST, "Local host"},
+		{"NOWHERE", RT_SCOPE_NOWHERE, "Not reachable"},
+		{NULL}
+	}, *lut_iter;
+	int pos = 0, r;
+
+	for (lut_iter = lut; lut_iter->name; lut_iter++) {
+		if (rtscope == lut_iter->val) {
+			if (pos >= str_sz || (r = snprintf(str + pos, str_sz - pos,
+					"%s", lut_iter->name)) <= 0
+					|| (r + pos) >= str_sz) {
+				goto finally;
+			}
+			pos += r;
+			break;
+		}
 	}
 finally:
 	if (pos >= str_sz) pos = str_sz - 1;

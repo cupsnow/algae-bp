@@ -563,11 +563,13 @@ nfsget_s() {
   _lo_tgt="${2:-$(basename "$1")}"
   _mdsum1="1"
   _mdsum2="2"
+
   if [ -e "$_lo_tgt" ]; then
     _mdsum1="$(md5sum "$1" | awk '{print $1}')"
     _mdsum2="$(md5sum "$_lo_tgt" 2>/dev/null | awk '{print $1}')"
   fi
   if [ "$_mdsum1" = "$_mdsum2" ]; then
+    log_d "same file: $1, $_lo_tgt"
     add_ok "$_lo_tgt"
     return 0
   fi
@@ -870,9 +872,9 @@ while test -n "$1"; do
   esac
 
   case "$opt1" in
-  $(basename "$self")|$(basename "$self" ".sh"))
+  $(basename "$0")|$(basename -s .sh "$0"))
     nfsmount || exit
-    nfsget_x "${_pri_nfsalgaebp}/builder/$(basename "$self")"
+    nfsget_s "${_pri_nfsalgaebp}/builder/$(basename "$0")"
     ;;
   locale)
     nfsmount || exit
@@ -888,21 +890,14 @@ while test -n "$1"; do
     nfsmount || exit
     destpkg_install mesa3d-aarch64-destpkg.tar.xz
     ;;
-  tester1|tester1_*)
+  tester1)
     nfsmount || exit
-    _lo_sel=$(expr "$opt1" : "tester1_\(.*\)$")
-    log_d "_lo_sel: $_lo_sel"
-    if [ "$opt1" = "tester1" ]; then
-      _lo_tgt="tester_ev3 tester_fb2 tester_egl2"
-      _lo_tgt="${_lo_tgt} tester_egl3 tester_egl5 tester_egl6"
-      for i in ${_lo_tgt}; do
-        nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/${i}
-      done
-      nfsget_x "${_pri_nfsalgaebp}"/build/dummy1-aarch64/dummy1
-      nfsget_n "${_pri_nfsalgaebp}"/docs/demo1.bmp
-    elif [ -n "$_lo_sel" ]; then
-      nfsget_x "${_pri_nfsalgaebp}"/build/tester1-aarch64/tester_${_lo_sel}
-    fi
+    _lo_tgt=""
+    _lo_tgt="${_lo_tgt} tester_ev3 tester_fb2"
+    for i in ${_lo_tgt}; do
+      nfsget_x "${_pri_nfsalgaebp}"/build/${i}-aarch64/${i}
+    done
+    nfsget_n "${_pri_nfsalgaebp}"/docs/sample1.bmp
     ;;
   sh|sh[2-3])
     nfsmount || exit
@@ -912,6 +907,7 @@ while test -n "$1"; do
     lo_tgt="${lo_tgt} etc/init.d/cputemp"
     lo_tgt="${lo_tgt} etc/init.d/tidss"
     lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
+    lo_tgt="${lo_tgt} usr/share/zcip/default.script"
     for i in $lo_tgt; do
       if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then
         nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" /"${i}"

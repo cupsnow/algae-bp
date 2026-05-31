@@ -12,8 +12,8 @@
  * @brief eclipse-bp
  */
 
-#ifndef ECLIPSE_BP_H_
-#define ECLIPSE_BP_H_
+//#ifndef ECLIPSE_BP_H_
+//#define ECLIPSE_BP_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,4 +27,4 @@ extern "C" {
 } /* extern "C" */
 #endif
 
-#endif /* ECLIPSE_BP_H_ */
+//#endif /* ECLIPSE_BP_H_ */

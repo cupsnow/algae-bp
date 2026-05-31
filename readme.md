@@ -86,6 +86,10 @@ ELF interpreter (dynamic linker, ie. ld-linux.so)
 `readelf -l /sbin/init | grep interpreter`
 
 
+wifi manager
+----
+[wifimgr.md](docs/wifimgr.md)
+
 Garage
 ----
 

@@ -101,6 +101,7 @@ static int cli_cmd_ifce(void*, int argc, const char **argv) {
 	int ret = -1, r;
 	struct sockaddr_in sin;
 	struct ifaddrs *ifaddr = NULL;
+	const char *ifce = (argc >= 2 ? argv[1] : NULL);
 
 	if (getifaddrs(&ifaddr) != 0) {
 		r = errno;
@@ -111,12 +112,13 @@ static int cli_cmd_ifce(void*, int argc, const char **argv) {
 	for (struct ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
 		char str_buf[128];
 
-		log_d("ifa_name: %s\n", ifa->ifa_name);
+		if (ifce && strcmp(ifa->ifa_name, ifce) != 0) {
+			continue;
+		}
 		aloe_ifflag_str(str_buf, sizeof(str_buf), ifa->ifa_flags, NULL);
-		log_d("ifa_flags: 0x%x (%s)\n", ifa->ifa_flags, str_buf);
-
+		log_d("%s; flags: 0x%x (%s)\n", ifa->ifa_name, ifa->ifa_flags, str_buf);
 	}
-
+	ret = 0;
 finally:
 	if (ifaddr) freeifaddrs(ifaddr);
 	return ret;

@@ -1071,6 +1071,13 @@ terminfo_install: DESTDIR=$(BUILD_SYSROOT)
 terminfo_install: | $(PROJDIR)/tool/bin/tic
 	$(call CMD_TERMINFO)
 
+terminfo_install2: DESTDIR=$(BUILD_SYSROOT)
+terminfo_install2: | $(PROJDIR)/tool/bin/tic
+	for i in vt100 linux xterm xterm-256color screen screen-256color tmux-256color; do \
+	  $(TERMINFO_INFOCMP) -x $$i \
+	    | $(TERMINFO_TIC) -x -o $(DESTDIR)/terminfo -; \
+	done
+
 $(eval $(call DEF_DESTDEP,terminfo))
 
 $(addprefix $(PROJDIR)/tool/bin/,tic) ncursesw_host:
