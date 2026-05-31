@@ -143,9 +143,9 @@ static void set_deadline_ms(wifi2_t *wifi2, unsigned long ms) {
 	timerfd_settime(wifi2->timer_fd, 0, &its, NULL);
 }
 
-static void iface_set_up(wifi2_t *wifi2, int up) {
+static int iface_set_up(wifi2_t *wifi2, int up) {
 	char cmd[128];
-
+	int ret = -1;
 #if 1
 	int s = -1, r;
 	struct ifreq ifr = {};
@@ -171,84 +171,146 @@ static void iface_set_up(wifi2_t *wifi2, int up) {
 		log_e("failed set ifflag\n");
 		goto finally;
 	}
+	ret = 0;
 finally:
 	if (s != -1) close(s);
 #else
 	snprintf(cmd, sizeof(cmd), "ip link set %s %s", wifi2->iface, up ? "up" : "down");
-	system(cmd);
+	ret = system(cmd);
 #endif
+	return ret;
 }
 
-static void dhcp_start(wifi2_t *wifi2) {
+static int dhcp_start(wifi2_t *wifi2, int en) {
 	char cmd[128];
+	int ret = -1;
 
 #if 1
+	pid_t pid;
+	int argc = 0, argv_cnt;
+	char *argv[20];
+
+	argv_cnt = aloe_arraysize(argv);
+
 	if (wifi2->udhcpc_pid > 0) {
 		kill(wifi2->udhcpc_pid, SIGTERM);
 		waitpid(wifi2->udhcpc_pid, NULL, 0);
 		wifi2->udhcpc_pid = -1;
 	}
+	if (en <= 0) {
+		ret = 0;
+		goto finally;
+	}
 
-	pid_t pid = fork();
+	pid = fork();
 	if (pid < 0) {
 		log_e("Failed fork\n");
-		return;
+		goto finally;
 	}
 
 	if (pid == 0) {
-		execlp("udhcpc", "udhcpc",
-			   "-i", wifi2->iface,
-			   "-f",            // foreground (so we can supervise)
-			   "-q",            // quit after lease
-			   "-n",            // fail fast if no lease
-			   NULL);
+		argc = 0;
+		do {
+			if (argc < argv_cnt) argv[argc++] = (char*)"udhcpc";
+
+			if (argc < argv_cnt) argv[argc++] = (char*)"-i";
+			if (argc < argv_cnt) argv[argc++] = wifi2->iface;
+
+			if (argc < argv_cnt) argv[argc++] = (char*)"-f"; // foreground (so we can supervise)
+			if (argc < argv_cnt) argv[argc++] = (char*)"-q"; // quit after lease
+			if (argc < argv_cnt) argv[argc++] = (char*)"-n"; // fail fast if no lease
+		} while(0);
+		if (argc >= argv_cnt) {
+			log_e("insufficient argv\n");
+			goto finally;
+		}
+		argv[argc] = NULL;
+
+		execvp(argv[0], argv);
 		_exit(127);
+		log_e("Unreachable\n");
 	}
 	wifi2->udhcpc_pid = pid;
+	ret = 0;
+finally:
 #else
 	system("killall udhcpc 2>/dev/null");
 	snprintf(cmd, sizeof(cmd), "udhcpc -i %s -n &", wifi2->iface);
-	system(cmd);
+	ret = system(cmd);
 #endif
+	return ret;
 }
 
-static void wpasup_start(wifi2_t *wifi2) {
+static int wpasup_start(wifi2_t *wifi2, int en) {
 	char wpasup_cfg[] = "/var/run/wpa_supplicant.conf";
 	char cmd[128];
+	int ret = -1;
 
 #if 1
-    if (wifi2->wpasup_pid > 0) {
-        kill(wifi2->wpasup_pid, SIGTERM);
-        for (int i = 0; i < 10; i++) {
-            if (waitpid(wifi2->wpasup_pid, NULL, WNOHANG) > 0) break;
-            usleep(100 * 1000);
-        }
-        kill(wifi2->wpasup_pid, SIGKILL);
-        waitpid(wifi2->wpasup_pid, NULL, 0);
-        wifi2->wpasup_pid = -1;
-    }
+	pid_t pid;
+	int argc = 0, argv_cnt;
+	char *argv[20];
+
+	argv_cnt = aloe_arraysize(argv);
+
+	if (wifi2->wpasup_pid > 0) {
+		kill(wifi2->wpasup_pid, SIGTERM);
+		for (int i = 0; i < 10; i++) {
+			if (waitpid(wifi2->wpasup_pid, NULL, WNOHANG) > 0) break;
+			usleep(100 * 1000);
+		}
+		kill(wifi2->wpasup_pid, SIGKILL);
+		waitpid(wifi2->wpasup_pid, NULL, 0);
+		wifi2->wpasup_pid = -1;
+	}
+	if (en <= 0) {
+		ret = 0;
+		goto finally;
+	}
 
 	snprintf(cmd, sizeof(cmd), "echo >%s", wpasup_cfg);
 	system(cmd);
 
-	pid_t pid = fork();
+	pid = fork();
 	if (pid < 0) {
 		log_e("Failed fork\n");
-		return;
+		goto finally;
 	}
 
 	if (pid == 0) {
 		// child
-		execlp("wpa_supplicant",
-				"wpa_supplicant",
-				"-i", wifi2->iface,
-				"-c", wpasup_cfg,
-				"-C", "/var/run/wpa_supplicant", // ctrl dir
-				"-f", "/var/log/wpa_supplicant.log", // optional
-				NULL);
+
+		argc = 0;
+		do {
+			if (argc < argv_cnt) argv[argc++] = (char*)"wpa_supplicant";
+
+			if (argc < argv_cnt) argv[argc++] = (char*)"-i";
+			if (argc < argv_cnt) argv[argc++] = wifi2->iface;
+
+			if (argc < argv_cnt) argv[argc++] = (char*)"-c";
+			if (argc < argv_cnt) argv[argc++] = wpasup_cfg;
+
+			if (argc < argv_cnt) argv[argc++] = (char*)"-C";
+			if (argc < argv_cnt) argv[argc++] = (char*)"/var/run/wpa_supplicant"; // ctrl dir
+
+			if (en >= 2) {
+				if (argc < argv_cnt) argv[argc++] = (char*)"-f";
+				if (argc < argv_cnt) argv[argc++] = (char*)"/var/run/wpa_supplicant.log"; // optional
+			}
+		} while(0);
+		if (argc >= argv_cnt) {
+			log_e("insufficient argv\n");
+			goto finally;
+		}
+		argv[argc] = NULL;
+
+		execvp(argv[0], argv);
 		_exit(127);
+		log_e("Unreachable\n");
 	}
 	wifi2->wpasup_pid = pid;
+	ret = 0;
+finally:
 #else
 	system("killall wpa_supplicant 2>/dev/null");
 
@@ -257,9 +319,9 @@ static void wpasup_start(wifi2_t *wifi2) {
 
 	snprintf(cmd, sizeof(cmd), "wpa_supplicant -D nl80211 -i %s -c %s -B",
 			wifi2->iface, wpasup_cfg);
-	system(cmd);
+	ret = system(cmd);
 #endif
-	return;
+	return ret;
 }
 
 #if defined(USE_NLCONN)
@@ -384,6 +446,7 @@ static void wpa_select_network(wifi2_t *wifi2) {
 
 #endif // USE_WPASUPCLIENT
 
+#if defined(USE_NLCONN)
 static int nl_event_handler(struct nl_msg *msg, void *arg) {
 	wifi2_t *wifi2 = (wifi2_t*)arg;
 	struct nlmsghdr *nlh = (struct nlmsghdr*)nlmsg_hdr(msg);
@@ -412,6 +475,7 @@ static int nl_event_handler(struct nl_msg *msg, void *arg) {
 	}
 	return NL_OK;
 }
+#endif // USE_NLCONN
 
 static void handle_rtnl(wifi2_t *wifi2) {
 	char buf[4096];
@@ -527,7 +591,7 @@ static void run_sm(wifi2_t *wifi2) {
 	case ST_INIT: {
 		iface_set_up(wifi2, 0);
 		iface_set_up(wifi2, 1);
-		wpasup_start(wifi2);
+		wpasup_start(wifi2, 1);
 		sleep(1); // allow socket ready
 		wpa_connect_ctrl(wifi2);
 		wifi2->state = ST_WPA_READY;
@@ -549,7 +613,7 @@ static void run_sm(wifi2_t *wifi2) {
 
 	case ST_WPA_COMPLETED:
 		printf("L2 connected\n");
-		dhcp_start(wifi2);
+		dhcp_start(wifi2, 1);
 		set_timer(wifi2, 8);
 		wifi2->state = ST_DHCP;
 		break;
@@ -818,11 +882,18 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 //	dump_argv(argc, argv);
 
 	if (argc < 2 || strcasecmp(argv[1], "help") == 0) {
-		printf(
-"wifi commands:\n"
-"  state - show current state\n"
-"  pause - toggle state machine\n");
+		FILE *fout = stdout;
 
+		fprintf(fout,
+"COMMAND\n"
+"    wifi state      - Show current FSM\n"
+"    wifi pause      - Toggle FSM\n"
+"    wifi timer [ms] - Set timer timeout milliseconds\n"
+"    iflink [0 | 1]  - Set interface down or up\n"
+"    dhcp [0 | 1]    - udhcpc stop or restart\n"
+"    wpasup [0 | 1]  - wpa_supplicant stop or restart\n"
+		);
+		fflush(fout);
 		return 0;
 	}
 	if (!wifi2) {
@@ -850,6 +921,20 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		}
 		return 0;
 	}
+	if (argc >= 2 && strcasecmp(argv[1], "iflink") == 0) {
+		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 0;
 
+		return iface_set_up(wifi2, en);
+	}
+	if (argc >= 2 && strcasecmp(argv[1], "dhcp") == 0) {
+		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 0;
+
+		return dhcp_start(wifi2, en);
+	}
+	if (argc >= 2 && strcasecmp(argv[1], "wpasup") == 0) {
+		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 0;
+
+		return wpasup_start(wifi2, en);
+	}
 	return 1;
 }
