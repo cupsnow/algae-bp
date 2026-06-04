@@ -146,6 +146,36 @@ static int cli_cmd_quit(void*, int argc, const char **argv) {
 	return 0;
 }
 
+static int cli_cmd_iflink(void*, int argc, const char **argv) {
+	const char *iface;
+	unsigned ifflag;
+	char ifflag_str[128];
+	int r;
+
+	if (argc < 2) {
+		log_e("Invalid argument\n");
+		return -1;
+	}
+	iface = argv[1];
+	if (argc >= 3) {
+		if (strcasecmp(argv[2], "down") == 0
+				|| strcasecmp(argv[2], "0") == 0) {
+			aloe_ifup(iface, 0);
+		} else if (strcasecmp(argv[2], "up") == 0
+				|| strcasecmp(argv[2], "1") == 0) {
+			aloe_ifup(iface, 1);
+		}
+	}
+	ifflag = 0;
+	if ((r = aloe_ifflag(iface, &ifflag)) != 0) {
+		log_e("Failed get ifflag\n");
+		return -1;
+	}
+	aloe_ifflag_str(ifflag_str, sizeof(ifflag_str), ifflag, NULL);
+	log_d("ifflag: %s (0x%x)\n", ifflag_str, ifflag);
+	return 0;
+}
+
 static void tester_proc2(void *args) {
 	int *msg_seq = (int*)args;
 
@@ -285,6 +315,7 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "ifce", &cli_cmd_ifce, NULL, "ifce [ifce] -> net interface info");
 	cli1_cmd_add(cli_global, "quit", &cli_cmd_quit, NULL, "quit -> quit program");
 	cli1_cmd_add(cli_global, "exit", &cli_cmd_quit, NULL, "exit -> quit program");
+	cli1_cmd_add(cli_global, "iflink", &cli_cmd_iflink, NULL, "iflink <ifce> [down | up | 0 | 1] -> Set Interface down or up");
 	cli1_cmd_add(cli_global, "q", &cli_cmd_quit, NULL, "q -> quit program");
 
 	while (!impl.quit) {

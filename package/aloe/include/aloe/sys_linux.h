@@ -129,6 +129,9 @@ int aloe_ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep);
 int aloe_rtscope_str(char *str, size_t str_sz, unsigned rtscope);
 int aloe_wext_info(const char *ifce, char *wext, size_t wext_len);
 
+int aloe_ifflag(const char *iface, unsigned *iflag);
+int aloe_ifup(const char *iface, int up);
+
 /** @} ALOE_LINUX */
 
 #ifdef __cplusplus

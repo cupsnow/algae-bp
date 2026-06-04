@@ -980,6 +980,29 @@ mtdutils: | $(mtdutils_BUILDDIR)/Makefile
 mtdutils_%: | $(mtdutils_BUILDDIR)/Makefile
 	$(mtdutils_MAKE) $(PARALLEL_BUILD) $(@:mtdutils_%=%)
 
+
+#------------------------------------
+# dep: libubootenv-dev libconfig-dev liblua5.4-dev libubi-dev libmtd-dev
+#
+swupdate_DIR?=$(PROJDIR)/package/swupdate-2020.04
+swupdate_BUILDDIR?=$(swupdate_DIR)
+swupdate_MAKE=$(MAKE) -C $(swupdate_BUILDDIR)
+
+GENDIR+=$(swupdate_BUILDDIR)
+
+swupdate_defconfig $(swupdate_BUILDDIR)/.config: | $(swupdate_BUILDDIR)
+	cp -v $(PROJDIR)/package/br2/swupdate/hc1703.config $(swupdate_BUILDDIR)/.config
+	yes "" | $(swupdate_MAKE) oldconfig
+
+$(addprefix swupdate_,mrproper distclean clean):
+	$(swupdate_MAKE) $(@:swupdate_%=%)
+
+swupdate: | $(swupdate_BUILDDIR)/.config
+	$(swupdate_MAKE)
+
+swupdate_%: | $(swupdate_BUILDDIR)/.config
+	$(swupdate_MAKE) $*
+
 #------------------------------------
 #
 ncursesw_DIR?=$(PKGDIR2)/ncurses

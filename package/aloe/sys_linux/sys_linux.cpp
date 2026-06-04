@@ -363,6 +363,3 @@ void aloe_munmap(aloe_mmap_t *mm) {
 		aloe_mmap_reset(mm);
 	}
 }
-
-
-

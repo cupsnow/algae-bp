@@ -33,6 +33,7 @@
 #define log_d(...) log_m("Debug", __VA_ARGS__)
 #define log_e(...) log_m("ERROR", __VA_ARGS__)
 
+extern "C"
 int aloe_ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep) {
 	struct {
 		const char *name;
@@ -92,6 +93,7 @@ finally:
 	return pos;
 }
 
+extern "C"
 int aloe_rtscope_str(char *str, size_t str_sz, unsigned rtscope) {
 	struct {
 		const char *name;
@@ -124,6 +126,7 @@ finally:
 	return pos;
 }
 
+extern "C"
 int aloe_wext_info(const char *ifce, char *wext, size_t wext_len) {
 	struct iwreq iwreq1;
 	int fd = -1, r;
@@ -154,3 +157,60 @@ finally:
 	return r;
 }
 
+extern "C"
+int aloe_ifflag(const char *iface, unsigned *iflag) {
+	int ret = -1, s = -1, r;
+	struct ifreq ifr = {};
+
+	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+		log_e("failed open socket\n");
+		goto finally;
+	}
+
+	strncpy(ifr.ifr_name, iface, IFNAMSIZ);
+
+	if (ioctl(s, SIOCGIFFLAGS, &ifr) < 0) {
+		r = errno;
+		log_e("failed get ifflag: %s\n", strerror(r));
+		goto finally;
+	}
+	if (iflag) *iflag = ifr.ifr_flags;
+	ret = 0;
+finally:
+	if (s != -1) close(s);
+	return ret;
+}
+
+extern "C"
+int aloe_ifup(const char *iface, int up) {
+	int ret = -1, s = -1, r;
+	struct ifreq ifr = {};
+
+	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+		log_e("failed open socket\n");
+		goto finally;
+	}
+
+	strncpy(ifr.ifr_name, iface, IFNAMSIZ);
+
+	if (ioctl(s, SIOCGIFFLAGS, &ifr) < 0) {
+		r = errno;
+		log_e("failed get ifflag: %s\n", strerror(r));
+		goto finally;
+	}
+	if (up) {
+		ifr.ifr_flags |= IFF_UP;
+	} else {
+		ifr.ifr_flags &= ~IFF_UP;
+	}
+
+	if ((r = ioctl(s, SIOCSIFFLAGS, &ifr)) < 0) {
+		r = errno;
+		log_e("failed set ifflag: %s\n", strerror(r));
+		goto finally;
+	}
+	ret = 0;
+finally:
+	if (s != -1) close(s);
+	return ret;
+}

@@ -51,7 +51,6 @@
 
 //#define USE_NLCONN 1
 
-//#define IFACE "wlan0"
 #define MAX_EVENTS 8
 
 typedef enum {
@@ -147,38 +146,32 @@ static int iface_set_up(wifi2_t *wifi2, int up) {
 	char cmd[128];
 	int ret = -1;
 #if 1
-	int s = -1, r;
-	struct ifreq ifr = {};
-
-	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
-		log_e("failed open socket\n");
-		goto finally;
-	}
-
-	strncpy(ifr.ifr_name, wifi2->iface, IFNAMSIZ);
-
-	if (ioctl(s, SIOCGIFFLAGS, &ifr) < 0) {
-		log_e("failed get ifflag\n");
-		goto finally;
-	}
-	if (up) {
-		ifr.ifr_flags |= IFF_UP;
-	} else {
-		ifr.ifr_flags &= ~IFF_UP;
-	}
-
-	if ((r = ioctl(s, SIOCSIFFLAGS, &ifr)) < 0) {
-		log_e("failed set ifflag\n");
-		goto finally;
-	}
-	ret = 0;
-finally:
-	if (s != -1) close(s);
+	ret = aloe_ifup(wifi2->iface, up);
 #else
 	snprintf(cmd, sizeof(cmd), "ip link set %s %s", wifi2->iface, up ? "up" : "down");
 	ret = system(cmd);
 #endif
 	return ret;
+}
+
+static int pid_kill(int pid, const char *hint) {
+	int r;
+
+	if (pid < 0) return 0;
+	if ((r = kill(pid, SIGKILL)) != 0) {
+		r = errno;
+		log_e("Failed kill %s (%d): %s\n",
+				(hint ? hint : ""), pid, strerror(r));
+		return r;
+	}
+	while ((r = waitpid(pid, NULL, 0)) < 0) {
+		r = errno;
+		if (r == EINTR) continue;
+		log_e("Sanity check, failed waitpid %s (%d) %s\n",
+				(hint ? hint : ""), pid, strerror(r));
+		break;
+	}
+	return 0;
 }
 
 static int dhcp_start(wifi2_t *wifi2, int en) {
@@ -193,8 +186,7 @@ static int dhcp_start(wifi2_t *wifi2, int en) {
 	argv_cnt = aloe_arraysize(argv);
 
 	if (wifi2->udhcpc_pid > 0) {
-		kill(wifi2->udhcpc_pid, SIGTERM);
-		waitpid(wifi2->udhcpc_pid, NULL, 0);
+		pid_kill(wifi2->wpasup_pid, "udhcpc");
 		wifi2->udhcpc_pid = -1;
 	}
 	if (en <= 0) {
@@ -248,21 +240,45 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 
 #if 1
 	pid_t pid;
-	int argc = 0, argv_cnt;
+	int argc = 0, argv_cnt, r;
 	char *argv[20];
 
 	argv_cnt = aloe_arraysize(argv);
 
 	if (wifi2->wpasup_pid > 0) {
-		kill(wifi2->wpasup_pid, SIGTERM);
+		pid_t wp;
+
+		if ((r = kill(wifi2->wpasup_pid, SIGTERM)) != 0) {
+			r = errno;
+			log_e("Sanity check, failed kill wpasup (%d): %s\n",
+					wifi2->wpasup_pid, strerror(r));
+		}
 		for (int i = 0; i < 10; i++) {
-			if (waitpid(wifi2->wpasup_pid, NULL, WNOHANG) > 0) break;
+			wp = waitpid(wifi2->wpasup_pid, NULL, WNOHANG);
+
+			if (wp == wifi2->wpasup_pid) {
+				wifi2->wpasup_pid = -1;
+				break;
+			}
+			if (wp < 0) {
+				r = errno;
+				if (r == EINTR) continue;
+				if (r == ECHILD) {
+					log_d("Sanity check, the pid %d is not a child of this process",
+							wifi2->wpasup_pid);
+					wifi2->wpasup_pid = -1;
+					break;
+				}
+				log_e("Failed waitpid wpasup (%d) %s\n",
+						wifi2->wpasup_pid, strerror(r));
+				break;
+			}
 			usleep(100 * 1000);
 		}
-		kill(wifi2->wpasup_pid, SIGKILL);
-		waitpid(wifi2->wpasup_pid, NULL, 0);
+		pid_kill(wifi2->wpasup_pid, "wpasup");
 		wifi2->wpasup_pid = -1;
 	}
+
 	if (en <= 0) {
 		ret = 0;
 		goto finally;
@@ -932,6 +948,11 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		return dhcp_start(wifi2, en);
 	}
 	if (argc >= 2 && strcasecmp(argv[1], "wpasup") == 0) {
+		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 0;
+
+		return wpasup_start(wifi2, en);
+	}
+	if (argc >= 2 && strcasecmp(argv[1], "wificfg") == 0) {
 		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 0;
 
 		return wpasup_start(wifi2, en);
