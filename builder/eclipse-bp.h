@@ -23,6 +23,11 @@ extern "C" {
 #define USE_WIFIMGR 1
 #define USE_WPASUPCLIENT 1
 
+// wpasup
+#define CONFIG_CTRL_IFACE y
+#define CONFIG_CTRL_IFACE_UNIX
+
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

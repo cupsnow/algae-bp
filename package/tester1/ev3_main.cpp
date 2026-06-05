@@ -86,13 +86,12 @@ static int cli_cmd_cycle_time(void*, int, const char**) {
 static int cli_cmd_wifi(void*, int argc, const char **argv) {
 //	dump_argv(argc, argv);
 	if (!wifi2_global) {
+		// wifi wlx94186551a58a
 		const char *iface = argc >= 2 ? argv[1] : NULL;
 		wifi2_global = wifi2_init(impl.ev_ctx, iface);
 		return 0;
 	}
-	if (wifi2_global) {
-		return wifi2_cli(wifi2_global, argc, argv);
-	}
+	return wifi2_cli(wifi2_global, argc, argv);
 	return -1;
 }
 #endif // USE_WIFIMGR
