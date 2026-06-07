@@ -65,6 +65,27 @@ aloe_buf_t* aloe_buf_rewind(aloe_buf_t *buf) {
 	return buf;
 }
 
+extern "C"
+int aloe_buf_expand(aloe_buf_t *buf, size_t cap, int retain) {
+	void *data;
+
+	if (buf->cap >= cap) return 0;
+	if (!(data = malloc(cap))) return ENOMEM;
+	if (buf->data) {
+		if (buf->pos > 0) {
+			if (retain == ALOE_BUF_FLAG_RETAIN_NORMAL
+					|| retain > 0) {
+				memcpy(data, buf->data, buf->pos);
+			}
+		}
+		free(buf->data);
+	}
+	if (buf->lmt == buf->cap) buf->lmt = cap;
+	buf->data = data;
+	buf->cap = cap;
+	return 0;
+}
+
 static const char _aloe_str_sep[] = " \r\n\t";
 
 extern "C" {
@@ -268,16 +289,21 @@ finally:
 }
 
 extern "C"
-int aloe_buf_zvprintf(aloe_buf_t *fb, const char *fmt, va_list va) {
-	int r;
+int aloe_buf_vzprintf(aloe_buf_t *fb, const char *fmt, va_list va) {
+	int r, ch;
 
-	if (fb->pos >= fb->lmt || !fmt) return 0;
-	r = vsnprintf((char*)fb->data + fb->pos, fb->lmt - fb->pos, fmt, va);
-	if (r >= 0 && fb->pos + r < fb->lmt) {
-		fb->pos += r;
-	} else {
+	if (fb->pos >= fb->lmt || !fmt) {
 		r = 0;
+		goto finally;
 	}
+	if ((r = vsnprintf((char*)fb->data + fb->pos, fb->lmt - fb->pos,
+			fmt, va)) < 0 || fb->pos + r >= fb->lmt) {
+		// likely insufficient buffer
+		r = 0;
+		goto finally;
+	}
+	fb->pos += r;
+finally:
 	if (fb->pos < fb->lmt) ((char*)fb->data)[fb->pos] = '\0';
 	return r;
 }
@@ -288,7 +314,7 @@ int aloe_buf_zprintf(aloe_buf_t *fb, const char *fmt, ...) {
 	va_list va;
 
 	va_start(va, fmt);
-	r = aloe_buf_zvprintf(fb, fmt, va);
+	r = aloe_buf_vzprintf(fb, fmt, va);
 	va_end(va);
 	return r;
 }

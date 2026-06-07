@@ -34,6 +34,16 @@ extern "C" {
 } while(0)
 #  define log_d(...) log_m("Debug", __VA_ARGS__)
 #  define log_e(...) log_m("ERROR", __VA_ARGS__)
+#  define log_hd(_v, _z, _msg, _args...) do { \
+	struct timespec _log_m_ts; \
+	struct tm _log_m_tm; \
+	clock_gettime(CLOCK_REALTIME, &_log_m_ts); \
+	localtime_r(&_log_m_ts.tv_sec, &_log_m_tm); \
+	aloe_hexdump(_v, _z, "[%02ld:%02ld:%02ld.%06ld][%s][%s][#%d]" _msg, \
+			(long)_log_m_tm.tm_hour, (long)_log_m_tm.tm_min, (long)_log_m_tm.tm_sec, \
+			(long)_log_m_ts.tv_nsec / 1000, \
+			"Debug", __func__, __LINE__, ##_args); \
+} while(0)
 
 #define dump_argv(_argc, _argv) for (int i = 0; i < _argc; i++) { \
 	log_d("argv[%d/%d]: %s\n", i + 1, _argc, _argv[i]); \

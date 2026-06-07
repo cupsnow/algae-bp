@@ -80,9 +80,6 @@ typedef struct {
 	int epfd;
 	int timer_fd;
 	int rtnl_fd;
-	struct {
-		int fd[2];
-	} mgmt;
 #if defined(USE_WPASUPCLIENT)
 	struct wpa_ctrl *wpasup_cln;
 	int wpasup_ctrl_fd;
@@ -288,7 +285,11 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 		goto finally;
 	}
 
-	snprintf(cmd, sizeof(cmd), "echo >%s", wpasup_cfg);
+	snprintf(cmd, sizeof(cmd), "{\n"
+			"echo \"ctrl_interface=/var/run/wpa_supplicant\"\n"
+			"echo \"sae_groups=19\"\n"
+			"echo \"sae_pwe=2\"\n"
+			"} >%s", wpasup_cfg);
 	system(cmd);
 
 	pid = fork();
@@ -312,6 +313,12 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 
 			if (argc < argv_cnt) argv[argc++] = (char*)"-C";
 			if (argc < argv_cnt) argv[argc++] = (char*)"/var/run/wpa_supplicant"; // ctrl dir
+
+			if (en >= 4) {
+				if (argc < argv_cnt) argv[argc++] = (char*)"-dd";
+			} else if (en >= 3) {
+				if (argc < argv_cnt) argv[argc++] = (char*)"-d";
+			}
 
 			if (en >= 2) {
 				if (argc < argv_cnt) argv[argc++] = (char*)"-f";
@@ -378,34 +385,85 @@ finally:
 	return ret;
 }
 
-__attribute__((format(printf, 4, 0)))
-static int wpasup_vcmdf(wifi2_t *wifi2, char *reply, size_t *len,
-		const char *fmt, ...) {
+static int wpasup_cmd(wifi2_t *wifi2, const char *cmd, char *reply, size_t *len) {
+	int ret = -1;
+	size_t reply_cap = len ? *len : 0;
 
+	if (!wifi2->wpasup_cln
+			&& ((wpa_connect_ctrl(wifi2, 0)) != 0 || !wifi2->wpasup_cln)) {
+		log_e("no open wpasup control socket\n");
+		return -1;
+	}
+	ret = wpa_ctrl_request(wifi2->wpasup_cln, cmd, strlen(cmd), reply, len,
+			NULL);
+	if (reply_cap > 0 && *len < reply_cap) {
+		reply[*len] = '\0';
+	}
+	return ret;
+}
+
+__attribute__((format(printf, 6, 0)))
+static int wpasup_cmdvsf(wifi2_t *wifi2, char *reply, size_t *len,
+		char *cmd, size_t cmd_sz, const char *fmt, va_list va) {
+	int ret = -1, r;
+
+	if ((r = vsnprintf(cmd, cmd_sz, fmt, va)) <= 0
+			|| r >= cmd_sz) {
+		log_e("insufficient buffer\n");
+		goto finally;
+	}
+	ret = wpasup_cmd(wifi2, cmd, reply, len);
+finally:
+	return ret;
+}
+
+__attribute__((format(printf, 6, 7)))
+static int wpasup_cmdsf(wifi2_t *wifi2, char *reply, size_t *len,
+		char *cmd, size_t cmd_sz, const char *fmt, ...) {
+	int r;
+
+	va_list va;
+	va_start(va, fmt);
+	r = wpasup_cmdvsf(wifi2, reply, len, cmd, cmd_sz, fmt, va);
+	va_end(va);
+	return r;
+}
+
+__attribute__((format(printf, 4, 0)))
+static int wpasup_cmdvf(wifi2_t *wifi2, char *reply, size_t *len,
+		const char *fmt, va_list va) {
+	int ret = -1, r;
+	aloe_buf_t fb = {};
+	
+	if ((fb.data = aloe_malloc(fb.cap = 1024)) == NULL) {
+		log_e("malloc\n");
+		goto finally;
+	}
+	aloe_buf_clear(&fb);
+	ret = wpasup_cmdvsf(wifi2, reply, len, (char*)fb.data, fb.lmt, fmt, va);
+finally:
+	if (fb.data) aloe_free(fb.data);
+	return ret;
 }
 
 __attribute__((format(printf, 4, 5)))
 static int wpasup_cmdf(wifi2_t *wifi2, char *reply, size_t *len,
 		const char *fmt, ...) {
 	int r;
-	r =
-}
 
-static int wpasup_cmd(wifi2_t *wifi2, const char *cmd, char *reply, size_t *len) {
-	if (!wifi2->wpasup_cln
-			&& ((wpa_connect_ctrl(wifi2, 0)) != 0 || !wifi2->wpasup_cln)) {
-		log_e("no open wpasup control socket\n");
-		return -1;
-	}
-	return wpa_ctrl_request(wifi2->wpasup_cln, cmd, strlen(cmd), reply, len,
-			NULL);
+	va_list va;
+	va_start(va, fmt);
+	r = wpasup_cmdvf(wifi2, reply, len, fmt, va);
+	va_end(va);
+	return r;
 }
 
 static int wpasup_ping(wifi2_t *wifi2) {
 	char reply[16];
 	size_t reply_sz = sizeof(reply);
 
-	if (wpasup_cmd(wifi2, "PING", reply, &reply_sz) == 0 && strstr(reply, "PONG")) {
+	if (wpasup_cmd(wifi2, "PING", reply, &reply_sz) == 0
+			&& strstr(reply, "PONG")) {
 		return 0;
 	}
 	return -1;
@@ -418,19 +476,26 @@ static int wpasup_scan(wifi2_t *wifi2) {
 	return wpasup_cmd(wifi2, "SCAN", reply, &reply_sz);
 }
 
-static int wpasup_select_network(wifi2_t *wifi2, int idx) {
+static int wpasup_add_network(wifi2_t *wifi2, int network_idx) {
 	int ret = -1, r;
-	char cmd[] = "SELECT_NETWORK 01234566";
-	char reply[32];
+	char cmd[32] = "ADD_NETWORK %d";
+	char reply[32] = "%d\n", reply_verify[32] = "%d\n";
 	size_t reply_sz = sizeof(reply);
 
-	if ((r = snprintf(cmd, sizeof(cmd), "SELECT_NETWORK %d", idx)) <= 0
-			|| r >= sizeof(cmd)) {
-		log_e("compose cmd\n");
+	if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+			"ADD_NETWORK")) != 0
+			|| reply_sz <= 0) {
+		log_e("failed send add_network\n");
 		goto finally;
 	}
-
-	if ((r = wpasup_cmd(wifi2, "SELECT_NETWORK 0", reply, &reply_sz)) != 0) {
+	if ((r = snprintf(reply_verify, sizeof(reply_verify),
+			"%d\n", network_idx)) <= 0
+			|| r >= sizeof(reply_verify)) {
+		log_e("failed compose reply_verify\n");
+		goto finally;
+	}
+	if (strncasecmp(reply, reply_verify, 3) != 0) {
+		log_e("failure sent add_network, %s, %s\n", reply, reply_verify);
 		goto finally;
 	}
 	ret = 0;
@@ -458,39 +523,99 @@ static void handle_wpa_event(wifi2_t *wifi2) {
 	}
 }
 
-#endif // USE_WPASUPCLIENT
-
 static int wpasup_network_config(wifi2_t *wifi2, const char *ssid,
-		const char *pkey, unsigned flag) {
-	int ret = -1, r;
-	char cmd[] = "SELECT_NETWORK 01234566";
-	char reply[32];
+		const char *psk, unsigned flag) {
+	int ret = -1, r, network_idx = 0;
+	char cmd[256], reply[256];
 	size_t reply_sz = sizeof(reply);
 
-	if ((r = snprintf(cmd, sizeof(cmd), "SELECT_NETWORK %d", idx)) <= 0
-			|| r >= sizeof(cmd)) {
-		log_e("compose cmd\n");
+	if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+			"FLUSH")) != 0
+			|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+		log_e("send flush\n");
 		goto finally;
 	}
+	log_d("sent flush\n");
 
-	if ((r = wpasup_cmd(wifi2, "SELECT_NETWORK 0", reply, &reply_sz)) != 0) {
+	if (wpasup_add_network(wifi2, network_idx) != 0) {
+		log_e("send add_network\n");
 		goto finally;
 	}
+	log_d("sent add_network\n");
 
-	log_d("enter\n");
-
-	if (wpasup_select_network(wifi2, 0) != 0) {
-		log_e("select network\n");
+	if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+			"SET_NETWORK %d scan_ssid 1", network_idx)) != 0
+			|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+		log_e("set network scan_ssid 1\n");
 		goto finally;
 	}
+	log_d("set network scan_ssid 1\n");
 
-	// wifi state st_init
-	// wifi wlx94186551a58a
-	// wifi wificfg DK_SWQA_Linksys_5G 5555500000 1
+	if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+			"SET_NETWORK %d ssid \"%s\"", network_idx, ssid)) != 0
+			|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+		log_e("set network ssid\n");
+		goto finally;
+	}
+	log_d("set network ssid\n");
 
+	if (!psk) {
+		if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+				"SET_NETWORK %d key_mgmt NONE", network_idx)) != 0
+				|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+			log_e("set network key_mgmt NONE\n");
+			goto finally;
+		}
+		log_d("set network key_mgmt NONE\n");
+	} else {
+		if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+				"SET_NETWORK %d psk \"%s\"", network_idx, psk)) != 0
+				|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+			log_e("set network psk\n");
+			goto finally;
+		}
+		log_d("set network psk\n");
+
+		if (flag) {
+			if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+					"SET_NETWORK %d psk \"%s\"", network_idx, psk)) != 0
+					|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+				log_e("set network psk\n");
+				goto finally;
+			}
+			log_d("set network psk\n");
+
+			if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+					"SET_NETWORK %d key_mgmt SAE", network_idx)) != 0
+					|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+				log_e("set network key_mgmt SAE\n");
+				goto finally;
+			}
+			log_d("set network key_mgmt SAE\n");
+
+			if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+					"SET_NETWORK %d ieee80211w 2", network_idx)) != 0
+					|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+				log_e("set network ieee80211w 2\n");
+				goto finally;
+			}
+			log_d("set network ieee80211w 2\n");
+		}
+	}
+
+	if ((r = wpasup_cmdsf(wifi2, reply, &reply_sz, cmd, sizeof(cmd),
+			"SELECT_NETWORK %d", network_idx)) != 0
+			|| reply_sz <= 0 || strncasecmp(reply, "OK\n", 3) != 0) {
+		log_e("select network 0\n");
+		goto finally;
+	}
+	log_d("select network 0\n");
+	ret = 0;
 finally:
-	return 1;
+	return ret;
 }
+
+#endif // USE_WPASUPCLIENT
 
 static void handle_rtnl(wifi2_t *wifi2) {
 	char buf[4096];
@@ -621,7 +746,7 @@ static void run_sm(wifi2_t *wifi2) {
 		break;
 
 	case ST_ASSOCIATING:
-		wpasup_select_network(wifi2, 0);
+//		wpasup_select_network(wifi2, 0);
 		timer_set(wifi2, 10000);
 		break;
 
@@ -666,29 +791,6 @@ static void init_rtnl(wifi2_t *wifi2) {
 		r = errno;
 		log_e("bind NETLINK_ROUTE; %s\n", strerror(r));
 	}
-}
-
-static int init_mgmt(wifi2_t *wifi2) {
-	int ret = -1, r;
-
-	if (socketpair(AF_UNIX, SOCK_STREAM, 0, wifi2->mgmt.fd) == -1) {
-		r = errno;
-		log_e("failure socketpair %s\n", strerror(r));
-		wifi2->mgmt.fd[0] = wifi2->mgmt.fd[1] = -1;
-		goto finally;
-	}
-	if (aloe_file_nonblock(wifi2->mgmt.fd[0], 1) != 0
-			|| aloe_so_reuseaddr(wifi2->mgmt.fd[0]) != 0
-			|| aloe_so_keepalive(wifi2->mgmt.fd[0], 0, 0, 0) != 0) {
-		goto finally;
-	}
-	ret = 0;
-finally:
-	if (ret != 0) {
-		if (wifi2->mgmt.fd[0] != -1) close(wifi2->mgmt.fd[0]);
-		if (wifi2->mgmt.fd[1] != -1) close(wifi2->mgmt.fd[1]);
-	}
-	return ret;
 }
 
 static int wifi2_pause(void *_wifi2, int en) {
@@ -761,7 +863,6 @@ void* wifi2_init(void *evctx, const char *iface) {
 		goto finally;
 	}
 
-	init_mgmt(wifi2);
 	init_rtnl(wifi2);
 
 	wifi2->timer_fd = timerfd_create(CLOCK_MONOTONIC, 0);
@@ -887,23 +988,54 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		return dhcp_start(wifi2, en);
 	}
 
-	// wifi wpasup 0
+	// wifi wpasup 3
 	if (argc >= 2 && strcasecmp(argv[1], "wpasup") == 0) {
 		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 1;
 
 		return wpasup_start(wifi2, en);
 	}
 
-	// wifi wpacmd status
+	//	wifi wpacmd LIST_NETWORKS ->
+	//	network id / ssid / bssid / flags
+	//	0               any     [DISABLED]
+
+	//	wifi wpacmd STATUS
+
+	//	wifi wpacmd PING -> PONG\n
+
+	//	wifi wpacmd FLUSH -> OK\n
+	//	wifi wpacmd REMOVE_NETWORK 0 -> OK\n
+	//	wifi wpacmd REMOVE_NETWORK all -> OK\n
+	//	wifi wpacmd ADD_NETWORK -> 0\n
+	//	wifi wpacmd SELECT_NETWORK 0 -> OK\n
+	//	wifi wpacmd SET_NETWORK 0 scan_ssid 1 -> OK\n
+	//	wifi wpacmd SET_NETWORK 0 ssid "joe3" -> OK\n
+	//	wifi wpacmd SET_NETWORK 0 psk "joelaiamiami" -> OK\n
+
+	//	wifi wpacmd SET_NETWORK 0 key_mgmt NONE
+
+	//	wifi wpacmd SET_NETWORK 0 key_mgmt SAE
+	//	wifi wpacmd SET_NETWORK 0 ieee80211w 2
+
+	//	wifi wpacmd SELECT_NETWORK 0 -> OK\n
+
+	//	wifi wpacmd SCAN -> OK\n
+
+	//	wifi wpacmd SCAN_RESULTS ->
+	//	bssid / frequency / signal level / flags / ssid
+	//	cc:d8:43:b5:7e:eb       5240    -55     [WPA2-SAE-CCMP][SAE-H2E][ESS]
+	//	ce:d8:43:c5:7e:ea       5240    -55     [WPA2-PSK-CCMP][ESS]
+	//	cc:d8:43:b5:7e:ea       2452    -65     [WPA2-PSK-CCMP][WPS][ESS]       joe3
+	//	28:87:ba:40:5a:ef       2422    -69     [WPA2-PSK-CCMP][WPS][ESS]       iSynReal_WIFI
 	if (argc >= 3 && strcasecmp(argv[1], "wpacmd") == 0) {
 		char cmd[500], resp[500];
 		size_t pos = 0, cmd_sz = sizeof(cmd), resp_sz;
 		int r;
 
 		// wifi wpacmd ...
-		for (int i = 2; i < argc; i++) {
-			if ((r = snprintf(cmd + pos, cmd_sz - pos, "%s", argv[i])) <= 0
-					|| r + pos >= cmd_sz) {
+		for (int i = 2; i < argc && argv[i]; i++) {
+			if ((r = snprintf(cmd + pos, cmd_sz - pos, "%s%s",
+					(pos > 0 ? " " : ""), argv[i])) <= 0 || r + pos >= cmd_sz) {
 				log_e("insufficient buffer\n");
 				return -1;
 			}
@@ -911,16 +1043,18 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		}
 		cmd[pos] = '\0';
 		resp_sz = sizeof(resp);
-		if ((r = wpasup_cmd(wifi2, cmd, resp, &resp_sz)) != 0) {
-			log_e("Failed cmd: %s\n", cmd);
-			return -1;
+		r = wpasup_cmd(wifi2, cmd, resp, &resp_sz);
+		if (resp[0]) {
+			log_hd(resp, resp_sz, "cmd: %s -> %d; reply len %d:\n%s\n",
+					cmd, r, (int)resp_sz, resp);
+		} else {
+			log_d("cmd: %s -> %d\n", cmd, r);
 		}
-		if (resp_sz > 0) {
-			log_d("cmd: %s -> %s\n", cmd, resp);
-		}
+		return r;
 	}
 
-	// wifi wificfg DK_SWQA_Linksys_5G 5555500000 1
+	//	wifi wificfg DK_SWQA_Linksys_2.4G 5555500000
+	//	wifi wificfg DK_SWQA_Linksys_5G 5555500000 1
 	if (argc >= 3 && strcasecmp(argv[1], "wificfg") == 0) {
 		const char *ssid = argc >= 3 ? argv[2] : NULL;
 		const char *pkey = argc >= 4 ? argv[3] : NULL;

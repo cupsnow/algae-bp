@@ -100,6 +100,17 @@ aloe_buf_t* aloe_buf_clear(aloe_buf_t *buf);
 aloe_buf_t* aloe_buf_flip(aloe_buf_t *buf);
 aloe_buf_t* aloe_buf_rewind(aloe_buf_t *buf);
 
+#define ALOE_BUF_FLAG_RETAIN_NORMAL 1
+
+/** Expand size.
+ *
+ * @param retain
+ * - <= 0: Do not retain data.
+ * - ALOE_BUF_FLAG_RETAIN_NORMAL or others: Retain the data for starting aloe_buf_t::pos bytes.
+ * @return Return 0 while success or otherwise failure.
+ */
+int aloe_buf_expand(aloe_buf_t *buf, size_t cap, int retain);
+
 #define ALOE_TIMESEC_NORM(_sec, _ss, _scale) \
 	if ((_ss) >= _scale) { \
 		(_sec) += (_ss) / _scale; \
@@ -162,12 +173,6 @@ __attribute__((format(printf, 3, 4)))
 void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...);
 
 int aloe_ip_str(char *str, size_t str_sz, struct sockaddr *sa, unsigned flag);
-
-__attribute__((format(printf, 2, 0)))
-int aloe_buf_zvprintf(aloe_buf_t *fb, const char *fmt, va_list va);
-
-__attribute__((format(printf, 2, 3)))
-int aloe_buf_zprintf(aloe_buf_t *fb, const char *fmt, ...);
 
 /** @} ALOE */
 

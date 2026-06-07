@@ -3439,7 +3439,7 @@ dist-bp_dtb:
 	dtc -I dtb -O dts $(DTC_LINUX_WNO) $(DESTDIR)/$(DTBFILE) \
 	    > $(BUILDDIR)/$(DTBFILE:%.dtb=%).dts
 
-dist_bp_phase1_pkg+=
+# dist_bp_phase1_pkg+=libdrm
 
 dist-bp_phase1:
 # build all package
@@ -3448,7 +3448,6 @@ dist-bp_phase1:
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
 	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) $(addsuffix _destdep_install, \
-	    libdrm \
 		$(dist_bp_phase1_pkg))
 	$(MAKE) dist_rootfs_phase1
 

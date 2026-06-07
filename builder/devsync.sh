@@ -718,6 +718,7 @@ while test -n "$1"; do
   opt1="$1"
   shift
   
+  # generic
   case "$opt1" in
   test)
     cmd_run "do_${opt1}" "${opt1}" "$@"
@@ -727,7 +728,15 @@ while test -n "$1"; do
     cmd_run "$opt1" "" "$@"
     exit
     ;;
-  wpa_conf|flash_tiboot3|flash_tispl|flash_uboot)
+  wpa_conf)
+    cmd_run "$opt1" "$@"
+    exit
+    ;;
+  esac
+
+  # bp only
+  case "$opt1" in
+  flash_tiboot3|flash_tispl|flash_uboot)
     cmd_run "$opt1" "$@"
     exit
     ;;
@@ -861,6 +870,11 @@ while test -n "$1"; do
     fi
     sync; sync
     exit
+    ;;
+  gdb|gdbserver)
+    nfsmount || exit
+    # "${_pri_nfsalgaebp}/tool/gcc-arm/arm-none-linux-gnueabihf/libc/usr/bin/gdbserver"
+    cmd_run cp -Hv "${_pri_nfsalgaebp}/tool/gdbserver" /usr/bin/
     ;;
   destpkg_install)
     nfsmount || exit
