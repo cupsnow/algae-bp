@@ -52,21 +52,26 @@
 #define MAX_EVENTS 8
 
 typedef enum {
-	ST_INIT = 0, // timed to ST_RESET
+	// set timer
+	// -> ST_RESET: timeout
+	ST_INIT = 0,
 
-	// restart wpa_supplicant
-	// -> ST_WPASUP: wait 10ms
+	// restart wpa_supplicant; set timer
+	// -> ST_WPASUP_READY: timeout
 	ST_RESET,
 
-	// check wifi network config
-	// -> ST_WPASUP_UP: found wifi network config
+	// wait wifi network config;
+	// 	kill dhcpc, zcip; flush ip address; ifdown; ifup;
+	// set timer
+	// -> ST_WPASUP_UP: found wifi network config;
+	// -> ST_WPASUP_READY: timeout
 	ST_WPASUP_READY,
 
-	// wpa_cli flush; flush ip address; kill dhcpc, zcip; ifdown; ifup;
+	// wait for ifce up
 	// -> ST_WPASUP_CONNECT: IFF_UP
 	ST_WPASUP_UP,
 
-	// connect network, set timer
+	// connecting network, set timer
 	// -> ST_DHCPC: IFF_RUNNING
 	// -> ST_WPASUP_READY: timeout
 	ST_WPASUP_CONNECT,
@@ -876,40 +881,43 @@ static void run_sm(wifi2_t *wifi2, int st_next) {
 
 	switch (wifi2->state) {
 	case ST_INIT: {
-		dhcpc_start(wifi2, 0);
-		wpasup_start(wifi2, 0);
-		system_cmd("killall -9 wap_supplicant");
 		system_cmd("killall udhcpc");
 		system_cmd("killall zcip");
+		system_cmd("killall -9 wpa_supplicant");
 		timer_set(wifi2, 10);
-		log_d("timed to %s\n", (st_str(ST_RESET, "")));
 		break;
 	}
 	case ST_RESET: {
-		system_cmd("ip a flush dev %s", wifi2->iface);
-		aloe_ifup(wifi2->iface, 0);
-		aloe_ifup(wifi2->iface, 1);
-		log_d("wait IFF_UP to %s\n", (st_str(ST_WPASUP_READY, "")));
-//		timer_set(wifi2, 10000);
+		wpasup_start(wifi2, 1);
+		timer_set(wifi2, 10);
 		break;
 	}
-	case ST_WPASUP_READY:
-		if (wifi2->wpasup_pid <= 0) wpasup_start(wifi2, 1);
+	case ST_WPASUP_READY: {
 		if (wifi2->network_apply && wifi2->network_apply->ssid
 				&& wifi2->network_apply->ssid[0]) {
-			wpasup_network_connect(wifi2, wifi2->network_apply->ssid,
-					wifi2->network_apply->psk, wifi2->network_apply->flag);
-			log_d("%s -> %s\n", st_str(wifi2->state, ""), st_str(ST_WPASUP_CONNECT, ""));
-			wifi2->state = ST_WPASUP_CONNECT;
-			timer_set(wifi2, 10000);
+			dhcpc_start(wifi2, 0);
+			zcip_start(wifi2, 0);
+			system_cmd("ip a flush dev %s", wifi2->iface);
+			aloe_ifup(wifi2->iface, 0);
+			aloe_ifup(wifi2->iface, 1);
+			wifi2->state = ST_WPASUP_UP;
 			break;
 		}
-
-		// delay to check config again
 		timer_set(wifi2, 1000);
 		break;
-	case ST_WPASUP_CONNECT:
+	}
+	case ST_WPASUP_CONNECT: {
+		if (!wifi2->network_apply || !wifi2->network_apply->ssid
+				|| !wifi2->network_apply->ssid[0]) {
+			wifi2->state = ST_WPASUP_READY;
+			timer_set(wifi2, 1000);
+			break;
+		}
+		wpasup_network_connect(wifi2, wifi2->network_apply->ssid,
+				wifi2->network_apply->psk, wifi2->network_apply->flag);
+		timer_set(wifi2, 15000);
 		break;
+	}
 	case ST_DHCPC:
 		dhcpc_start(wifi2, 1);
 		timer_set(wifi2, 10000);
@@ -959,15 +967,21 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 			int st_old = wifi2->state;
 
 			read(wifi2->timer_fd, &exp, sizeof(exp));
-			log_d("TIMER\n");
-			if (wifi2->state == ST_DHCPC) {
+
+			if (wifi2->state == ST_INIT) {
+				wifi2->state = ST_RESET;
+			} else if (wifi2->state == ST_RESET) {
+				wifi2->state = ST_WPASUP_READY;
+			} else if (wifi2->state == ST_WPASUP_CONNECT) {
+				wifi2->state = ST_WPASUP_READY;
+			} else if (wifi2->state == ST_DHCPC) {
 				wifi2->state = ST_ZCIP;
 			} else if (wifi2->state == ST_ZCIP) {
 				wifi2->state = ST_MON;
 			} else if (wifi2->state == ST_MON) {
 				wifi2->state = ST_MON;
 			} else {
-				wifi2->state = ST_RESET;
+				wifi2->state = ST_INIT;
 			}
 			log_d("%s -> %s\n", st_str(st_old, ""), st_str(wifi2->state, ""));
 		}
@@ -994,7 +1008,7 @@ void* wifi2_init(void *evctx, const char *iface) {
 	}
 	wifi2->timer_fd = wifi2->epfd = wifi2->rtnl_fd = -1;
 	wifi2->ifindex = 0;
-	wifi2->state = ST_INIT;
+	wifi2->state = ST_PAUSE;
 	strncpy(wifi2->iface, (iface ? iface : "wlan0"), sizeof(wifi2->iface));
 	wifi2->iface[sizeof(wifi2->iface) - 1] = '\0';
 
@@ -1036,7 +1050,6 @@ void* wifi2_init(void *evctx, const char *iface) {
 		goto finally;
 	}
 
-	wifi2->state = ST_PAUSE;
 	log_d("wifi2 initialized%s\n",
 			(wifi2->state == ST_PAUSE ? "(paused)" : ""));
 	ret = 0;
