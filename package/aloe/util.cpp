@@ -17,6 +17,10 @@
 #include <arpa/inet.h>
 #include "log.h"
 
+extern "C" {
+const char *aloe_hex_chars = aloe_stringify(ALOE_HEX_CHARS);
+}
+
 extern "C"
 const char* aloe_version(int *ver, size_t cnt) {
 	static char ver_str[] = "aloe "
@@ -189,6 +193,32 @@ double aloe_avg_calc_f(aloe_buf_t *rec, double val,
 }
 
 extern "C"
+int aloe_hexstr(void *buf, size_t buf_len, const void *data, size_t sz,
+		const char *sep, size_t sep_len) {
+	char *ox = (char*)buf;
+	const uint8_t *p = (uint8_t*)data;
+	int pos = 0, i;
+
+	if (!sep) sep_len = 0;
+
+	if (!ox || buf_len == 0) goto finally;
+	for (i = 0; i < sz; i++) {
+		if (pos + 2 >= buf_len) break;
+
+		ox[pos++] = aloe_hex_chars[(p[i] >> 4) & 0x0F];
+		ox[pos++] = aloe_hex_chars[p[i] & 0x0F];
+		if (sep_len > 0 && i + 1 < sz) {
+			if (pos + sep_len >= buf_len) break;
+			memcpy(ox + pos, sep, sep_len);
+			pos += sep_len;
+		}
+	}
+finally:
+	if (pos < buf_len) ox[pos] = '\0';
+	return pos;
+}
+
+extern "C"
 void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...) {
 #define ALOE_HEXDUMP_ASCII
 	va_list args;
@@ -317,4 +347,79 @@ int aloe_buf_zprintf(aloe_buf_t *fb, const char *fmt, ...) {
 	r = aloe_buf_vzprintf(fb, fmt, va);
 	va_end(va);
 	return r;
+}
+
+int aloe_bio_read(int fd, void *buf, size_t buf_sz) {
+	int r;
+	size_t pos;
+
+	pos = 0;
+	while (pos < buf_sz) {
+		r = read(fd, (char*)buf + pos, buf_sz - pos);
+		if (r < 0) {
+			r = errno;
+			if (r == EINTR) continue;
+			aloe_log_e("Failed read, %s\n", strerror(r));
+			break;
+		}
+		if (r == 0) {
+//			log_e("Failed read, might closed\n");
+			break;
+		}
+		pos += r;
+	}
+	if (pos < buf_sz) ((char*)buf)[pos] = '\0';
+	return (int)pos;
+}
+
+int aloe_bio_write(int fd, const void *data, size_t data_sz) {
+	int r;
+	size_t pos;
+
+	pos = 0;
+	while (pos < data_sz) {
+		r = write(fd, (char*)data + pos, data_sz - pos);
+		if (r < 0) {
+			r = errno;
+			if (r == EINTR) continue;
+			aloe_log_e("Failed write, %s\n", strerror(r));
+			break;
+		}
+		if (r == 0) {
+			aloe_log_e("Failed write, might closed\n");
+			break;
+		}
+		pos += r;
+	}
+	return (int)pos;
+}
+
+int aloe_bio_read_fn(const char *fn, void *buf, size_t buf_sz) {
+	int fd = -1, ret = -1, r;
+
+	if ((fd = open(fn, O_RDONLY, 0666)) == -1) {
+		r = errno;
+		aloe_log_e("Failed open %s; %s\n", fn, strerror(r));
+		goto finally;
+	}
+	ret = aloe_bio_read(fd, buf, buf_sz);
+finally:
+	if (fd != -1) close(fd);
+	return ret;
+}
+
+int aloe_bio_write_fn(const char *fn, const void *data, size_t data_sz,
+		int mode) {
+	int fd = -1, ret = -1, r;
+
+	if (mode == 0) mode = O_WRONLY | O_TRUNC | O_CREAT;
+	if ((fd = open(fn, mode, 0666)) == -1) {
+		r = errno;
+		aloe_log_e("Failed open %s; %s\n", fn, strerror(r));
+		goto finally;
+	}
+	ret = aloe_bio_write(fd, data, data_sz);
+finally:
+	if (fd != -1) close(fd);
+	return ret;
 }

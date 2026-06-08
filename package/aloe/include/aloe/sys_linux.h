@@ -35,6 +35,7 @@
 #include <time.h>
 #include <ctype.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include "util.h"
 

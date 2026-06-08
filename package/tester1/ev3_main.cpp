@@ -91,6 +91,7 @@ static int cli_cmd_wifi(void*, int argc, const char **argv) {
 		wifi2_global = wifi2_init(impl.ev_ctx, iface);
 		return 0;
 	}
+
 	return wifi2_cli(wifi2_global, argc, argv);
 	return -1;
 }
@@ -157,7 +158,11 @@ static int cli_cmd_iflink(void*, int argc, const char **argv) {
 	}
 	iface = argv[1];
 	if (argc >= 3) {
-		if (strcasecmp(argv[2], "down") == 0
+		if (strcasecmp(argv[2], "downup") == 0
+				|| strcasecmp(argv[2], "0") == 0) {
+			aloe_ifup(iface, 0);
+			aloe_ifup(iface, 1);
+		} else if (strcasecmp(argv[2], "down") == 0
 				|| strcasecmp(argv[2], "0") == 0) {
 			aloe_ifup(iface, 0);
 		} else if (strcasecmp(argv[2], "up") == 0
@@ -235,6 +240,81 @@ static void help(int argc, const char **argv) {
 "\n", ((argc > 0) && argv && argv[0] ? argv[0] : "Program"));
 }
 
+
+static void test2(void) {
+#define METER_MULTI_WIRE_CH 3
+
+	typedef struct  __attribute__((packed)) {
+	    uint16_t durationTime;
+	    uint8_t phaseShift;
+	    uint16_t vrms;
+	    uint32_t avgIrms;
+	    float accEnergy;
+	    float maxActivePower;
+	    float powerFactor;
+	    float maxIrms;
+	    float temperature;
+	    float frequency;
+	    float apparentPower;
+	    float reactivePower;
+	    float apparentEnergy;
+	    float reactiveEnergy;
+	    char parentMeterUID[16+1];
+	    float kWh;
+	    uint16_t SwitchDataTemp;
+	    uint16_t updataTime;
+	    uint16_t userVoltage;
+	    float hourlykWh;
+	    float dailykWh;
+	    float monthlykWh;
+	    uint16_t SwitchDataFinal;
+	    uint8_t overVoltageStatus;
+	    uint8_t overCurrentStatus;
+	    uint32_t StartTime;
+	} ESGThreadDeviceStatusMeter;
+
+	typedef struct  __attribute__((packed)) {
+	    uint16_t durationTime;
+	    uint8_t phaseshift;
+	    uint16_t vrms[METER_MULTI_WIRE_CH];
+	    uint32_t avgIrms[METER_MULTI_WIRE_CH];
+	    float accEnergySum;
+	    float accEnergy[METER_MULTI_WIRE_CH];
+	    float maxActivePower[METER_MULTI_WIRE_CH];
+	    float powerFactor[METER_MULTI_WIRE_CH];
+	    float maxIrms;
+	    float temperature;
+	    uint16_t voltage;
+	    float frequency;
+	    float apparentPower[METER_MULTI_WIRE_CH];
+	    float reactivePower[METER_MULTI_WIRE_CH];
+	    float apparentEnergy[METER_MULTI_WIRE_CH];
+	    float reactiveEnergy[METER_MULTI_WIRE_CH];
+	    float kWh;
+	    uint16_t updataTime;
+	    uint16_t userVoltage;
+	    float hourlykWh;
+	    float dailykWh;
+	    float monthlykWh;
+	    uint32_t avgIrmsSum;
+	    uint32_t StartTime;
+	    uint16_t SwitchDataTemp;
+	    uint16_t SwitchDataFinal;
+	    uint8_t controlMode;
+	    uint16_t pulseDuration;
+	    uint8_t overVoltageStatus[METER_MULTI_WIRE_CH];
+	    uint8_t overCurrentStatus[METER_MULTI_WIRE_CH];
+	} ESGThreadDeviceStatusMeterMultiWire;
+
+#define TEST2_SZ_ENT(_s) \
+	log_d("sizeof " aloe_stringify(_s) ": %d\n", (int)sizeof(_s))
+
+	TEST2_SZ_ENT(ESGThreadDeviceStatusMeter);
+	TEST2_SZ_ENT(ESGThreadDeviceStatusMeterMultiWire);
+
+#undef TEST2_SZ_ENT
+}
+
 int main(int argc, const char **argv) {
 	enum {
 		opt_flag_show_help = (1 << 0),
@@ -242,6 +322,9 @@ int main(int argc, const char **argv) {
 	int ret = -1, opt_op, opt_idx, i, opt_exit = 0;
 	pthread_t tester = {};
 	void *mgmt = NULL;
+
+//	test2();
+//	goto finally;
 
 	log_d("%s\n", aloe_version(NULL, 0));
 
@@ -304,6 +387,7 @@ int main(int argc, const char **argv) {
 #ifdef USE_WIFIMGR
 	wifi2_global = wifi2_init(impl.ev_ctx, NULL);
 	cli1_cmd_add(cli_global, "wifi", &cli_cmd_wifi, NULL, "wifi manager");
+	cli1_cmd_add(cli_global, "wpacmd", &cli_cmd_wifi, NULL, "wifi manager");
 #endif
 
 #if 0

@@ -82,6 +82,9 @@ extern "C" {
 #define ALOE_VERSION_MINOR 1
 #define ALOE_VERSION_BUILD 1
 
+#define ALOE_HEX_CHARS 0123456789abcdef
+extern const char *aloe_hex_chars;
+
 /** Return version. */
 const char* aloe_version(int *ver, size_t cnt);
 
@@ -169,10 +172,19 @@ double aloe_avg_calc_weight_remain(double *weight, size_t weight_cnt,
 double aloe_avg_calc_f(aloe_buf_t *rec, double val, double *weight,
 		size_t weight_cnt, double weight_remain);
 
+int aloe_hexstr(void *buf, size_t buf_len, const void *data, size_t sz,
+		const char *sep, size_t sep_len);
+
 __attribute__((format(printf, 3, 4)))
 void aloe_hexdump(const void *data, size_t sz, const char *fmt, ...);
 
 int aloe_ip_str(char *str, size_t str_sz, struct sockaddr *sa, unsigned flag);
+
+int aloe_bio_read(int fd, void *buf, size_t buf_sz);
+int aloe_bio_write(int fd, const void *data, size_t data_sz);
+int aloe_bio_read_fn(const char *fn, void *buf, size_t buf_sz);
+int aloe_bio_write_fn(const char *fn, const void *data, size_t data_sz,
+		int mode);
 
 /** @} ALOE */
 
