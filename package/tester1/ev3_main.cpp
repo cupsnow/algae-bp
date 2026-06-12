@@ -180,6 +180,59 @@ static int cli_cmd_iflink(void*, int argc, const char **argv) {
 	return 0;
 }
 
+static pid_t cmd_fork_exec(int argc, const char **argv) {
+	char *argz[20];
+	pid_t pid;
+	int argv_cnt = aloe_arraysize(argz);
+
+	if (argc < 1) {
+		log_e("Invalid argument\n");
+		return -1;
+	}
+
+	if (argc >= argv_cnt) {
+		log_e("Insufficient argv\n");
+		return -1;
+	}
+
+	memcpy(argz, argv, argc * sizeof(argz[0]));
+	argz[argc] = NULL;
+	pid = aloe_fork_execv(argz[0], argz);
+	return pid;
+}
+
+static int cli_cmd_fork(void*, int argc, const char **argv) {
+	pid_t pid;
+
+	if (argc < 2) {
+		log_e("Invalid argument\n");
+		return -1;
+	}
+
+	if ((pid = cmd_fork_exec(argc - 1, &argv[1])) < 0) {
+		return -1;
+	}
+	log_d("pid: %d\n", (int)pid);
+	return 0;
+}
+
+static int cli_cmd_forkwait(void*, int argc, const char **argv) {
+	pid_t pid;
+	int r;
+
+	if (argc < 2) {
+		log_e("Invalid argument\n");
+		return -1;
+	}
+
+	if ((pid = cmd_fork_exec(argc - 1, &argv[1])) < 0) {
+		return -1;
+	}
+	r = aloe_waitpid(pid);
+	log_d("%s (%d) -> %d\n", argv[1], (int)pid, r);
+	return r;
+}
+
 static void tester_proc2(void *args) {
 	int *msg_seq = (int*)args;
 
@@ -400,6 +453,8 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "exit", &cli_cmd_quit, NULL, "exit -> quit program");
 	cli1_cmd_add(cli_global, "iflink", &cli_cmd_iflink, NULL, "iflink <ifce> [down | up | 0 | 1] -> Set Interface down or up");
 	cli1_cmd_add(cli_global, "q", &cli_cmd_quit, NULL, "q -> quit program");
+	cli1_cmd_add(cli_global, "fork", &cli_cmd_fork, NULL, "fork -> fork to execute program");
+	cli1_cmd_add(cli_global, "forkwait", &cli_cmd_forkwait, NULL, "forkwait -> fork to execute program");
 
 	while (!impl.quit) {
 		aloe_ev_once(impl.ev_ctx);

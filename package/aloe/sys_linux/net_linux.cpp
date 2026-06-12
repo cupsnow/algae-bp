@@ -15,6 +15,7 @@
 #include <aloe/sys.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <linux/if.h>
 #include <linux/wireless.h>
 #include <linux/rtnetlink.h>
@@ -33,53 +34,71 @@
 #define log_d(...) log_m("Debug", __VA_ARGS__)
 #define log_e(...) log_m("ERROR", __VA_ARGS__)
 
-extern "C"
-int aloe_ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep) {
-	struct {
-		const char *name;
-		unsigned flag;
-		const char *desc;
-	} lut[] = {
-		{"UP", IFF_UP, "Interface is running."},
-		{"BROADCAST", IFF_BROADCAST, "Valid broadcast address set."},
-		{"DEBUG", IFF_DEBUG, "Internal debugging flag."},
-		{"LOOPBACK", IFF_LOOPBACK, "Interface is a loopback interface."},
-		{"POINTOPOINT", IFF_POINTOPOINT, "Interface is a point-to-point link."},
-		{"RUNNING", IFF_RUNNING, "Resources allocated."},
-		{"NOARP", IFF_NOARP, "No arp protocol, L2 destination address not set."},
-		{"PROMISC", IFF_PROMISC, "Interface is in promiscuous mode."},
-		{"NOTRAILERS", IFF_NOTRAILERS, "Avoid use of trailers."},
-		{"ALLMULTI", IFF_ALLMULTI, "Receive all multicast packets."},
-		{"MASTER", IFF_MASTER, "Master of a load balancing bundle."},
-		{"SLAVE", IFF_SLAVE, "Slave of a load balancing bundle."},
-		{"MULTICAST", IFF_MULTICAST, "Supports multicast"},
-		{"PORTSEL", IFF_PORTSEL, "Is able to select media type via ifmap."},
-		{"AUTOMEDIA", IFF_AUTOMEDIA, "Auto media selection active."},
-		{"DYNAMIC", IFF_DYNAMIC, "The addresses are lost when the interface goes down."},
+typedef struct {
+	const char *name;
+	union {
+		unsigned vu;
+		void *vv;
+	};
+	const char *desc;
+} strval_t;
+
+#define STRVAL_ENT(_st, ...) { aloe_stringify(_st), {_st}, ##__VA_ARGS__}
+
+static strval_t aloe_ifflag_lut[] = {
+	STRVAL_ENT(IFF_UP, "Interface is running."),
+	STRVAL_ENT(IFF_BROADCAST, "Valid broadcast address set."),
+	STRVAL_ENT(IFF_DEBUG, "Internal debugging flag."),
+	STRVAL_ENT(IFF_LOOPBACK, "Interface is a loopback interface."),
+	STRVAL_ENT(IFF_POINTOPOINT, "Interface is a point-to-point link."),
+	STRVAL_ENT(IFF_RUNNING, "Resources allocated."),
+	STRVAL_ENT(IFF_NOARP, "No arp protocol, L2 destination address not set."),
+	STRVAL_ENT(IFF_PROMISC, "Interface is in promiscuous mode."),
+	STRVAL_ENT(IFF_NOTRAILERS, "Avoid use of trailers."),
+	STRVAL_ENT(IFF_ALLMULTI, "Receive all multicast packets."),
+	STRVAL_ENT(IFF_MASTER, "Master of a load balancing bundle."),
+	STRVAL_ENT(IFF_SLAVE, "Slave of a load balancing bundle."),
+	STRVAL_ENT(IFF_MULTICAST, "Supports multicast"),
+	STRVAL_ENT(IFF_PORTSEL, "Is able to select media type via ifmap."),
+	STRVAL_ENT(IFF_AUTOMEDIA, "Auto media selection active."),
+	STRVAL_ENT(IFF_DYNAMIC, "The addresses are lost when the interface goes down."),
 #if defined(IFF_LOWER_UP)
-		{"LOWER_UP", IFF_LOWER_UP, "Driver signals L1 up (since Linux 2.6.17)"},
+	STRVAL_ENT(IFF_LOWER_UP, "Driver signals L1 up (since Linux 2.6.17)"),
 #endif
 #if defined(IFF_DORMANT)
-		{"DORMANT", IFF_DORMANT, "Driver signals dormant (since Linux 2.6.17)"},
+	STRVAL_ENT(IFF_DORMANT, "Driver signals dormant (since Linux 2.6.17)"),
 #endif
 #if defined(IFF_ECHO)
-		{"ECHO", IFF_ECHO, "Echo sent packets (since Linux 2.6.25)"},
+	STRVAL_ENT(IFF_ECHO, "Echo sent packets (since Linux 2.6.25)"),
 #endif
-		{NULL}
-	}, *lut_iter;
+	{NULL}
+};
+
+static strval_t aloe_rtscope_lut[] = {
+	STRVAL_ENT(RT_SCOPE_UNIVERSE, "Globally reachable address"),
+	STRVAL_ENT(RT_SCOPE_SITE, "Site-local"),
+	STRVAL_ENT(RT_SCOPE_LINK, "Local link"),
+	STRVAL_ENT(RT_SCOPE_HOST, "Local host"),
+	STRVAL_ENT(RT_SCOPE_NOWHERE, "Not reachable"),
+	{NULL}
+};
+
+extern "C"
+int aloe_ifflag_str(char *str, size_t str_sz, unsigned iflag, const char *sep) {
+	strval_t *lut_iter;
 	int pos = 0, r;
 	unsigned unknown_flag = iflag;
 
 	if (!sep) sep = ", ";
-	for (lut_iter = lut; lut_iter->name; lut_iter++) {
-		if (!(iflag & lut_iter->flag)) continue;
+	for (lut_iter = aloe_ifflag_lut; lut_iter->name; lut_iter++) {
+		if (!(iflag & lut_iter->vu)) continue;
 		if (pos >= str_sz || (r = snprintf(str + pos, str_sz - pos,
 				"%s%s", (pos > 0 ? sep : ""), lut_iter->name)) <= 0
 				|| (r + pos) >= str_sz) {
 			goto finally;
 		}
 		pos += r;
-		unknown_flag &= ~lut_iter->flag;
+		unknown_flag &= ~lut_iter->vu;
 	}
 
 	if (unknown_flag && pos < str_sz && (r = snprintf(str + pos, str_sz - pos,
@@ -95,22 +114,11 @@ finally:
 
 extern "C"
 int aloe_rtscope_str(char *str, size_t str_sz, unsigned rtscope) {
-	struct {
-		const char *name;
-		unsigned val;
-		const char *desc;
-	} lut[] = {
-		{"UNIVERSE", RT_SCOPE_UNIVERSE, "Globally reachable address"},
-		{"SITE", RT_SCOPE_SITE, "Site-local"},
-		{"LINK", RT_SCOPE_LINK, "Local link"},
-		{"HOST", RT_SCOPE_HOST, "Local host"},
-		{"NOWHERE", RT_SCOPE_NOWHERE, "Not reachable"},
-		{NULL}
-	}, *lut_iter;
+	strval_t *lut_iter;
 	int pos = 0, r;
 
-	for (lut_iter = lut; lut_iter->name; lut_iter++) {
-		if (rtscope == lut_iter->val) {
+	for (lut_iter = aloe_rtscope_lut; lut_iter->name; lut_iter++) {
+		if (rtscope == lut_iter->vu) {
 			if (pos >= str_sz || (r = snprintf(str + pos, str_sz - pos,
 					"%s", lut_iter->name)) <= 0
 					|| (r + pos) >= str_sz) {
@@ -213,4 +221,83 @@ int aloe_ifup(const char *iface, int up) {
 finally:
 	if (s != -1) close(s);
 	return ret;
+}
+
+extern "C"
+pid_t aloe_fork_execv(const char *prog, char *const argz[]) {
+	pid_t pid = -1;
+
+	pid = fork();
+	if (pid < 0) {
+		log_e("Failed fork\n");
+		return pid;
+	}
+	if (pid > 0) return pid;
+
+	execvp(prog, argz);
+	_exit(127);
+	log_e("Unreachable\n");
+	return 0;
+}
+
+extern "C"
+pid_t aloe_fork_exec(const char *prog, ...) {
+	char *argz[20];
+	const char *s;
+	int argc = 0, argv_cnt;
+	pid_t pid = -1;
+	va_list va;
+
+	argv_cnt = aloe_arraysize(argz);
+
+	pid = fork();
+	if (pid < 0) {
+		log_e("Failed fork\n");
+		return pid;
+	}
+	if (pid > 0) return pid;
+
+	argc = 0;
+
+	va_start(va, prog);
+	s = va_arg(va, const char *);
+	while (s && argc < argv_cnt) {
+		argz[argc++] = (char*)s;
+		s = va_arg(va, const char *);
+	}
+	va_end(va);
+	if (argc >= argv_cnt) {
+		log_e("insufficient argv\n");
+		_exit(127);
+	}
+	argz[argc] = NULL;
+
+	execvp(prog, argz);
+	_exit(127);
+	log_e("Unreachable\n");
+	return 0;
+}
+
+extern "C"
+int aloe_waitpid(pid_t pid) {
+	int r, es;
+
+	while ((r = waitpid(pid, &es, 0)) < 0) {
+		r = errno;
+		if (r == EINTR) continue;
+		log_e("waitpid(%d) -> %s\n", (int)pid, strerror(r));
+		return -1;
+	}
+	if (r == pid) {
+		if (WIFEXITED(es)) {
+			r = WEXITSTATUS(es);
+			return r;
+		}
+		if (WIFSIGNALED(es)) {
+			r = WTERMSIG(es);
+			log_e("waitpid(%d) -> signaled %d\n", (int)pid, r);
+			return -1;
+		}
+	}
+	return -1;
 }

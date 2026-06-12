@@ -54,6 +54,7 @@
 typedef enum {
 	ST_INIT = 0,
 	ST_RESET,
+	ST_WPASUP_CTRL,
 	ST_WPASUP_READY,
 	ST_WPASUP_CONNECT,
 	ST_DHCPC,
@@ -63,16 +64,17 @@ typedef enum {
 } state_t;
 
 typedef enum {
-	STIN_NONE,
+	STIN_ENTER,
 	STIN_TIMEOUT,
 	STIN_IFFUP,
 	STIN_IFFRUNNING,
 	STIN_IPADD,
+	STIN_IFFLOWDOWN,
 } state_input_t;
 
 
 typedef struct {
-	evconn_t evconn;
+	evconn_t evconn, evconn_wpasup_mon;
 	state_t state;
 	unsigned ifflag;
 	int ifindex;
@@ -80,8 +82,7 @@ typedef struct {
 	int timer_fd;
 	int rtnl_fd;
 #if defined(USE_WPASUPCLIENT)
-	struct wpa_ctrl *wpasup_cln;
-	int wpasup_ctrl_fd;
+	struct wpa_ctrl *wpasup_cmd, *wpasup_mon;
 	int wpasup_pid;
 #endif
 	char iface[16];
@@ -103,12 +104,15 @@ typedef struct {
 		unsigned vu;
 		void *vv;
 	};
+	const char *desc;
 } strval_t;
 
-#define STRVAL_ENT(_st) { aloe_stringify(_st), {_st}}
+#define STRVAL_ENT(_st, ...) { aloe_stringify(_st), {_st}, ##__VA_ARGS__}
+
 static strval_t state_lut[] = {
 	STRVAL_ENT(ST_INIT),
 	STRVAL_ENT(ST_RESET),
+	STRVAL_ENT(ST_WPASUP_CTRL),
 	STRVAL_ENT(ST_WPASUP_READY),
 	STRVAL_ENT(ST_WPASUP_CONNECT),
 	STRVAL_ENT(ST_DHCPC),
@@ -119,11 +123,12 @@ static strval_t state_lut[] = {
 };
 
 static strval_t state_input_lut[] = {
-	STRVAL_ENT(STIN_NONE),
+	STRVAL_ENT(STIN_ENTER),
 	STRVAL_ENT(STIN_TIMEOUT),
 	STRVAL_ENT(STIN_IFFUP),
 	STRVAL_ENT(STIN_IFFRUNNING),
 	STRVAL_ENT(STIN_IPADD),
+	STRVAL_ENT(STIN_IFFLOWDOWN),
 	{NULL}
 };
 #undef STRVAL_ENT
@@ -143,18 +148,18 @@ static const strval_t* stval_find(const strval_t *lut, int lut_cnt,
 	return NULL;
 }	
 
-#define STRVAL_LUT_FUNC(_pf, _lut) \
-static unsigned _pf ## _val(const char *str, unsigned def) { \
+#define STRVAL_LUT_FUNC(_rs, _pf, _lut) \
+_rs unsigned _pf ## _val(const char *str, unsigned def) { \
 	const strval_t *ent = stval_find(_lut, -1, str, 0); \
 	return ent ? ent->vu : def; \
 } \
-static const char* _pf ## _str(int st, const char *def) { \
+_rs const char* _pf ## _str(int st, const char *def) { \
 	const strval_t *ent = stval_find(_lut, -1, NULL, st); \
 	return ent ? ent->name : def; \
 }
 
-STRVAL_LUT_FUNC(st, state_lut)
-STRVAL_LUT_FUNC(stin, state_input_lut)
+STRVAL_LUT_FUNC(static, st, state_lut)
+STRVAL_LUT_FUNC(static, stin, state_input_lut)
 
 #undef STRVAL_LUT_FUNC
 
@@ -168,14 +173,7 @@ static int pid_kill(int pid, const char *hint) {
 				(hint ? hint : ""), pid, strerror(r));
 		return r;
 	}
-	while ((r = waitpid(pid, NULL, 0)) < 0) {
-		r = errno;
-		if (r == EINTR) continue;
-		log_e("Sanity check, failed waitpid %s (%d) %s\n",
-				(hint ? hint : ""), pid, strerror(r));
-		break;
-	}
-	return 0;
+	return aloe_waitpid(pid);
 }
 
 __attribute__((format(printf, 1, 2)))
@@ -236,9 +234,8 @@ static int dhcpc_start(wifi2_t *wifi2, int en) {
 
 	if (pid == 0) {
 		argc = 0;
+		argv[argc++] = (char*)"udhcpc";
 		do {
-			if (argc < argv_cnt) argv[argc++] = (char*)"udhcpc";
-
 			if (argc < argv_cnt) argv[argc++] = (char*)"-i";
 			if (argc < argv_cnt) argv[argc++] = wifi2->iface;
 
@@ -248,7 +245,7 @@ static int dhcpc_start(wifi2_t *wifi2, int en) {
 		} while(0);
 		if (argc >= argv_cnt) {
 			log_e("insufficient argv\n");
-			goto finally;
+			_exit(127);
 		}
 		argv[argc] = NULL;
 
@@ -286,14 +283,14 @@ static int zcip_start(wifi2_t *wifi2, int en) {
 
 	if (pid == 0) {
 		argc = 0;
+		argv[argc++] = (char*)"zcip";
 		do {
-			if (argc < argv_cnt) argv[argc++] = (char*)"zcip";
 			if (argc < argv_cnt) argv[argc++] = wifi2->iface;
 			if (argc < argv_cnt) argv[argc++] = (char*)"/usr/share/zcip/default.script";
 		} while(0);
 		if (argc >= argv_cnt) {
 			log_e("insufficient argv\n");
-			goto finally;
+			_exit(127);
 		}
 		argv[argc] = NULL;
 
@@ -307,6 +304,44 @@ finally:
 	return ret;
 }
 
+#if defined(USE_WPASUPCLIENT)
+static void wpasup_ctrl_close(struct wpa_ctrl *ctrl) {
+	wpa_ctrl_detach(ctrl);
+	wpa_ctrl_close(ctrl);
+}
+
+static struct wpa_ctrl* wpasup_ctrl_open(const char *ifce, int attach) {
+	char ctrl_path[64] = "/var/run/wpa_supplicant/wlx94186551a58a";
+	int ret = -1, r;
+	struct wpa_ctrl *ctrl = NULL;
+
+	r = snprintf(ctrl_path, sizeof(ctrl_path), "/var/run/wpa_supplicant/%s", ifce);
+	if (r >= sizeof(ctrl_path)) {
+		log_e("Insufficient buffer\n");
+		goto finally;
+	}
+
+	if ((ctrl = wpa_ctrl_open(ctrl_path)) == NULL) {
+		log_e("failed open %s\n", ctrl_path);
+		goto finally;
+	}
+
+	if (attach && wpa_ctrl_attach(ctrl) != 0) {
+		log_e("failed attach\n");
+		goto finally;
+	}
+	ret = 0;
+finally:
+	if (ret != 0) {
+		if (ctrl) {
+			wpasup_ctrl_close(ctrl);
+			ctrl = NULL;
+		}
+	}
+	return ctrl;
+}
+#endif // USE_WPASUPCLIENT
+
 static int wpasup_start(wifi2_t *wifi2, int en) {
 	char wpasup_cfg[] = "/var/run/wpa_supplicant.conf";
 	char wpasup_ctrldir[] = "/var/run/wpa_supplicant";
@@ -319,13 +354,32 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 	if (wifi2->wpasup_pid > 0) {
 		pid_t wp;
 
+		if (wifi2->wpasup_cmd) {
+			log_d("Close wpasup_cmd\n");
 #if defined(USE_WPASUPCLIENT)
-		if (wifi2->wpasup_cln) {
-			log_d("Close wpasup_ctrl\n");
-			wpa_ctrl_close(wifi2->wpasup_cln);
-			wifi2->wpasup_cln = NULL;
-		}
+			wpasup_ctrl_close(wifi2->wpasup_cmd);
+			wifi2->wpasup_cmd = NULL;
+#else
+			log_e("Sanity check, wpasup_cmd lost\n");
 #endif
+		}
+
+		if (wifi2->evconn_wpasup_mon.ev) {
+			aloe_ev_cancel(wifi2->evconn_wpasup_mon.ev_ctx,
+					wifi2->evconn_wpasup_mon.ev);
+			wifi2->evconn_wpasup_mon.ev = NULL;
+		}
+
+		if (wifi2->wpasup_mon) {
+			log_d("Close wpasup_mon\n");
+
+#if defined(USE_WPASUPCLIENT)
+			wpasup_ctrl_close(wifi2->wpasup_mon);
+			wifi2->wpasup_mon = NULL;
+#else
+			log_e("Sanity check, wpasup_mon lost\n");
+#endif
+		}
 
 		if ((r = kill(wifi2->wpasup_pid, SIGTERM)) != 0) {
 			r = errno;
@@ -385,9 +439,8 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 		// child
 
 		argc = 0;
+		argv[argc++] = (char*)"wpa_supplicant";
 		do {
-			if (argc < argv_cnt) argv[argc++] = (char*)"wpa_supplicant";
-
 			if (argc < argv_cnt) argv[argc++] = (char*)"-i";
 			if (argc < argv_cnt) argv[argc++] = wifi2->iface;
 
@@ -410,7 +463,7 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 		} while(0);
 		if (argc >= argv_cnt) {
 			log_e("insufficient argv\n");
-			goto finally;
+			_exit(127);
 		}
 		argv[argc] = NULL;
 
@@ -425,59 +478,70 @@ finally:
 }
 
 #if defined(USE_WPASUPCLIENT)
-static int wpa_connect_ctrl(wifi2_t *wifi2, unsigned reopen) {
-	char ctrl_path[64] = "/var/run/wpa_supplicant/wlx94186551a58a";
-	int ret = -1, r;
 
-	if (wifi2->wpasup_cln) {
-		if (!reopen) {
-			ret = 0;
-			goto finally;
-		}
-		wpa_ctrl_close(wifi2->wpasup_cln);
-		wifi2->wpasup_cln = NULL;
-	}
+static void wifi2_wpasup_mon_cb(int fd, unsigned ev, void *cbarg) {
+	wifi2_t *wifi2 = (wifi2_t*)cbarg;
+	int r;
+	char reply[64];
+	size_t reply_cap = sizeof(reply), reply_sz = reply_cap;
 
-	r = snprintf(ctrl_path, sizeof(ctrl_path), "/var/run/wpa_supplicant/%s", wifi2->iface);
-	if (r >= sizeof(ctrl_path)) {
-		ctrl_path[sizeof(ctrl_path) - 1] = '\0';
-	}
-
-	if ((wifi2->wpasup_cln = wpa_ctrl_open(ctrl_path)) == NULL) {
-		log_e("failed open %s\n", ctrl_path);
+	if ((r = wpa_ctrl_recv(wifi2->wpasup_mon, reply, &reply_sz)) <= 0
+			|| reply_sz <= 0) {
 		goto finally;
 	}
-
-	if (wpa_ctrl_attach(wifi2->wpasup_cln) != 0) {
-		log_e("failed attach wpasup control socket\n");
-		goto finally;
+	if (reply_sz >= reply_cap) {
+		log_e("Insufficient reply buffer\n");
+		return;
 	}
+	reply[reply_sz] = '\0';
+	log_d("wpasup event: %s\n", reply);
 
-	if ((wifi2->wpasup_ctrl_fd = wpa_ctrl_get_fd(wifi2->wpasup_cln)) == -1) {
-		log_e("failed get wpasup control socket fd\n");
-		goto finally;
-	}
-	ret = 0;
 finally:
-	if (ret != 0) {
-		if (wifi2->wpasup_cln) {
-			wpa_ctrl_close(wifi2->wpasup_cln);
-			wifi2->wpasup_cln = NULL;
-		}
+	// keep listen
+	if ((wifi2->evconn_wpasup_mon.ev = aloe_ev_put(
+			wifi2->evconn_wpasup_mon.ev_ctx, wifi2->evconn_wpasup_mon.fd,
+			&wifi2_wpasup_mon_cb, wifi2, aloe_ev_flag_read, ALOE_EV_INFINITE,
+			0)) == NULL) {
+		log_e("Failure aloe_ev_put\n");
 	}
-	return ret;
 }
 
 static int wpasup_cmd(wifi2_t *wifi2, const char *cmd, char *reply, size_t *len) {
 	int ret = -1;
 	size_t reply_cap = len ? *len : 0;
 
-	if (!wifi2->wpasup_cln
-			&& ((wpa_connect_ctrl(wifi2, 0)) != 0 || !wifi2->wpasup_cln)) {
-		log_e("no open wpasup control socket\n");
-		return -1;
+	if (!wifi2->wpasup_cmd) {
+		if (((wifi2->wpasup_cmd = wpasup_ctrl_open(wifi2->iface, 0))) == NULL) {
+			log_e("Failed open wpasup_cmd\n");
+			return -1;
+		}
+		log_d("wpasup_cmd opened\n");
 	}
-	ret = wpa_ctrl_request(wifi2->wpasup_cln, cmd, strlen(cmd), reply, len,
+
+	do {
+		if (!wifi2->wpasup_mon) {
+			if (((wifi2->wpasup_mon = wpasup_ctrl_open(wifi2->iface, 1))) == NULL) {
+				log_e("failed open wpasup_mon\n");
+				break;
+			}
+			log_d("wpasup_mon opened\n");
+		}
+
+		if (!wifi2->evconn_wpasup_mon.ev) {
+			wifi2->evconn_wpasup_mon.ev_ctx = wifi2->evconn.ev_ctx;
+			wifi2->evconn_wpasup_mon.fd = wpa_ctrl_get_fd(wifi2->wpasup_mon);
+			if ((wifi2->evconn_wpasup_mon.ev = aloe_ev_put(
+					wifi2->evconn_wpasup_mon.ev_ctx, wifi2->evconn_wpasup_mon.fd,
+					&wifi2_wpasup_mon_cb, wifi2, aloe_ev_flag_read, ALOE_EV_INFINITE,
+					0)) == NULL) {
+				log_e("Failure aloe_ev_put\n");
+				break;
+			}
+			log_d("evconn_wpasup_mon ready\n");
+		}
+	} while(0);
+
+	ret = wpa_ctrl_request(wifi2->wpasup_cmd, cmd, strlen(cmd), reply, len,
 			NULL);
 	if (reply_cap > 0 && *len < reply_cap) {
 		reply[*len] = '\0';
@@ -545,11 +609,12 @@ static int wpasup_ping(wifi2_t *wifi2) {
 	char reply[16];
 	size_t reply_sz = sizeof(reply);
 
-	if (wpasup_cmd(wifi2, "PING", reply, &reply_sz) == 0
-			&& strstr(reply, "PONG")) {
-		return 0;
+	if (wpasup_cmd(wifi2, "PING", reply, &reply_sz) != 0
+			|| !strstr(reply, "PONG")) {
+		return -1;
 	}
-	return -1;
+
+	return 0;
 }
 
 static int wpasup_add_network(wifi2_t *wifi2, int network_idx) {
@@ -715,25 +780,31 @@ static void run_sm(wifi2_t *wifi2, int stin, void *args) {
 	char cmd_buf[100];
 
 	while (sm_continue) {
-		log_d("%s / %s\n", st_str(wifi2->state, ""), stin_str(stin, ""));
+		if (wifi2->state == ST_MON && stin == STIN_TIMEOUT) {
+
+		} else {
+			log_d("%s / %s\n", st_str(wifi2->state, ""), stin_str(stin, ""));
+		}
 		sm_continue = 0;
 
 		switch (wifi2->state) {
+#define SM_GOTO(_st, _stin) do { \
+	wifi2->state = _st; stin = _stin; sm_continue = 1; \
+	break; \
+} while(0)
+
 		case ST_INIT: {
-			if (stin == STIN_NONE) {
+			if (stin == STIN_ENTER) {
 				timer_set(wifi2, 10);
 				break;
 			}
 			if (stin == STIN_TIMEOUT) {
-				wifi2->state = ST_RESET;
-				stin = STIN_NONE;
-				sm_continue = 1;
-				break;
+				SM_GOTO(ST_RESET, STIN_ENTER);
 			}
 			break;
 		}
 		case ST_RESET: {
-			if (stin == STIN_NONE) {
+			if (stin == STIN_ENTER) {
 				dhcpc_start(wifi2, 0);
 				zcip_start(wifi2, 0);
 
@@ -749,23 +820,25 @@ static void run_sm(wifi2_t *wifi2, int stin, void *args) {
 				break;
 			}
 			if (stin == STIN_IFFUP) {
-				sleep(1); // wait control socket
-				wifi2->state = ST_WPASUP_READY;
-				stin = STIN_NONE;
-				sm_continue = 1;
-				break;
+				SM_GOTO(ST_WPASUP_CTRL, STIN_ENTER);
 			}
 			break;
 		}
+		case ST_WPASUP_CTRL: {
+			if (stin == STIN_ENTER || stin == STIN_TIMEOUT) {
+				if (wpasup_ping(wifi2) == 0) {
+					SM_GOTO(ST_WPASUP_READY, STIN_ENTER);
+				}
+				timer_set(wifi2, 100);
+				break;
+			}
+			 break;
+		}
 		case ST_WPASUP_READY: {
-			if (stin == STIN_NONE || stin == STIN_TIMEOUT) {
+			if (stin == STIN_ENTER || stin == STIN_TIMEOUT) {
 				if (wifi2->network_apply && wifi2->network_apply->ssid
 						&& wifi2->network_apply->ssid[0]) {
-					wpasup_network_connect(wifi2, wifi2->network_apply->ssid,
-							wifi2->network_apply->psk, wifi2->network_apply->flag);
-					wifi2->state = ST_WPASUP_CONNECT;
-					timer_set(wifi2, 15000);
-					break;
+					SM_GOTO(ST_WPASUP_CONNECT, STIN_ENTER);
 				}
 				timer_set(wifi2, 1000);
 				break;
@@ -773,68 +846,73 @@ static void run_sm(wifi2_t *wifi2, int stin, void *args) {
 			break;
 		}
 		case ST_WPASUP_CONNECT: {
+			if (stin == STIN_ENTER) {
+				wpasup_network_connect(wifi2, wifi2->network_apply->ssid,
+						wifi2->network_apply->psk, wifi2->network_apply->flag);
+				timer_set(wifi2, 15000);
+				break;
+			}
 			if (stin == STIN_IFFRUNNING) {
-				wifi2->state = ST_DHCPC;
-				stin = STIN_NONE;
-				sm_continue = 1;
+				SM_GOTO(ST_DHCPC, STIN_ENTER);
 				break;
 			}
 			if (stin == STIN_TIMEOUT) {
-				wpasup_flush(wifi2);
-				wifi2->state = ST_WPASUP_READY;
-				stin = STIN_NONE;
-				sm_continue = 1;
+				SM_GOTO(ST_WPASUP_READY, STIN_ENTER);
 				break;
 			}
-			timer_set(wifi2, 15000);
 			break;
 		}
 		case ST_DHCPC:
-			if (stin == STIN_NONE) {
+			if (stin == STIN_ENTER) {
 				dhcpc_start(wifi2, 1);
 				timer_set(wifi2, 10000);
 				break;
 			}
 			if (stin == STIN_TIMEOUT) {
-				wifi2->state = ST_ZCIP;
-				stin = STIN_NONE;
-				sm_continue = 1;
+				SM_GOTO(ST_ZCIP, STIN_ENTER);
 				break;
 			}
 			if (stin == STIN_IPADD) {
-				wifi2->state = ST_MON;
-				stin = STIN_NONE;
-				sm_continue = 1;
+				SM_GOTO(ST_MON, STIN_ENTER);
 				break;
 			}
-			timer_set(wifi2, 10000);
 			break;
 		case ST_ZCIP:
-			if (stin == STIN_NONE) {
+			if (stin == STIN_ENTER) {
 				zcip_start(wifi2, 1);
 				timer_set(wifi2, 10000);
 				break;
 			}
 			if (stin == STIN_TIMEOUT) {
-				wifi2->state = ST_MON;
-				stin = STIN_NONE;
-				sm_continue = 1;
+				SM_GOTO(ST_MON, STIN_ENTER);
 				break;
 			}
 			if (stin == STIN_IPADD) {
-				wifi2->state = ST_MON;
-				stin = STIN_NONE;
-				sm_continue = 1;
+				SM_GOTO(ST_MON, STIN_ENTER);
 				break;
 			}
-			timer_set(wifi2, 10000);
 			break;
 		case ST_MON:
+			if (stin == STIN_ENTER) {
+				log_d("connected\n");
+				timer_set(wifi2, 5000);
+				break;
+			}
+			if (stin == STIN_TIMEOUT) {
+				timer_set(wifi2, 5000);
+				break;
+			}
+			if (stin == STIN_IFFLOWDOWN) {
+				ip_flush(wifi2->iface);
+				SM_GOTO(ST_WPASUP_READY, STIN_ENTER);
+			}
+			break;
 		case ST_PAUSE:
 		default:
 			break;
 		}
 	}
+#undef SM_GOTO
 }
 
 static void handle_rtnl(wifi2_t *wifi2) {
@@ -869,23 +947,24 @@ static void handle_rtnl(wifi2_t *wifi2) {
 			} stin_ipadd = {};
 
 			if (ifa->ifa_index != wifi2->ifindex) {
-				log_d("skip index %d\n", ifa->ifa_index);
+//				log_d("skip index %d\n", ifa->ifa_index);
 				continue;
 			}
 
 			if (nh->nlmsg_type == RTM_DELADDR) {
-				log_d("skip RTM_DELADDR\n");
+//				log_d("skip RTM_DELADDR\n");
 				continue;
 			}
 
+			scope_str[0] = '\0';
 			aloe_rtscope_str(scope_str, sizeof(scope_str), ifa->ifa_scope);
-			log_d("nlmsg[%d], %s\n", nlmsg_idx, nlmsg_type_str);
+//			log_d("nlmsg[%d], %s\n", nlmsg_idx, nlmsg_type_str);
 
-//			log_d("ifa_family: %s, ifa_prefixlen: %d, ifa_flags: 0x%x, ifa_scope: %s (0x%x)\n",
-//					(ifa->ifa_family == AF_INET ? "IPv4" :
-//					ifa->ifa_family == AF_INET6 ? "IPv6" :
-//					"unknown"), (int)ifa->ifa_prefixlen, (unsigned)ifa->ifa_flags,
-//					(scope_str[0] ? scope_str : "unknown"), (int)ifa->ifa_scope);
+			log_d("ifa_family: %s, ifa_prefixlen: %d, ifa_flags: 0x%x, ifa_scope: %s (0x%x)\n",
+					(ifa->ifa_family == AF_INET ? "IPv4" :
+					ifa->ifa_family == AF_INET6 ? "IPv6" :
+					"unknown"), (int)ifa->ifa_prefixlen, (unsigned)ifa->ifa_flags,
+					(scope_str[0] ? scope_str : "unknown"), (int)ifa->ifa_scope);
 
 			// AF_INET prefer IFA_LOCAL
 			// AF_INET6 use IFA_ADDRESS
@@ -942,11 +1021,7 @@ static void handle_rtnl(wifi2_t *wifi2) {
 
 			if (stin_ipadd.ipv4_uniaddr ||
 					stin_ipadd.ipv4_linkaddr) {
-				int st_old = wifi2->state;
-
 				run_sm(wifi2, STIN_IPADD, (void*)(unsigned long)stin_ipadd.ui);
-				log_d("%s / %s -> %s\n", stin_str(STIN_IFFUP, ""),
-						st_str(st_old, ""), st_str(wifi2->state, ""));
 			}
 
 			continue;
@@ -1001,27 +1076,27 @@ static void handle_rtnl(wifi2_t *wifi2) {
 			}
 #endif
 			if ((ifi->ifi_flags ^ wifi2->ifflag) & IFF_UP) {
-//				int st_old = wifi2->state;
-
 				log_d("IFF_UP -> %u\n", ifi->ifi_flags & IFF_UP);
 
-				run_sm(wifi2, STIN_IFFUP, NULL);
-//				log_d("%s / %s -> %s\n", stin_str(STIN_IFFUP, ""),
-//						st_str(st_old, ""), st_str(wifi2->state, ""));
+				if (ifi->ifi_flags & IFF_UP) {
+					run_sm(wifi2, STIN_IFFUP, NULL);
+				}
 			}
 
 			if ((ifi->ifi_flags ^ wifi2->ifflag) & IFF_RUNNING) {
-				int st_old = wifi2->state;
-
 				log_d("IFF_RUNNING -> %u\n", ifi->ifi_flags & IFF_RUNNING);
 
-				run_sm(wifi2, STIN_IFFRUNNING, NULL);
-				log_d("%s / %s -> %s\n", stin_str(STIN_IFFRUNNING, ""),
-						st_str(st_old, ""), st_str(wifi2->state, ""));
+				if (ifi->ifi_flags & IFF_RUNNING) {
+					run_sm(wifi2, STIN_IFFRUNNING, NULL);
+				}
 			}
 
 			if ((ifi->ifi_flags ^ wifi2->ifflag) & IFF_LOWER_UP) {
 				log_d("IFF_LOWER_UP -> %u\n", ifi->ifi_flags & IFF_LOWER_UP);
+
+				if (!(ifi->ifi_flags & IFF_LOWER_UP)) {
+					run_sm(wifi2, STIN_IFFLOWDOWN, NULL);
+				}
 			}
 
 			ifflag_update.ifflag = ifi->ifi_flags;
@@ -1062,18 +1137,22 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 		log_e("sanity check mismatch epfd\n");
 		return;
 	}
-	n = epoll_wait(wifi2->epfd, events, MAX_EVENTS, 0);
-	for (int i = 0; i < n; i++) {
-//		log_d("event[%d/%d]\n", i + 1, n);
-		if (events[i].data.fd == wifi2->rtnl_fd) {
-			handle_rtnl(wifi2);
-		} else if (events[i].data.fd == wifi2->timer_fd) {
-			uint64_t exp;
-			int st_old = wifi2->state;
 
-			read(wifi2->timer_fd, &exp, sizeof(exp));
-			run_sm(wifi2, STIN_TIMEOUT, NULL);
+	if (fd == wifi2->epfd) {
+		n = epoll_wait(wifi2->epfd, events, MAX_EVENTS, 0);
+		for (int i = 0; i < n; i++) {
+	//		log_d("event[%d/%d]\n", i + 1, n);
+			if (events[i].data.fd == wifi2->rtnl_fd) {
+				handle_rtnl(wifi2);
+			} else if (events[i].data.fd == wifi2->timer_fd) {
+				uint64_t exp;
+				int st_old = wifi2->state;
+
+				read(wifi2->timer_fd, &exp, sizeof(exp));
+				run_sm(wifi2, STIN_TIMEOUT, NULL);
+			}
 		}
+		goto finally;
 	}
 finally:
 	// keep listen
@@ -1129,8 +1208,8 @@ void* wifi2_init(void *evctx, const char *iface) {
 	ev.data.fd = wifi2->timer_fd;
 	epoll_ctl(wifi2->epfd, EPOLL_CTL_ADD, ev.data.fd, &ev);
 
-	wifi2->evconn.fd = wifi2->epfd;
 	wifi2->evconn.ev_ctx = evctx;
+	wifi2->evconn.fd = wifi2->epfd;
 	if ((wifi2->evconn.ev = aloe_ev_put(wifi2->evconn.ev_ctx, wifi2->evconn.fd,
 			&wifi2_epoll_cb, wifi2, aloe_ev_flag_read, ALOE_EV_INFINITE,
 			0)) == NULL) {
@@ -1255,9 +1334,9 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 				return 1;
 			}
 			wifi2->state = (state_t)st;
-			run_sm(wifi2, STIN_NONE, NULL);
+			run_sm(wifi2, STIN_ENTER, NULL);
 			log_d("%s + %s -> %s\n", st_str(st_old, ""),
-					stin_str(STIN_NONE, ""), st_str(wifi2->state, ""));
+					stin_str(STIN_ENTER, ""), st_str(wifi2->state, ""));
 			return 0;
 		}
 		log_d("%s\n", st_str(wifi2->state, ""));
@@ -1351,7 +1430,7 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		wifi2->network_apply = &wifi2->network[0];
 
 		wifi2->state = ST_INIT;
-		run_sm(wifi2, STIN_NONE, NULL);
+		run_sm(wifi2, STIN_ENTER, NULL);
 		return 0;
 	}
 

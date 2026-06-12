@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
@@ -132,6 +133,20 @@ int aloe_wext_info(const char *ifce, char *wext, size_t wext_len);
 
 int aloe_ifflag(const char *iface, unsigned *iflag);
 int aloe_ifup(const char *iface, int up);
+
+/** Fork a process to run application.
+ *
+ * Example: aloe_fork_execv("ls", (char *const []){"ls", "-l", NULL})
+ */
+pid_t aloe_fork_execv(const char *prog, char *const argz[]);
+
+/** Fork a process to run application.
+ *
+ * Example: aloe_fork_exec("ls", "ls", "-l", NULL)
+ */
+pid_t aloe_fork_exec(const char *prog, ...);
+
+int aloe_waitpid(pid_t pid);
 
 /** @} ALOE_LINUX */
 
