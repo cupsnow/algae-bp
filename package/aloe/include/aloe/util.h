@@ -186,6 +186,15 @@ int aloe_bio_read_fn(const char *fn, void *buf, size_t buf_sz);
 int aloe_bio_write_fn(const char *fn, const void *data, size_t data_sz,
 		int mode);
 
+/** Calculate CRC32 checksum.
+ *
+ * @param data
+ * @param len
+ * @param cksum The old CRC32 checksum, first time input 0.
+ * @return Return the updated CRC32 checksum.
+ */
+uint32_t aloe_crc32(const void *data, size_t len, uint32_t cksum);
+
 /** @} ALOE */
 
 #ifdef __cplusplus

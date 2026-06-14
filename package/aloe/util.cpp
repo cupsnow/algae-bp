@@ -349,6 +349,7 @@ int aloe_buf_zprintf(aloe_buf_t *fb, const char *fmt, ...) {
 	return r;
 }
 
+extern "C"
 int aloe_bio_read(int fd, void *buf, size_t buf_sz) {
 	int r;
 	size_t pos;
@@ -372,6 +373,7 @@ int aloe_bio_read(int fd, void *buf, size_t buf_sz) {
 	return (int)pos;
 }
 
+extern "C"
 int aloe_bio_write(int fd, const void *data, size_t data_sz) {
 	int r;
 	size_t pos;
@@ -394,6 +396,7 @@ int aloe_bio_write(int fd, const void *data, size_t data_sz) {
 	return (int)pos;
 }
 
+extern "C"
 int aloe_bio_read_fn(const char *fn, void *buf, size_t buf_sz) {
 	int fd = -1, ret = -1, r;
 
@@ -408,6 +411,7 @@ finally:
 	return ret;
 }
 
+extern "C"
 int aloe_bio_write_fn(const char *fn, const void *data, size_t data_sz,
 		int mode) {
 	int fd = -1, ret = -1, r;
@@ -422,4 +426,22 @@ int aloe_bio_write_fn(const char *fn, const void *data, size_t data_sz,
 finally:
 	if (fd != -1) close(fd);
 	return ret;
+}
+
+extern "C"
+uint32_t aloe_crc32(const void *data, size_t len, uint32_t cksum) {
+	const uint8_t *p = (const uint8_t*)data;
+
+	cksum = ~cksum;
+	while (len--) {
+		cksum ^= *p++;
+		for (int i = 0; i < 8; i++) {
+			if (cksum & 1) {
+				cksum = (cksum >> 1) ^ 0xEDB88320;
+			} else {
+				cksum >>= 1;
+			}
+		}
+	}
+	return ~cksum;
 }

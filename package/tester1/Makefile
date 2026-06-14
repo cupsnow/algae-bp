@@ -96,16 +96,6 @@ endef
 
 #------------------------------------
 #
-help: testmk 
-
-a.o b.o c.o d.a:
-testmk: a.o b.o | c.o d.a
-	echo "testmk $$|"
-	echo $^
-	echo $|
-
-#------------------------------------
-#
 tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT
 tester_ev3_SRCS+=$(abspath $(tester_aloe_SRCS))
 
@@ -129,7 +119,7 @@ endif
 endif
 
 $(eval $(call TESTER1_APP2,tester_ev3, \
-    ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp))
+    ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp))
 
 ARTIFACT+=$(tester_ev3_BIN)
 

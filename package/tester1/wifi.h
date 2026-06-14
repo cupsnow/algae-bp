@@ -12,8 +12,8 @@
  * @brief wifi
  */
 
-#ifndef WIFI_H_
-#define WIFI_H_
+#ifndef _H_ALGAE_TESTER1_WIFI
+#define _H_ALGAE_TESTER1_WIFI
 
 
 #ifdef __cplusplus
@@ -29,4 +29,4 @@ int wifi2_cli(void*, int argc, const char **argv);
 } /* extern "C" */
 #endif
 
-#endif /* WIFI_H_ */
+#endif /* _H_ALGAE_TESTER1_WIFI */
