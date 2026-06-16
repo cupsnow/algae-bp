@@ -1887,6 +1887,40 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD) $(@:libnl_%=%)
 
 #------------------------------------
+# dependent: openssl
+#
+live555_DIR=$(PROJDIR)/package/live555
+live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
+live555_MAKE=$(MAKE) C_COMPILER=$(CC) CPLUSPLUS_COMPILER=$(C++) LINK="$(C++) -o " \
+    LIBRARY_LINK="$(AR) rcs " CPPFLAGS="-I$(BUILD_SYSROOT)/include" \
+	LDFLAGS="-L$(BUILD_SYSROOT)/lib" -C $(live555_BUILDDIR)
+
+GENDIR+=$(live555_BUILDDIR)
+
+live555_defconfig $(live555_BUILDDIR)/Makefile: $(PROJDIR)/builder/live555.config | $(live555_BUILDDIR)
+	cp -a $(live555_DIR)/* $(live555_BUILDDIR)/
+	cp -a $(PROJDIR)/builder/live555.config $(live555_BUILDDIR)/config.algae
+	cd $(live555_BUILDDIR) && ./genMakefiles algae
+
+live555_install: DESTDIR=$(BUILD_SYSROOT)
+live555_install: live555
+	$(live555_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
+
+live555_clean:
+ifneq ($(wildcard $(live555_BUILDDIR)/Makefile),)
+	$(live555_MAKE) clean
+endif
+
+live555_distclean:
+	$(RMTREE) $(live555_BUILDDIR)
+
+live555_%: | $(live555_BUILDDIR)/Makefile
+	$(live555_MAKE) $(PARALLEL_BUILD) $(@:live555_%=%)
+
+live555: | $(live555_BUILDDIR)/Makefile
+	$(live555_MAKE) $(PARALLEL_BUILD)
+
+#------------------------------------
 #
 wl18xx_DIR=$(PKGDIR2)/18xx-ti-utils
 wl18xx_BUILDDIR=$(BUILDDIR2)/18xx-ti-utils-$(APP_BUILD)
