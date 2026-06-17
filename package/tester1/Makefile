@@ -38,6 +38,14 @@ endif
 mesa3d_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lEGL -lGLESv2 -lgbm -lgallium-26.1.0-devel -ldrm -lexpat -lz
 mesa3d_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/usr/include/drm -I$(BUILD_SYSROOT)/include -I$(BUILD_SYSROOT)/include/drm
 
+openssl_LDFLAGS+=-lssl -lcrypto
+openssl_CPPFLAGS+=
+
+live555_ELEM=liveMedia groupsock BasicUsageEnvironment UsageEnvironment 
+live555_CPPFLAGS+=$(addprefix -I$(BUILD_SYSROOT)/include/,$(live555_ELEM))
+#live555_LDFLAGS+=-L$(BUILD_SYSROOT)/lib $(addprefix -l,$(live555_ELEM))
+live555_LDFLAGS+=$(addsuffix .a,$(addprefix $(BUILD_SYSROOT)/lib/lib,$(live555_ELEM)))
+
 ifneq ($(filter sa7715,$(APP_PLATFORM)),)
 libnl_LDFLAGS+=-L$(SA7715_SYSROOT)/usr/lib64 -L$(SA7715_SYSROOT)/lib64 -L$(SA7715_SYSROOT)/usr/lib -L$(SA7715_SYSROOT)/lib -lnl-3 -lnl-genl-3
 libnl_CPPFLAGS+=-I$(SA7715_SYSROOT)/usr/include/libnl3 -I$(SA7715_SYSROOT)/usr/include -I$(SA7715_SYSROOT)/include/libnl3 -I$(SA7715_SYSROOT)/include
@@ -102,7 +110,7 @@ tester_ev3_SRCS+=$(abspath $(tester_aloe_SRCS))
 tester_ev3_CPPFLAGS+=$(CPPFLAGS)
 tester_ev3_CFLAGS+=$(CFLAGS)
 tester_ev3_CXXFLAGS+=$(CXXFLAGS)
-tester_ev3_LDFLAGS+=$(CFLAGS)
+tester_ev3_LDFLAGS+=$(LDFLAGS)
 
 tester_ev3_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 ifneq ($(filter USE_WIFIMGR,$(tester_ev3_ATTR)),)
@@ -122,6 +130,20 @@ $(eval $(call TESTER1_APP2,tester_ev3, \
     ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp))
 
 ARTIFACT+=$(tester_ev3_BIN)
+
+#------------------------------------
+#
+tester_rtsp2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_rtsp2_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+tester_rtsp2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(CPPFLAGS)
+tester_rtsp2_CFLAGS+=$(CFLAGS)
+tester_rtsp2_CXXFLAGS+=$(CXXFLAGS)
+tester_rtsp2_LDFLAGS+=$(live555_LDFLAGS) $(openssl_LDFLAGS) $(LDFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_rtsp2, \
+    tester_rtsp2.cpp))
+
+ARTIFACT+=$(tester_rtsp2_BIN)
 
 #------------------------------------
 #
