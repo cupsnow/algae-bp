@@ -26,7 +26,7 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c coreutils systemd
-export APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
+APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
@@ -1889,7 +1889,7 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 #------------------------------------
 # dependent: openssl
 #
-live555_DIR=$(PROJDIR)/package/live555
+live555_DIR=$(PKGDIR2)/live555
 live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
 live555_MAKE=$(MAKE) C_COMPILER=$(CC) CPLUSPLUS_COMPILER=$(C++) LINK="$(C++) -o " \
     LIBRARY_LINK="$(AR) rcs " CPPFLAGS="-I$(BUILD_SYSROOT)/include" \
@@ -1913,6 +1913,12 @@ endif
 
 live555_distclean:
 	$(RMTREE) $(live555_BUILDDIR)
+
+live555_host:
+	$(MAKE) APP_PLATFORM=ub20 live555
+
+live555_host_%:
+	$(MAKE) APP_PLATFORM=ub20 live555_$*
 
 live555_%: | $(live555_BUILDDIR)/Makefile
 	$(live555_MAKE) $(PARALLEL_BUILD) $(@:live555_%=%)
@@ -2364,7 +2370,8 @@ include builder/glib2.mk
 #
 # include builder/llvm.mk
 # include builder/llvm2.mk
-include builder/llvm3.mk
+# include builder/llvm3.mk
+include builder/llvm4.mk
 
 #------------------------------------
 #
@@ -2595,7 +2602,8 @@ spirvtools: | $(spirvtools_BUILDDIR)/Makefile
 #
 # include builder/mesa3d.mk
 # include builder/mesa3d2.mk
-include builder/mesa3d3.mk
+# include builder/mesa3d3.mk
+include builder/mesa3d4.mk
 
 #------------------------------------
 #
@@ -3254,42 +3262,20 @@ $(1):
 
 $(1)_%:
 	$$($(1)_MAKE) $$(@:$(1)_%=%)
+# enf of SIMPLE_APP1
 endef
 
-$(eval $(call SIMPLE_APP1,dummy1))
-$(eval $(call SIMPLE_APP1,tester1))
+define SIMPLE_APP2
+$(call SIMPLE_APP1,$(1),$(2),$(3),$(4))
+$(1)_host:
+	$$(MAKE) APP_PLATFORM=ub20 $(1)
 
-#------------------------------------
-#
-host_dummy1: APP_PLATFORM=ub20
-host_dummy1:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1
+# end of SIMPLE_APP2
+endef
 
-host_dummy1_%: APP_PLATFORM=ub20
-host_dummy1_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) dummy1_$*
-
-#------------------------------------
-#
-host_tester1: APP_PLATFORM=ub20
-host_tester1:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) tester1
-
-host_tester1_%: APP_PLATFORM=ub20
-host_tester1_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) tester1_$*
-
-#------------------------------------
-#
-$(eval $(call SIMPLE_APP1,cltest2))
-
-host_cltest2: APP_PLATFORM=ub20
-host_cltest2:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) cltest2$(@:host_cltest2%=%)
-
-host_cltest2_%: APP_PLATFORM=ub20
-host_cltest2_%:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) cltest2$(@:host_cltest2%=%)
+$(eval $(call SIMPLE_APP2,dummy1))
+$(eval $(call SIMPLE_APP2,tester1))
+$(eval $(call SIMPLE_APP2,cltest2))
 
 #------------------------------------
 #

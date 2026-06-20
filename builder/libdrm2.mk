@@ -7,9 +7,9 @@ libdrm_NINJA=. $(PYVENVDIR)/bin/activate && $(1) ninja
 
 libdrm_meson_cross_file_aarch64=$(BUILDDIR)/meson-aarch64.ini
 
-libdrm_setup $(libdrm_BUILDDIR): | $(PYVENVDIR) $(mesa3d_meson_cross_file_$(APP_BUILD))
+libdrm_setup $(libdrm_BUILDDIR): | $(PYVENVDIR) $(libdrm_meson_cross_file_$(APP_BUILD))
 	$(call libdrm_MESON,$(BUILD_PKGCFG_ENV)) setup \
-	    $(mesa3d_meson_cross_file_$(APP_BUILD):%=--cross-file %) \
+	    $(libdrm_meson_cross_file_$(APP_BUILD):%=--cross-file %) \
 	    --prefix=/ \
 	    --libdir=lib \
 	    -Dudev=false \

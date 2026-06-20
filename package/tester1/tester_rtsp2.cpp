@@ -107,7 +107,7 @@ int live555_main(int argc, const char **argv) {
 
 	char const *descriptionString =
 			"Session streamed by \"testOnDemandRTSPServer\"";
-
+#if 0
 	// Set up each of the possible streams that can be served by the
 	// RTSP server.  Each such stream is implemented using a
 	// "ServerMediaSession" object, plus one or more
@@ -116,7 +116,7 @@ int live555_main(int argc, const char **argv) {
 	// A MPEG-4 video elementary stream:
 	{
 		char const *streamName = "mpeg4ESVideoTest";
-		char const *inputFileName = "test.m4e";
+		char const *inputFileName = "tmp/test.m4e";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -126,11 +126,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 1
 	// A H.264 video elementary stream:
 	{
-		char const *streamName = "h264ESVideoTest";
-		char const *inputFileName = "test.264";
+		char const *streamName = "h264esvideotest"; // "h264ESVideoTest";
+		char const *inputFileName = "tmp/test.264";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -140,11 +141,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A H.265 video elementary stream:
 	{
 		char const *streamName = "h265ESVideoTest";
-		char const *inputFileName = "test.265";
+		char const *inputFileName = "tmp/test.265";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -154,11 +156,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A MPEG-1 or 2 audio+video program stream:
 	{
 		char const *streamName = "mpeg1or2AudioVideoTest";
-		char const *inputFileName = "test.mpg";
+		char const *inputFileName = "tmp/test.mpg";
 		// NOTE: This *must* be a Program Stream; not an Elementary Stream
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
@@ -170,11 +173,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A MPEG-1 or 2 video elementary stream:
 	{
 		char const *streamName = "mpeg1or2ESVideoTest";
-		char const *inputFileName = "testv.mpg";
+		char const *inputFileName = "tmp/testv.mpg";
 		// NOTE: This *must* be a Video Elementary Stream; not a Program Stream
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
@@ -185,7 +189,8 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A MP3 audio stream (actually, any MPEG-1 or 2 audio file will work):
 	// To stream using 'ADUs' rather than raw MP3 frames, uncomment the following:
 //#define STREAM_USING_ADUS 1
@@ -194,8 +199,8 @@ int live555_main(int argc, const char **argv) {
 	// (For more information about ADUs and interleaving,
 	//  see <http://www.live555.com/rtp-mp3/>)
 	{
-		char const *streamName = "mp3AudioTest";
-		char const *inputFileName = "test.mp3";
+		char const *streamName = "mp3audiotest"; // "mp3AudioTest";
+		char const *inputFileName = "tmp/test.mp3";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		Boolean useADUs = False;
@@ -216,12 +221,13 @@ int live555_main(int argc, const char **argv) {
 		rtspServer->addServerMediaSession(sms);
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
-	}
-
+	} // mp3
+#endif
+#if 0
 	// A WAV audio stream:
 	{
-		char const *streamName = "wavAudioTest";
-		char const *inputFileName = "test.wav";
+		char const *streamName = "wavaudiotest"; // "wavAudioTest";
+		char const *inputFileName = "tmp/test.wav";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		// To convert 16-bit PCM data to 8-bit u-law, prior to streaming,
@@ -234,11 +240,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// An AMR audio stream:
 	{
 		char const *streamName = "amrAudioTest";
-		char const *inputFileName = "test.amr";
+		char const *inputFileName = "tmp/test.amr";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -248,11 +255,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A 'VOB' file (e.g., from an unencrypted DVD):
 	{
 		char const *streamName = "vobTest";
-		char const *inputFileName = "test.vob";
+		char const *inputFileName = "tmp/test.vob";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		// Note: VOB files are MPEG-2 Program Stream files, but using AC-3 audio
@@ -264,12 +272,13 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A MPEG-2 Transport Stream:
 	{
 		char const *streamName = "mpeg2TransportStreamTest";
 		char const *inputFileName = "test.ts";
-		char const *indexFileName = "test.tsx";
+		char const *indexFileName = "tmp/test.tsx";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -279,11 +288,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// An AAC audio stream (ADTS-format file):
 	{
 		char const *streamName = "aacAudioTest";
-		char const *inputFileName = "test.aac";
+		char const *inputFileName = "tmp/test.aac";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -293,14 +303,17 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A DV video stream:
 	{
 		// First, make sure that the RTPSinks' buffers will be large enough to handle the huge size of DV frames (as big as 288000).
-		OutPacketBuffer::maxSize = 300000;
+		if (OutPacketBuffer::maxSize < 300000) {
+			OutPacketBuffer::maxSize = 300000;
+		}
 
 		char const *streamName = "dvVideoTest";
-		char const *inputFileName = "test.dv";
+		char const *inputFileName = "tmp/test.dv";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 		sms->addSubsession(
@@ -310,11 +323,12 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 0
 	// A AC3 video elementary stream:
 	{
 		char const *streamName = "ac3AudioTest";
-		char const *inputFileName = "test.ac3";
+		char const *inputFileName = "tmp/test.ac3";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 
@@ -326,11 +340,15 @@ int live555_main(int argc, const char **argv) {
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
 	}
-
+#endif
+#if 1
 	// A Matroska ('.mkv') file, with video+audio+subtitle streams:
 	{
 		char const *streamName = "matroskaFileTest";
-		char const *inputFileName = "test.mkv";
+		char const *inputFileName = "tmp/test.mkv";
+		if (OutPacketBuffer::maxSize < 1048576) {
+			OutPacketBuffer::maxSize = 1048576;
+		}
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 
@@ -351,13 +369,14 @@ int live555_main(int argc, const char **argv) {
 		// otherwise, because the stream has no tracks, we don't add a ServerMediaSession to the server.
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
-	}
-
+	} // mkv
+#endif
+#if 0
 	// A WebM ('.webm') file, with video(VP8)+audio(Vorbis) streams:
 	// (Note: ".webm' files are special types of Matroska files, so we use the same code as the Matroska ('.mkv') file code above.)
 	{
 		char const *streamName = "webmFileTest";
-		char const *inputFileName = "test.webm";
+		char const *inputFileName = "tmp/test.webm";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 
@@ -378,12 +397,13 @@ int live555_main(int argc, const char **argv) {
 		// otherwise, because the stream has no tracks, we don't add a ServerMediaSession to the server.
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
-	}
-
+	} // webm
+#endif
+#if 0
 	// An Ogg ('.ogg') file, with video and/or audio streams:
 	{
 		char const *streamName = "oggFileTest";
-		char const *inputFileName = "test.ogg";
+		char const *inputFileName = "tmp/test.ogg";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 
@@ -404,13 +424,14 @@ int live555_main(int argc, const char **argv) {
 		// otherwise, because the stream has no tracks, we don't add a ServerMediaSession to the server.
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
-	}
-
+	} // ogg
+#endif
+#if 0
 	// An Opus ('.opus') audio file:
 	// (Note: ".opus' files are special types of Ogg files, so we use the same code as the Ogg ('.ogg') file code above.)
 	{
 		char const *streamName = "opusFileTest";
-		char const *inputFileName = "test.opus";
+		char const *inputFileName = "tmp/test.opus";
 		ServerMediaSession *sms = ServerMediaSession::createNew(*env,
 				streamName, streamName, descriptionString);
 
@@ -431,8 +452,9 @@ int live555_main(int argc, const char **argv) {
 		// otherwise, because the stream has no tracks, we don't add a ServerMediaSession to the server.
 
 		announceStream(rtspServer, sms, streamName, inputFileName);
-	}
-
+	} // opus
+#endif
+#if 0
 	// A MPEG-2 Transport Stream, coming from a live UDP (raw-UDP or RTP/UDP) source:
 	{
 		char const *streamName = "mpeg2TransportStreamFromUDPSourceTest";
@@ -458,8 +480,8 @@ int live555_main(int argc, const char **argv) {
 		}
 		*env << " port " << inputPortNum << ")\n";
 		announceURL(rtspServer, sms);
-	}
-
+	} // rtp/udp
+#endif
 	// Also, attempt to create a HTTP server for RTSP-over-HTTP tunneling.
 	// Try first with the default HTTP port (80), and then with the alternative HTTP
 	// port numbers (8000 and 8080).

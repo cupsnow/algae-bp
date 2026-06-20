@@ -38,8 +38,8 @@ endif
 mesa3d_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lEGL -lGLESv2 -lgbm -lgallium-26.1.0-devel -ldrm -lexpat -lz
 mesa3d_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/usr/include/drm -I$(BUILD_SYSROOT)/include -I$(BUILD_SYSROOT)/include/drm
 
-openssl_LDFLAGS+=-lssl -lcrypto
-openssl_CPPFLAGS+=
+openssl_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lssl -lcrypto
+openssl_CPPFLAGS+=-I$(BUILD_SYSROOT)/include
 
 live555_ELEM=liveMedia groupsock BasicUsageEnvironment UsageEnvironment 
 live555_CPPFLAGS+=$(addprefix -I$(BUILD_SYSROOT)/include/,$(live555_ELEM))
