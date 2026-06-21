@@ -16,6 +16,9 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include "log.h"
+#include <aloe/sys.h>
+
+#include <stdexcept>
 
 extern "C" {
 const char *aloe_hex_chars = aloe_stringify(ALOE_HEX_CHARS);

@@ -41,7 +41,7 @@ mesa3d_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/usr/include/d
 openssl_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lssl -lcrypto
 openssl_CPPFLAGS+=-I$(BUILD_SYSROOT)/include
 
-live555_ELEM=liveMedia groupsock BasicUsageEnvironment UsageEnvironment 
+live555_ELEM=liveMedia groupsock BasicUsageEnvironment UsageEnvironment
 live555_CPPFLAGS+=$(addprefix -I$(BUILD_SYSROOT)/include/,$(live555_ELEM))
 #live555_LDFLAGS+=-L$(BUILD_SYSROOT)/lib $(addprefix -l,$(live555_ELEM))
 live555_LDFLAGS+=$(addsuffix .a,$(addprefix $(BUILD_SYSROOT)/lib/lib,$(live555_ELEM)))
@@ -144,6 +144,29 @@ $(eval $(call TESTER1_APP2,tester_rtsp2, \
     tester_rtsp2.cpp))
 
 ARTIFACT+=$(tester_rtsp2_BIN)
+
+#------------------------------------
+#
+x264_CPPFLAGS=
+x264_LDFLAGS+=-lx264
+
+tester_v4l2r2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_v4l2r2_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+
+tester_v4l2r2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(x264_CPPFLAGS)
+tester_v4l2r2_LDFLAGS+=$(live555_LDFLAGS) $(openssl_LDFLAGS) $(x264_LDFLAGS)
+
+tester_v4l2r2_CFLAGS+=$(CFLAGS)
+tester_v4l2r2_CXXFLAGS+=$(CXXFLAGS)
+tester_v4l2r2_LDFLAGS+=$(LDFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_v4l2r2, \
+    tester_v4l2r2.cpp \
+	v4l2_capture.cpp \
+	x264_encoder.cpp \
+	))
+
+ARTIFACT+=$(tester_v4l2r2_BIN)
 
 #------------------------------------
 #
