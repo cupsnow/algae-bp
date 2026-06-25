@@ -28,9 +28,9 @@ APP_PLATFORM?=bp
 # locale_posix2c coreutils systemd
 APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
-ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
+ifneq ($(strip $(filter bp qemuarm64 iq9,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
-else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
+else ifneq ($(strip $(filter bbb xm sa7715 esh,$(APP_PLATFORM))),)
 APP_BUILD=arm
 else
 APP_BUILD=$(APP_PLATFORM)
@@ -38,8 +38,11 @@ endif
 
 # AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
 AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
-AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
-PATH_PUSH+=$(AARCH64_TOOLCHAIN_PATH)/bin
+AARCH64_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
+    $(AARCH64_TOOLCHAIN_PATH)/*-gcc \
+	$(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc)))
+AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)-
+PATH_PUSH+=$(AARCH64_TOOLCHAIN_BIN_PATH)
 
 ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-arm
 ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
@@ -48,7 +51,7 @@ PATH_PUSH+=$(ARM_TOOLCHAIN_PATH)/bin
 LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
 PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
 
-ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
+ifneq ($(strip $(filter bp qemuarm64 iq9,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
@@ -492,7 +495,14 @@ GENDIR+=$(linux_BUILDDIR)
 #
 busybox_DIR?=$(PKGDIR2)/busybox
 busybox_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
-busybox_MAKE=$(MAKE) ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) \
+ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
+busybox_MAKEARGS+=ARCH=arm64
+else ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
+busybox_MAKEARGS+=ARCH=arm64
+busybox_MAKEARGS+=EXTRA_CFLAGS="--sysroot=$(TOOLCHAIN_SYSROOT)"
+busybox_MAKEARGS+=LDFLAGS="--sysroot=$(TOOLCHAIN_SYSROOT)"
+endif
+busybox_MAKE=$(MAKE) $(busybox_MAKEARGS) CROSS_COMPILE=$(CROSS_COMPILE) \
     O=$(busybox_BUILDDIR) -C $(busybox_DIR)
 
 GENDIR+=$(busybox_BUILDDIR)
@@ -1774,8 +1784,9 @@ openssl_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssl_BUILDDIR)
 
 openssl_ACARGS_ub20+=linux-x86_64
 openssl_ACARGS_bp+=linux-aarch64
-openssl_ACARGS_sa7715+=linux-armv4
 openssl_ACARGS_qemuarm64+=linux-aarch64
+openssl_ACARGS_sa7715+=linux-armv4
+openssl_ACARGS_iq9+=linux-aarch64
 
 GENDIR+=$(openssl_BUILDDIR)
 

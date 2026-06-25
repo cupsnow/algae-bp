@@ -234,7 +234,6 @@ static void settings_save_cb(int fd, unsigned ev, void *cbarg) {
 
 	settings->evconn.ev = NULL;
 
-finally:
 
 }
 

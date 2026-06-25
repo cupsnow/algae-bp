@@ -90,32 +90,38 @@ daemon_sh_stop() {
 _pri_listok=""
 _pri_listfailed=""
 
-get_ip() {
-  if [ -z "$_pri_ip" ]; then
-    for i in 192.168.16.6 \
-        10.0.2.2 \
-        192.168.31.138 \
-        192.168.12.125; do
-      if ping -c 1 -W 1 -n ${i} >/dev/null 2>&1; then
-        _pri_ip=${i}
-        echo "$_pri_ip"
-        return 0
-      fi
-    done
+get_ip () {
+  if [ -n "$_pri_ip" ]; then
+    echo "${_pri_ip}"
+    return 0
   fi
+  if [ "$_pri_devsite" = "mbp_ub22" ]; then
+    _lo_iptest="192.168.234.86 192.168.50.42"
+  else
+    _lo_iptest="192.168.234.16 192.168.50.123"
+  fi
+  for i in $_lo_iptest; do
+    if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1" >/dev/null 2>&1; then
+      _pri_ip=${i}
+      echo "${_pri_ip}"
+      return 0
+    fi
+  done
   return 1
 }
 
-get_nfsroot() {
-  if [ -z "$_pri_nfsroot" ]; then
-    for i in /media /tmp; do
-      if [ -d "$i" ]; then
-        _pri_nfsroot="${i}/lavender5"
-        echo "$_pri_nfsroot"
-        return 0;
-      fi
-    done
+get_nfsroot () {
+  if [ -n "$_pri_nfsroot" ]; then
+    echo "${_pri_nfsroot}"
+    return 0
   fi
+  for i in /media /mnt /run /var/run /tmp; do
+    if [ -d "$i" ]; then
+      _pri_nfsroot="${i}"
+      echo "${_pri_nfsroot}"
+      return 0
+    fi
+  done
   return 1
 }
 

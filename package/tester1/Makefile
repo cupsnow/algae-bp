@@ -195,6 +195,63 @@ $(eval $(call TESTER1_APP2,tester_fb2, \
 
 #------------------------------------
 #
+live555_DIR=$(abspath ../live555)
+live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
+live555_DESTDIR=$(live555_BUILDDIR)/destdir
+
+ifneq ($(filter sa7715,$(APP_PLATFORM)),)
+live555_CPPFLAGS+=-I$(SA7715_SYSROOT)/usr/include/libnl3 -I$(SA7715_SYSROOT)/usr/include -I$(SA7715_SYSROOT)/include/libnl3 -I$(SA7715_SYSROOT)/include
+live555_LDFLAGS+=-L$(SA7715_SYSROOT)/usr/lib64 -L$(SA7715_SYSROOT)/lib64 -L$(SA7715_SYSROOT)/usr/lib -L$(SA7715_SYSROOT)/lib -lnl-3 -lnl-genl-3
+else
+live555_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include/libnl3 -I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/include/libnl3 -I$(BUILD_SYSROOT)/include
+live555_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lnl-3 -lnl-genl-3
+endif
+
+live555_MAKE=$(MAKE) \
+  C_COMPILER=$(CC) CPLUSPLUS_COMPILER=$(C++) LINK="$(C++) -o " \
+  LIBRARY_LINK="$(AR) cr " CPPFLAGS="$(live555_CPPFLAGS)" \
+  LDFLAGS="$(live555_LDFLAGS)" -C $(live555_BUILDDIR)
+
+GENDIR+=$(live555_BUILDDIR) $(live555_DESTDIR)
+
+$(live555_BUILDDIR)/Makefile: | $(live555_BUILDDIR)
+	cp -a $(live555_DIR)/* $(live555_BUILDDIR)/
+	cd $(live555_BUILDDIR) && ./genMakefiles algae-bp
+
+live555_install: | $(live555_DESTDIR)
+	$(live555_MAKE) DESTDIR=$(live555_DESTDIR) PREFIX=/ install
+
+live555_%: | $(live555_BUILDDIR)/Makefile
+	$(live555_MAKE) $*
+
+live555: | $(live555_BUILDDIR)/Makefile
+	$(live555_MAKE)
+
+#------------------------------------
+#
+tester_rtsp2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_rtsp2_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+tester_rtsp2_CPPFLAGS+=-I$(live555_DESTDIR)/include \
+    $(foreach i,BasicUsageEnvironment groupsock liveMedia UsageEnvironment, \
+        -I$(live555_DESTDIR)/include/$(i))
+tester_rtsp2_LDFLAGS+=-L$(live555_DESTDIR)/lib \
+    $(foreach i,BasicUsageEnvironment groupsock liveMedia UsageEnvironment,-l$(i))
+$(eval $(call TESTER1_APP2,tester_rtsp2, \
+    tester_rtsp2.cpp))
+
+ARTIFACT+=$(tester_rtsp2_BIN)
+
+#------------------------------------
+#
+tester_abc2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_abc2_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+$(eval $(call TESTER1_APP2,tester_abc2, \
+    tester_abc2.cpp cli.cpp ipc.cpp priv.cpp))
+
+ARTIFACT+=$(tester_abc2_BIN)
+
+#------------------------------------
+#
 #ARTIFACT+=ARTIFACT_EGL
 artifact: $(ARTIFACT) $(ARTIFACT_DOXYGEN)
 

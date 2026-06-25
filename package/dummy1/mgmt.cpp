@@ -194,7 +194,7 @@ void* mgmt1_init(void *evctx, const char *path) {
 	if (aloe_file_nonblock(mgmt->evconn.fd, 1) != 0
 #if 1
 			|| aloe_so_reuseaddr(mgmt->evconn.fd) != 0
-			|| aloe_so_keepalive(mgmt->evconn.fd) != 0
+//			|| aloe_so_keepalive(mgmt->evconn.fd, 0, 0, 0) != 0
 #endif
 			) {
 		log_e("failure set nonblock or socket flag\n");

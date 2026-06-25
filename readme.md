@@ -90,6 +90,14 @@ wifi manager
 ----
 [wifimgr.md](docs/wifimgr.md)
 
+Tools
+----
+
+yq - yaml / json process
+wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+
+jq - for json process
+
 Garage
 ----
 

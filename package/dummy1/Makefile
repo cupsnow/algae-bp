@@ -11,12 +11,13 @@
 #------------------------------------
 #
 PROJDIR?=$(PWD)
+-include $(PROJDIR)/site.mk
 include $(PROJDIR)/builder/proj.mk
 
 CPPFLAGS+=-g
-CFLAGS+=
-CXXFLAGS+=
-LDFLAGS+=
+CFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT)
+CXXFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT)
+LDFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT)
 
 GENDIR:=
 

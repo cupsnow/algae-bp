@@ -284,7 +284,7 @@ void* ipc1_init(void *evctx) {
 	if (aloe_file_nonblock(ipc->evconn.fd, 1) != 0
 #if 1
 			|| aloe_so_reuseaddr(ipc->evconn.fd) != 0
-			|| aloe_so_keepalive(ipc->evconn.fd) != 0
+			|| aloe_so_keepalive(ipc->evconn.fd, 0, 0, 0) != 0
 #endif
 			) {
 		log_e("failure set nonblock or socket flag\n");
