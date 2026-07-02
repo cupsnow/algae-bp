@@ -1,0 +1,59 @@
+diff --git a/docker/main/Dockerfile b/docker/main/Dockerfile
+index 1a475a650..31745b15e 100644
+--- a/docker/main/Dockerfile
++++ b/docker/main/Dockerfile
+@@ -78,7 +78,7 @@ RUN --mount=type=bind,source=docker/main/install_tempio.sh,target=/deps/install_
+ #
+ ####
+ # Download and Convert OpenVino model
+-FROM base_host AS ov-converter
++FROM base_host AS ov-converter-debug1
+ ARG DEBIAN_FRONTEND
+ 
+ # Install OpenVino Runtime and Dev library
+@@ -90,12 +90,24 @@ RUN apt-get -qq update \
+     && python3 get-pip.py "pip" \
+     && pip3 install -r /requirements-ov.txt
+ 
++# use pre-downloaded
++# COPY external/ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz /ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz
++
++COPY docker/main/build_ov_model.py /build_ov_model.py
++
++FROM ov-converter-debug1 AS ov-converter
++
+ # Get OpenVino Model
+ RUN --mount=type=bind,source=docker/main/build_ov_model.py,target=/build_ov_model.py \
+     mkdir /models && cd /models \
+     && wget http://download.tensorflow.org/models/object_detection/ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz \
+-    && tar -xvf ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz \
++    && tar -xvf ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz --no-same-owner \
+     && python3 /build_ov_model.py
++# use pre-downloaded
++# RUN --mount=type=bind,source=docker/main/build_ov_model.py,target=/build_ov_model.py \
++#     mkdir /models && cd /models \
++#     && tar -xvf /ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz --no-same-owner \
++#     && python3 /build_ov_model.py
+ 
+ ####
+ #
+@@ -339,13 +351,18 @@ CMD ["sleep", "infinity"]
+ 
+ # Frigate web build
+ # This should be architecture agnostic, so speed up the build on multiarch by not using QEMU.
+-FROM --platform=$BUILDPLATFORM node:20 AS web-build
++FROM --platform=$BUILDPLATFORM node:20 AS web-build-debug1
+ 
+ WORKDIR /work
+ COPY web/package.json web/package-lock.json ./
+ RUN npm install
+ 
+ COPY web/ ./
++
++FROM web-build-debug1 AS web-build
++
++ENV NODE_OPTIONS="--max-old-space-size=10240"
++
+ RUN npm run build \
+     && mv dist/BASE_PATH/monacoeditorwork/* dist/assets/ \
+     && rm -rf dist/BASE_PATH
