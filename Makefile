@@ -670,18 +670,31 @@ acl_MAKE=$(MAKE) -C $(acl_BUILDDIR)
 acl_INCDIR=$(BUILD_SYSROOT)/include
 acl_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 
+ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
+acl_INCDIR+=$(TOOLCHAIN_SYSROOT)/include $(TOOLCHAIN_SYSROOT)/usr/include
+acl_LIBDIR+=$(TOOLCHAIN_SYSROOT)/lib $(TOOLCHAIN_SYSROOT)/usr/lib
+acl_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+acl_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+else
+acl_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+acl_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+endif
+acl_ACARGS_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+acl_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+
+GENDIR+=$(acl_BUILDDIR)
+
 $(acl_DIR)/configure: | $(acl_DIR)/autogen.sh
 	cd $(acl_DIR) \
 	  && ./autogen.sh
-
-GENDIR+=$(acl_BUILDDIR)
 
 acl_defconfig $(acl_BUILDDIR)/Makefile: | $(acl_DIR)/configure $(acl_BUILDDIR)
 	cd $(acl_BUILDDIR) \
 	  && $(acl_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      CPPFLAGS="$(addprefix -I,$(acl_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(acl_LIBDIR))" \
+	      CPPFLAGS="$(addprefix -I,$(acl_INCDIR)) $(acl_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(acl_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(acl_LIBDIR)) $(acl_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
 	      $(acl_ACARGS_$(APP_PLATFORM))
 
 acl_install: DESTDIR=$(BUILD_SYSROOT)
@@ -1414,48 +1427,57 @@ libffi_%: | $(libffi_BUILDDIR)/Makefile
 #   marked AC_TRY_RUN
 # dependent: ncurses
 #
-screen_DIR = $(PROJDIR)/package/screen
-screen_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(screen_DIR)/src
-screen_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+screen_DIR=$(PKGDIR2)/screen/src
+screen_BUILDDIR=$(BUILDDIR2)/screen-$(APP_BUILD)
+screen_MAKE=$(MAKE) -C $(screen_BUILDDIR)
 
-screen: screen_;
+ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
+screen_INCDIR+=$(TOOLCHAIN_SYSROOT)/include $(TOOLCHAIN_SYSROOT)/usr/include
+screen_LIBDIR+=$(TOOLCHAIN_SYSROOT)/lib $(TOOLCHAIN_SYSROOT)/usr/lib
+screen_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+screen_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+else
+screen_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+screen_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+endif
+screen_ACARGS_CFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+screen_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
 
-screen_dir:
-	git clone git://git.savannah.gnu.org/screen.git $(screen_DIR)_hot
-	ln -sf $(screen_DIR)_hot $(screen_DIR)
+GENDIR+=$(screen_BUILDDIR)
 
-screen_clean screen_distclean:
-	if [ -e $(screen_DIR)/src/Makefile ]; then \
-	  $(screen_MAKE) $(patsubst _%,%,$(@:screen%=%)); \
-	fi
+screen_defconfig $(screen_BUILDDIR)/Makefile: | $(screen_BUILDDIR)
+	cp -a $(screen_DIR)/* $(screen_BUILDDIR)/
+	cd $(screen_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) ./configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      CPPFLAGS="$(addprefix -I,$(screen_INCDIR)) $(screen_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(screen_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(screen_LIBDIR)) $(screen_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      $(screen_ACARGS_$(APP_PLATFORM))
 
-screen_configure:
-	cd $(screen_DIR)/src && ./autogen.sh
+screen_install: DESTDIR=$(BUILD_SYSROOT)
+screen_install: | $(screen_BUILDDIR)/Makefile
+	$(screen_MAKE) DESTDIR=$(DESTDIR) install
 
-screen_makefile:
-	cd $(screen_DIR)/src && ./configure $(screen_CFGPARAM)
+$(eval $(call DEF_DESTDEP,screen))
 
-screen%:
-	if [ ! -d $(screen_DIR) ]; then \
-	  $(MAKE) screen_dir; \
-	fi
-	if [ ! -e $(screen_DIR)/src/configure ]; then \
-	  $(MAKE) screen_configure; \
-	fi
-	if [ ! -e $(screen_DIR)/src/Makefile ]; then \
-	  $(MAKE) screen_makefile; \
-	fi
-	$(screen_MAKE) $(patsubst _%,%,$(@:screen%=%))
+screen_distclean:
+	$(RM) $(screen_BUILDDIR)
 
-CLEAN += screen
+screen: | $(screen_BUILDDIR)/Makefile
+	$(screen_MAKE) $(PARALLEL_BUILD)
+
+screen_%: | $(screen_BUILDDIR)/Makefile
+	$(screen_MAKE) $(PARALLEL_BUILD) $(@:screen_%=%)
 
 #------------------------------------
 #
 libevent_DIR?=$(PKGDIR2)/libevent
 libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_BUILD)
 libevent_MAKE=$(MAKE) -C $(libevent_BUILDDIR)
+
+libevent_ACARGS_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+libevent_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
 
 $(libevent_DIR)/configure: | $(libevent_DIR)/autogen.sh
 	cd $(libevent_DIR) \
@@ -1468,6 +1490,9 @@ libevent_defconfig $(libevent_BUILDDIR)/Makefile: | $(libevent_DIR)/configure $(
 	  && $(BUILD_PKGCFG_ENV) $(libevent_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
 		  --disable-mbedtls --with-pic \
+	      CPPFLAGS="$(addprefix -I,$(libevent_INCDIR)) $(libevent_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(libevent_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(libevent_LIBDIR)) $(libevent_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
 	      $(libevent_ACARGS_$(APP_PLATFORM))
 
 libevent_install: DESTDIR=$(BUILD_SYSROOT)
@@ -1499,8 +1524,17 @@ tmux_DIR=$(PKGDIR2)/tmux
 tmux_BUILDDIR?=$(BUILDDIR2)/tmux-$(APP_BUILD)
 tmux_MAKE=$(MAKE) -C $(tmux_BUILDDIR)
 
-tmux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
-tmux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
+tmux_INCDIR+=$(TOOLCHAIN_SYSROOT)/include $(TOOLCHAIN_SYSROOT)/usr/include
+tmux_LIBDIR+=$(TOOLCHAIN_SYSROOT)/lib $(TOOLCHAIN_SYSROOT)/usr/lib
+tmux_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+tmux_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+else
+tmux_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
+tmux_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+endif
+tmux_ACARGS_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+tmux_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
 
 # tmux_ACARGS_$(APP_PLATFORM)+=ac_cv_func_strtonum_working=no
 
@@ -1514,8 +1548,9 @@ tmux_defconfig $(tmux_BUILDDIR)/Makefile: | $(tmux_DIR)/configure $(tmux_BUILDDI
 	cd $(tmux_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(tmux_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      CPPFLAGS="$(addprefix -I,$(tmux_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(tmux_LIBDIR))" \
+	      CPPFLAGS="$(addprefix -I,$(tmux_INCDIR)) $(tmux_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(tmux_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(tmux_LIBDIR)) $(tmux_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
 	      $(tmux_ACARGS_$(APP_PLATFORM))
 
 tmux_install: DESTDIR=$(BUILD_SYSROOT)
@@ -1898,13 +1933,61 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 	$(libnl_MAKE) $(PARALLEL_BUILD) $(@:libnl_%=%)
 
 #------------------------------------
+#
+x264_DIR?=$(PKGDIR2)/x264
+x264_BUILDDIR?=$(BUILDDIR2)/x264-$(APP_BUILD)
+x264_MAKE=$(MAKE) -C $(x264_BUILDDIR)
+# x264_AC_EXTRACFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+# x264_AC_EXTRALDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+x264_ACARGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+GENDIR+=$(x264_BUILDDIR)
+
+x264_defconfig $(x264_BUILDDIR)/Makefile: | $(x264_BUILDDIR)
+	cd $(x264_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(x264_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --disable-asm \
+		  --extra-cflags=$(x264_AC_EXTRACFLAGS_$(APP_PLATFORM)) \
+		  --extra-ldflags=$(x264_AC_EXTRALDFLAGS_$(APP_PLATFORM)) \
+		  --cross-prefix=`$(CC) -dumpmachine`- \
+		  --enable-shared --enable-static \
+	      $(x264_ACARGS_$(APP_PLATFORM))
+
+x264_install: DESTDIR=$(BUILD_SYSROOT)
+x264_install: | $(x264_BUILDDIR)/Makefile
+	$(x264_MAKE) DESTDIR=$(DESTDIR) $(@:x264_%=%)
+# ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, x264-3* x264-cli-3* x264-genl-3* x264-nf-3* x264-route-3*)
+# 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib/x264/cli/cls, basic cgroup)
+# 	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib/x264/cli/qdisc, bfifo blackhole fq_codel htb ingress pfifo plug )
+# endif
+# ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+# 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, x264-3* x264-cli-3* x264-genl-3* x264-nf-3* x264-route-3*)
+# endif
+# 	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,x264))
+
+x264: | $(x264_BUILDDIR)/Makefile
+	$(x264_MAKE) $(PARALLEL_BUILD)
+
+x264_%: | $(x264_BUILDDIR)/Makefile
+	$(x264_MAKE) $(PARALLEL_BUILD) $(@:x264_%=%)
+
+
+#------------------------------------
 # dependent: openssl
 #
 live555_DIR=$(PKGDIR2)/live555
 live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
+
+live555_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+live555_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+
 live555_MAKE=$(MAKE) C_COMPILER=$(CC) CPLUSPLUS_COMPILER=$(C++) LINK="$(C++) -o " \
-    LIBRARY_LINK="$(AR) rcs " CPPFLAGS="-I$(BUILD_SYSROOT)/include" \
-	LDFLAGS="-L$(BUILD_SYSROOT)/lib" -C $(live555_BUILDDIR)
+    LIBRARY_LINK="$(AR) rcs " \
+	CPPFLAGS="-I$(BUILD_SYSROOT)/include $(live555_CPPFLAGS_$(APP_PLATFORM))" \
+	LDFLAGS="-L$(BUILD_SYSROOT)/lib $(live555_LDFLAGS_$(APP_PLATFORM))" \
+	-C $(live555_BUILDDIR)
 
 GENDIR+=$(live555_BUILDDIR)
 
@@ -1936,6 +2019,33 @@ live555_%: | $(live555_BUILDDIR)/Makefile
 
 live555: | $(live555_BUILDDIR)/Makefile
 	$(live555_MAKE) $(PARALLEL_BUILD)
+
+#------------------------------------
+#
+onvifsrvd_DIR=$(PKGDIR2)/onvif_srvd
+onvifsrvd_BUILDDIR=$(BUILDDIR)/onvif_srvd-$(APP_BUILD)
+onvifsrvd_MAKE=$(MAKE) -C $(onvifsrvd_BUILDDIR)
+
+GENDIR+=$(onvifsrvd_BUILDDIR)
+
+onvifsrvd_defconfig $(onvifsrvd_BUILDDIR)/Makefile: | $(onvifsrvd_BUILDDIR)
+	cd $(onvifsrvd_BUILDDIR) \
+	  && cmake -DCMAKE_INSTALL_PREFIX=/ \
+	      $(onvifsrvd_DIR)
+
+onvifsrvd_host:
+	$(MAKE) APP_PLATFORM=ub20 onvifsrvd
+
+onvifsrvd_host_%:
+	$(MAKE) APP_PLATFORM=ub20 onvifsrvd_%*
+
+onvifsrvd_install: DESTDIR=$(BUILD_SYSROOT)
+onvifsrvd_install: onvifsrvd
+	[ -d "$(DESTDIR)/bin" ] || $(MKDIR) $(DESTDIR)/bin
+	cp -v $(onvifsrvd_BUILDDIR)/onvif_srvd $(DESTDIR)/bin/
+
+onvifsrvd: | $(onvifsrvd_BUILDDIR)/Makefile
+	$(onvifsrvd_MAKE) $(PARALLEL_BUILD)
 
 #------------------------------------
 #
@@ -2762,6 +2872,11 @@ wpasup_BUILDDIR?=$(BUILDDIR2)/wpasup-$(APP_BUILD)
 wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC -I$(BUILD_SYSROOT)/include
 wpasup_MAKEPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib -L$(BUILD_SYSROOT)/lib64 -lm
 
+wpasup_MAKEPARAM_CFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+wpasup_MAKEPARAM_CFLAGS_iq9+=-I$(TOOLCHAIN_SYSROOT)/include -I$(TOOLCHAIN_SYSROOT)/usr/include
+wpasup_MAKEPARAM_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+wpasup_MAKEPARAM_LDFLAGS_iq9+=-L$(TOOLCHAIN_SYSROOT)/lib -L$(TOOLCHAIN_SYSROOT)/usr/lib
+
 ifneq ($(strip $(filter release1,$(APP_ATTR))),)
 wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-O3
 else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
@@ -2770,12 +2885,15 @@ endif
 
 wpasup_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM)+=-lm
 
+wpasup_MAKEPARAM_NLINC_iq9?=$(TOOLCHAIN_SYSROOT)/usr/include/libnl3
+
 wpasup_MAKEPARAM_$(APP_PLATFORM)+= \
     EXTRA_CFLAGS="$(wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM))" \
     EXTRALIBS="$(wpasup_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM))" \
     LDFLAGS="$(wpasup_MAKEPARAM_LDFLAGS_$(APP_PLATFORM))"
 
-wpasup_MAKE=$(MAKE) CC=$(CC) LIBNL_INC="$(BUILD_SYSROOT)/include/libnl3" \
+wpasup_MAKE=$(MAKE) CC=$(CC) \
+    LIBNL_INC="$(or $(wpasup_MAKEPARAM_NLINC_$(APP_PLATFORM)),$(BUILD_SYSROOT)/include/libnl3)" \
     LIBDIR=/lib BINDIR=/sbin INCDIR=/include CONFIG_BUILD_WPA_CLIENT_SO=y \
     $(wpasup_MAKEPARAM_$(APP_PLATFORM)) -C $(wpasup_BUILDDIR)/wpa_supplicant
 
@@ -3690,6 +3808,9 @@ $(ENVSH):
 
 #------------------------------------
 #
+shell:
+	/bin/bash -l
+
 $(sort $(GENDIR)):
 	$(MKDIR) $@
 

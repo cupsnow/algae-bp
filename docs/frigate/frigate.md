@@ -32,6 +32,7 @@ Capture desktop as v4l2 video source
 Host: Ubuntu 22.04 X11 (not wayland)
 
     modprobe v4l2loopback video_nr=10 exclusive_caps=1 card_label="Desktop"
+
     [ "$XDG_SESSION_TYPE" = "x11" ] && ffmpeg -f x11grab -video_size 1920x1080 -framerate 30 -i ${DISPLAY}.0 -vf scale=1280:720 -pix_fmt yuv420p -f v4l2 /dev/video10
 
 RTSP server
@@ -40,6 +41,8 @@ RTSP server
     build/tester_v4l2rtsp-ub20/tester_v4l2rtsp /dev/video10 1920 1080 30 2000 9554
 
 Test
+
+    vlc v4l2:///dev/video10
 
     ffplay rtsp://172.20.0.1:9554/h264esvideotest
 

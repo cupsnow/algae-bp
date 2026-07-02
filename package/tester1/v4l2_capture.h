@@ -2,6 +2,7 @@
 #define V4L2_CAPTURE_H
 
 #include <linux/videodev2.h>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 

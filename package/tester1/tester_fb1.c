@@ -16,7 +16,7 @@
 #include <getopt.h>
 #include <sys/mman.h>
 #include <linux/fb.h>
-#include "priv_tester.h"
+#include "priv.h"
 
 #define mem_gc(_v) if (_v) { free(_v); _v = NULL; }
 #define fd_gc(_fd) if (_fd != -1) { close(_fd); _fd = -1; }

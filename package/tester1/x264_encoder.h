@@ -1,6 +1,7 @@
 #ifndef X264_ENCODER_H
 #define X264_ENCODER_H
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 #include <x264.h>
