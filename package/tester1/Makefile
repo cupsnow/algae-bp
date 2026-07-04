@@ -82,15 +82,11 @@ tester_aloe_SRCS+=$(wildcard \
 #
 define TESTER1_APP2
 $(1)_BIN?=$(1)
-
-$(1)_BUILDDIR?=$$(PROJDIR)/build/$(1)$$(or $$(APP_BUILD:%=-%),$$(APP_PLATFORM:%=-%))
-$(1)_SRCS+=$$(abspath $(2))
-$(1)_OBJS+=$$(patsubst $$(PROJDIR)/package/%,$$($(1)_BUILDDIR)/objs/%.o,$$(filter %.c %.cpp,$$($(1)_SRCS)))
-
+$(1)_BUILDDIR?=$$(PROJDIR)/build/$(1)$$(APP_PLATFORM:%=-%)
+$(1)_SRCS+=$(2)
+$(1)_OBJS+=$$(patsubst %,$$($(1)_BUILDDIR)/objs/%.o,$$(filter %.c %.cpp,$$($(1)_SRCS)))
 $(1)_OBJDEPS+=$$(addsuffix .d,$$($(1)_OBJS))
-$(1)_GENDIR+=$$(sort $$($(1)_BUILDDIR) \
-  $$(dir $$($(1)_OBJS)) \
-)
+$(1)_GENDIR+=$$(sort $$($(1)_BUILDDIR) $$(dir $$($(1)_OBJS)))
 
 GENDIR+=$$($(1)_GENDIR)
 
@@ -101,11 +97,11 @@ $$($(1)_BUILDDIR)/$$($(1)_BIN): $$($(1)_OBJS) | $$(filter %.a %.o,$$($(1)_SRCS))
 	$$(if $$(filter %.cpp.o,$$^ $$|),$$(C++),$$(CC)) -o $$@ \
 	    $$(filter %.o %.a,$$^ $$|) $$(or $$($(1)_LDFLAGS),$$(LDFLAGS))
 
-$$(filter $$($(1)_BUILDDIR)/objs/%.c.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/objs/%.o: $$(PROJDIR)/package/% | $$($(1)_GENDIR)
+$$(filter $$($(1)_BUILDDIR)/objs/%.c.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/objs/%.o : % | $$($(1)_GENDIR)
 	$$(CC) -c -o $$@ $$< $$(DEPFLAGS) $$(or $$($(1)_CPPFLAGS),$$(CPPFLAGS)) \
 	    $$(or $$($(1)_CFLAGS),$$(CFLAGS))
 
-$$(filter $$($(1)_BUILDDIR)/objs/%.cpp.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/objs/%.o: $$(PROJDIR)/package/% | $$($(1)_GENDIR)
+$$(filter $$($(1)_BUILDDIR)/objs/%.cpp.o,$$($(1)_OBJS)): $$($(1)_BUILDDIR)/objs/%.o : % | $$($(1)_GENDIR)
 	$$(C++) -c -o $$@ $$< $$(DEPFLAGS) $$(or $$($(1)_CPPFLAGS),$$(CPPFLAGS)) \
 	    $$(or $$($(1)_CXXFLAGS),$$(CXXFLAGS))
 
@@ -115,18 +111,18 @@ endef
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT
+tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT USE_V4L2 USE_X264
 
 tester_ev3_CPPFLAGS+=$(CPPFLAGS)
 tester_ev3_CFLAGS+=$(CFLAGS)
 tester_ev3_CXXFLAGS+=$(CXXFLAGS)
 tester_ev3_LDFLAGS+=$(LDFLAGS)
 
-tester_ev3_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_ev3_SRCS+=$(tester_aloe_SRCS)
 tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
 ifneq ($(filter USE_WIFIMGR,$(tester_ev3_ATTR)),)
-tester_ev3_SRCS+=$(abspath wifi.cpp)
+tester_ev3_SRCS+=wifi.cpp
 tester_ev3_CPPFLAGS+=-DUSE_WIFIMGR=1 $(libnl_CPPFLAGS)
 tester_ev3_CXXFLAGS+=$(libnl_CXXFLAGS)
 tester_ev3_LDFLAGS+=$(libnl_LDFLAGS)
@@ -134,9 +130,24 @@ tester_ev3_LDFLAGS+=$(libnl_LDFLAGS)
 ifneq ($(filter USE_WPASUPCLIENT,$(tester_ev3_ATTR)),)
 tester_ev3_CPPFLAGS+=-DUSE_WPASUPCLIENT=1 -I$(BUILD_SYSROOT)/include
 tester_ev3_SRCS+=$(BUILD_SYSROOT)/lib/libwpa_client.a
+
+# end of USE_WPASUPCLIENT
 endif
 
-#end of USE_WIFIMGR
+# end of USE_WIFIMGR
+endif
+
+ifneq ($(filter USE_V4L2,$(tester_ev3_ATTR)),)
+tester_ev3_SRCS+=v4l2.cpp
+tester_ev3_CPPFLAGS+=-DUSE_V4L2=1
+# end of USE_V4L2
+endif
+
+ifneq ($(filter USE_X264,$(tester_ev3_ATTR)),)
+tester_ev3_SRCS+=x264_encoder.cpp
+tester_ev3_CPPFLAGS+=-DUSE_X264=1
+tester_ev3_LDFLAGS+=-lx264
+# end of USE_X264
 endif
 
 $(eval $(call TESTER1_APP2,tester_ev3, \
@@ -146,7 +157,9 @@ ARTIFACT+=$(tester_ev3_BIN)
 
 #------------------------------------
 #
+tester_rtsp2_SRCS+=$(tester_aloe_SRCS)
 tester_rtsp2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+
 tester_rtsp2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(CPPFLAGS)
 tester_rtsp2_CFLAGS+=$(CFLAGS)
 tester_rtsp2_CXXFLAGS+=$(CXXFLAGS)
@@ -161,7 +174,10 @@ ARTIFACT+=$(tester_rtsp2_BIN)
 
 #------------------------------------
 #
-tester_v4l2r2_SRCS+=$(abspath $(tester_aloe_SRCS))
+x264_CPPFLAGS=
+x264_LDFLAGS+=-lx264
+
+tester_v4l2r2_SRCS+=$(tester_aloe_SRCS)
 tester_v4l2r2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
 tester_v4l2r2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(x264_CPPFLAGS)
@@ -252,55 +268,6 @@ $(eval $(call TESTER1_APP2,tester_fb2, \
     tester_fb1.c))
 
 ARTIFACT+=$(tester_fb2_BIN)
-
-#------------------------------------
-#
-live555_DIR=$(abspath ../live555)
-live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
-live555_DESTDIR=$(live555_BUILDDIR)/destdir
-
-ifneq ($(filter sa7715,$(APP_PLATFORM)),)
-live555_CPPFLAGS+=-I$(SA7715_SYSROOT)/usr/include/libnl3 -I$(SA7715_SYSROOT)/usr/include -I$(SA7715_SYSROOT)/include/libnl3 -I$(SA7715_SYSROOT)/include
-live555_LDFLAGS+=-L$(SA7715_SYSROOT)/usr/lib64 -L$(SA7715_SYSROOT)/lib64 -L$(SA7715_SYSROOT)/usr/lib -L$(SA7715_SYSROOT)/lib -lnl-3 -lnl-genl-3
-else
-live555_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include/libnl3 -I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/include/libnl3 -I$(BUILD_SYSROOT)/include
-live555_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lnl-3 -lnl-genl-3
-endif
-
-live555_MAKE=$(MAKE) \
-  C_COMPILER=$(CC) CPLUSPLUS_COMPILER=$(C++) LINK="$(C++) -o " \
-  LIBRARY_LINK="$(AR) cr " CPPFLAGS="$(live555_CPPFLAGS)" \
-  LDFLAGS="$(live555_LDFLAGS)" -C $(live555_BUILDDIR)
-
-GENDIR+=$(live555_BUILDDIR) $(live555_DESTDIR)
-
-$(live555_BUILDDIR)/Makefile: | $(live555_BUILDDIR)
-	cp -a $(live555_DIR)/* $(live555_BUILDDIR)/
-	cd $(live555_BUILDDIR) && ./genMakefiles algae-bp
-
-live555_install: | $(live555_DESTDIR)
-	$(live555_MAKE) DESTDIR=$(live555_DESTDIR) PREFIX=/ install
-
-live555_%: | $(live555_BUILDDIR)/Makefile
-	$(live555_MAKE) $*
-
-live555: | $(live555_BUILDDIR)/Makefile
-	$(live555_MAKE)
-
-#------------------------------------
-#
-tester_abc2_CPPFLAGS+=$(CPPFLAGS)
-tester_abc2_CFLAGS+=$(CFLAGS)
-tester_abc2_CXXFLAGS+=$(CXXFLAGS)
-tester_abc2_LDFLAGS+=$(LDFLAGS)
-
-tester_abc2_SRCS+=$(abspath $(tester_aloe_SRCS))
-tester_abc2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
-
-$(eval $(call TESTER1_APP2,tester_abc2, \
-    tester_abc2.cpp cli.cpp ipc.cpp priv.cpp))
-
-ARTIFACT+=$(tester_abc2_BIN)
 
 #------------------------------------
 #

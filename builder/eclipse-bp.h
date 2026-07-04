@@ -22,6 +22,8 @@ extern "C" {
 #define ALOE_SYS_LINUX 1
 #define USE_WIFIMGR 1
 #define USE_WPASUPCLIENT 1
+#define USE_V4L2 1
+#define USE_X264 1
 
 // wpasup
 #define CONFIG_CTRL_IFACE y

@@ -27,6 +27,9 @@
 #ifdef USE_WIFIMGR
 #  include "wifi.h"
 #endif
+#ifdef USE_V4L2
+#  include "v4l2.h"
+#endif
 
 static struct {
 	void *ev_ctx;
@@ -232,6 +235,21 @@ static int cli_cmd_forkwait(void*, int argc, const char **argv) {
 	log_d("%s (%d) -> %d\n", argv[1], (int)pid, r);
 	return r;
 }
+
+#ifdef USE_V4L2
+static int cli_cmd_v4l2(void*, int argc, const char **argv) {
+//	dump_argv(argc, argv);
+	if (!v4l2_global) {
+		// wifi wlx94186551a58a
+		const char *capdev = argc >= 2 ? argv[1] : NULL;
+		v4l2_global = v4l2_init(impl.ev_ctx, capdev);
+		return 0;
+	}
+
+	return v4l2_cli(v4l2_global, argc, argv);
+	return -1;
+}
+#endif // USE_V4L2
 
 static void tester_proc2(void *args) {
 	int *msg_seq = (int*)args;
@@ -455,6 +473,11 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "q", &cli_cmd_quit, NULL, "q -> quit program");
 	cli1_cmd_add(cli_global, "fork", &cli_cmd_fork, NULL, "fork -> fork to execute program");
 	cli1_cmd_add(cli_global, "forkwait", &cli_cmd_forkwait, NULL, "forkwait -> fork to execute program");
+
+#ifdef USE_V4L2
+	v4l2_global = v4l2_init(impl.ev_ctx, "/dev/video10");
+	cli1_cmd_add(cli_global, "v4l2", &cli_cmd_v4l2, NULL, "v4l2 manager");
+#endif
 
 	while (!impl.quit) {
 		aloe_ev_once(impl.ev_ctx);
