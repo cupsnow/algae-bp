@@ -23,7 +23,8 @@ APP_ATTR_bp?=bp wl18xx powervr bb_linux gdbserver
 
 APP_ATTR_qemuarm64?=qemuarm64
 
-APP_PLATFORM?=bp
+# bp qemuarm64 ub20
+APP_PLATFORM?=qemuarm64
 
 # locale_posix2c coreutils systemd
 APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
@@ -132,16 +133,16 @@ help1:
 	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
 
-meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: NEEDS_EXE_WRAPPER=true
-# meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: LLVM_CONFIG=llvm-config
-meson_aarch64 $(BUILDDIR)/meson-aarch64.ini: | $(PROJDIR)/builder/meson-aarch64.ini
-	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/meson-aarch64.ini \
-	    $(BUILDDIR)/meson-aarch64.ini
-	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-aarch64.ini
-	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64.ini
-# 	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(if $(NEEDS_EXE_WRAPPER),needs_exe_wrapper = true)|" $(BUILDDIR)/meson-aarch64.ini
-	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(NEEDS_EXE_WRAPPER:%=needs_exe_wrapper = %)|" $(BUILDDIR)/meson-aarch64.ini
-	sed -i "s|\$${LLVM_CONFIG}|$(LLVM_CONFIG:%=llvm-config = '%')|" $(BUILDDIR)/meson-aarch64.ini
+meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: NEEDS_EXE_WRAPPER=true
+# meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: LLVM_CONFIG=llvm-config
+meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: | $(firstword $(wildcard $(PROJDIR)/builder/meson-aarch64-$(APP_PLATFORM).ini $(PROJDIR)/builder/meson-aarch64.ini))
+	rsync -a $(RSYNC_VERBOSE) $(firstword $(wildcard $(PROJDIR)/builder/meson-aarch64-$(APP_PLATFORM).ini $(PROJDIR)/builder/meson-aarch64.ini)) \
+	    $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+# 	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(if $(NEEDS_EXE_WRAPPER),needs_exe_wrapper = true)|" $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(NEEDS_EXE_WRAPPER:%=needs_exe_wrapper = %)|" $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+	sed -i "s|\$${LLVM_CONFIG}|$(LLVM_CONFIG:%=llvm-config = '%')|" $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 
 cmake_aarch64 $(BUILDDIR)/cross-aarch64.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
 	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/cross-aarch64.cmake \
@@ -1028,106 +1029,7 @@ swupdate_%: | $(swupdate_BUILDDIR)/.config
 
 #------------------------------------
 #
-ncursesw_DIR?=$(PKGDIR2)/ncurses
-ncursesw_BUILDDIR?=$(BUILDDIR2)/ncursesw-$(APP_BUILD)
-ncursesw_TINFODIR=/usr/share/terminfo
-ncursesw_MAKE=$(MAKE) -C $(ncursesw_BUILDDIR)
-
-# ncursesw_ACARGS_$(APP_PLATFORM)+=--without-debug
-
-ncursesw_ACARGS_ub20+=--enable-pc-files --with-pkg-config-libdir=/lib/pkgconfig
-ncursesw_ACARGS_bp+=--without-tests --without-manpages --disable-db-install
-
-ncursesw_MAKEENV_bp=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
-    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR)
-
-GENDIR+=$(ncursesw_BUILDDIR)
-
-# no strip to prevent not recoginize crosscompiled executable
-ncursesw_defconfig $(ncursesw_BUILDDIR)/Makefile: | $(ncursesw_BUILDDIR)
-	cd $(ncursesw_BUILDDIR) \
-	  && $(BUILD_PKGCFG_ENV) $(ncursesw_DIR)/configure \
-	      --host=`$(CC) -dumpmachine` --prefix= --with-termlib --with-ticlib \
-	      --with-shared --enable-widec --disable-stripping --without-ada \
-		  --with-default-terminfo-dir=$(ncursesw_TINFODIR) \
-	      CFLAGS="-fPIC $(ncursesw_CFLAGS_$(APP_PLATFORM))" \
-	      $(ncursesw_ACARGS_$(APP_PLATFORM))
-
-# remove wrong pc file for the crosscompiled lib
-ncursesw_install: DESTDIR=$(BUILD_SYSROOT)
-ncursesw_install: | $(ncursesw_BUILDDIR)/Makefile
-	$(ncursesw_MAKE) $(PARALLEL_BUILD)
-	$(ncursesw_MAKE) DESTDIR=$(DESTDIR) install
-	[ -d "$(DESTDIR)" ] || $(MKDIR) $(DESTDIR)
-	echo "INPUT(-lncursesw)" > $(DESTDIR)/lib/libcurses.so;
-	for i in ncurses form panel menu tinfo; do \
-	  if [ -e $(DESTDIR)/lib/lib$${i}w.so ]; then \
-	    echo "INPUT(-l$${i}w)" > $(DESTDIR)/lib/lib$${i}.so; \
-	  fi; \
-	  if [ -e $(DESTDIR)/lib/lib$${i}w.a ]; then \
-	    ln -sfn lib$${i}w.a $(DESTDIR)/lib/lib$${i}.a; \
-	  fi; \
-	done
-
-$(eval $(call DEF_DESTDEP,ncursesw))
-
-ncursesw: | $(ncursesw_BUILDDIR)/Makefile
-	$(ncursesw_MAKE) $(PARALLEL_BUILD)
-
-ncursesw_%: | $(ncursesw_BUILDDIR)/Makefile
-	$(ncursesw_MAKE) $(PARALLEL_BUILD) $(@:ncursesw_%=%)
-
-# Create small terminfo refer to https://invisible-island.net/ncurses/ncurses.faq.html#big_terminfo
-# refine to comma saperated list when use in tic
-
-terminfo_BUILDDIR=$(BUILDDIR2)/terminfo-$(APP_BUILD)
-
-# TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
-#     ansi ansi-m color_xterm,linux,pcansi-m,rxvt-basic,vt52,vt100 \
-#     vt102,vt220,xterm,tmux-256color,screen-256color,xterm-256color screen)))
-TERMINFO_NAMES=$(subst $(SPACE),$(COMMA),$(sort $(subst $(COMMA),$(SPACE), \
-    ansi dumb linux,putty,putty-256color,putty-vt100 \
-	vt100 vt100-putty vt102 vt200 vt220 \
-	xterm xterm-256color xterm-color xterm-xfree86 xterm+256color)))
-TERMINFO_TIC=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
-    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) \
-	$(PROJDIR)/tool/bin/tic
-TERMINFO_INFOCMP=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
-    TERMINFO=$(PROJDIR)/tool/$(ncursesw_TINFODIR) \
-	$(PROJDIR)/tool/bin/infocmp
-
-# extract from ncursesw source
-TERMINFO_EXTRACT=$(TERMINFO_TIC) -s -r -I -x -r -e"$(TERMINFO_NAMES)" \
-    $(ncursesw_DIR)/misc/terminfo.src
-
-# extract from installed terminfo
-TERMINFO_EXTRACT2={ \
-  for tname in $(subst $(COMMA),$(SPACE),$(TERMINFO_NAMES)); do \
-    $(TERMINFO_INFOCMP) -q $$tname; \
-  done; \
-}
-
-CMD_TERMINFO= \
-  { [ -d "$(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR)" ] || \
-    $(MKDIR) $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR); } \
-  && $(TERMINFO_EXTRACT2) >$(BUILDDIR)/terminfo.src \
-  && $(TERMINFO_TIC) -s -o $(or $(1),$(DESTDIR))/$(ncursesw_TINFODIR) \
-      $(BUILDDIR)/terminfo.src
-terminfo_install: DESTDIR=$(BUILD_SYSROOT)
-terminfo_install: | $(PROJDIR)/tool/bin/tic
-	$(call CMD_TERMINFO)
-
-terminfo_install2: DESTDIR=$(BUILD_SYSROOT)
-terminfo_install2: | $(PROJDIR)/tool/bin/tic
-	for i in vt100 linux xterm xterm-256color screen screen-256color tmux-256color; do \
-	  $(TERMINFO_INFOCMP) -x $$i \
-	    | $(TERMINFO_TIC) -x -o $(DESTDIR)/terminfo -; \
-	done
-
-$(eval $(call DEF_DESTDEP,terminfo))
-
-$(addprefix $(PROJDIR)/tool/bin/,tic) ncursesw_host:
-	$(MAKE) DESTDIR=$(PROJDIR)/tool APP_PLATFORM=ub20 ncursesw_destdep_install
+include builder/ncursesw.mk
 
 #------------------------------------
 # WIP
@@ -2743,7 +2645,7 @@ kmod_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
 
 GENPYVENV+=meson ninja
 
-kmod_defconfig $(kmod_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+kmod_defconfig $(kmod_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 	. $(PYVENVDIR)/bin/activate \
 	  && $(BUILD_PKGCFG_ENV) meson setup \
 	      -Dprefix=/ \
@@ -2757,7 +2659,7 @@ kmod_defconfig $(kmod_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
 		  -Dmanpages=false \
 		  -Ddocs=false \
 		  $(kmod_ACARGS_$(APP_PLATFORM)) \
-		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  --cross-file=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini \
 		  $(kmod_BUILDDIR) $(kmod_DIR)
 
 kmod_install: DESTDIR=$(BUILD_SYSROOT)
@@ -2798,7 +2700,7 @@ systemd_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
 
 GENPYVENV+=meson ninja
 
-systemd_defconfig $(systemd_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.ini
+systemd_defconfig $(systemd_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 	. $(PYVENVDIR)/bin/activate \
 	  && $(BUILD_PKGCFG_ENV) meson setup \
 	      -Dprefix=/ \
@@ -2811,7 +2713,7 @@ systemd_defconfig $(systemd_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64.i
 		  -Dinstall-tests=false \
 		  -Dselinux=disabled \
 		  $(systemd_ACARGS_$(APP_PLATFORM)) \
-		  --cross-file=$(BUILDDIR)/meson-aarch64.ini \
+		  --cross-file=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini \
 		  $(systemd_BUILDDIR) $(systemd_DIR)
 
 systemd_install: DESTDIR=$(BUILD_SYSROOT)
@@ -2822,7 +2724,7 @@ systemd_install: | $(systemd_BUILDDIR)/build.ninja
 $(eval $(call DEF_DESTDEP,systemd))
 
 systemd: | $(systemd_BUILDDIR)/build.ninja
-	$(systemd_MESON) compile -C $(systemd_BUILDDIR)
+	$(systemd_MESON) compile -C $(systemd_BUILDDIR) -v
 
 #------------------------------------
 #

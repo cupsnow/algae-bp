@@ -62,6 +62,7 @@ libnl_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_S
 libnl_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include/libnl3 -I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/include/libnl3 -I$(BUILD_SYSROOT)/include
 endif
 
+<<<<<<< Updated upstream
 live555_ELEM=liveMedia groupsock BasicUsageEnvironment UsageEnvironment
 live555_CPPFLAGS+=$(addprefix -I$(BUILD_SYSROOT)/include/,$(live555_ELEM))
 #live555_LDFLAGS+=-L$(BUILD_SYSROOT)/lib $(addprefix -l,$(live555_ELEM))
@@ -76,6 +77,11 @@ tester_aloe_SRCS+=$(wildcard \
   $(PROJDIR)/package/aloe/*.c \
   $(PROJDIR)/package/aloe/sys_linux/*.cpp \
   $(PROJDIR)/package/aloe/sys_linux/*.c)
+=======
+tester_aloe_SRCS+=$(wildcard ../aloe/*.cpp ../aloe/*.c \
+  ../aloe/sys_linux/*.cpp ../aloe/sys_linux/*.c)
+tester_aloe_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
+>>>>>>> Stashed changes
 
 #------------------------------------
 # $(eval $(call TESTER1_APP2,tester_ev3,$(tester_aloe_SRCS) ev3_main.cpp))
@@ -267,7 +273,11 @@ tester_fb2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 $(eval $(call TESTER1_APP2,tester_fb2, \
     tester_fb1.c))
 
+<<<<<<< Updated upstream
 ARTIFACT+=$(tester_fb2_BIN)
+=======
+#ARTIFACT+=$(tester_fb2_BIN)
+>>>>>>> Stashed changes
 
 #------------------------------------
 #
