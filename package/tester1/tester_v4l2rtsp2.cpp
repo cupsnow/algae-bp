@@ -5,17 +5,17 @@
  * @author joelai
  *
  * @file /algae-bp/package/tester1/tester_v4l2rtsp2.cpp
- * @brief tester_v4l2rtsp2 - serve h264 rtsp streaming from v4l2
+ * @brief Capture V4L2 video, encode to H.264, serve RTSP via discrete NAL framer
  *
- * Combines v4l2 capture, x264 encoding, and live555 RTSP streaming.
- * Usage: tester_v4l2rtsp2 <device> [width] [height] [fps] [bitrate_kbps] [rtsp_port]
- *        device        V4L2 video device (e.g. /dev/video0)
- *        width         Frame width  (default: 1920)
- *        height        Frame height (default: 1080)
- *        fps           Frames per second (default: 30)
- *        bitrate_kbps  Target bitrate in kbps (default: 2000)
- *        rtsp_port     RTSP server port (default: 8554)
+ * Same as tester_v4l2rtsp but uses H264VideoStreamDiscreteFramer.
+ * X264Encoder Annex-B output is split into raw NAL units (no start codes).
  */
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <vector>
 
 #include <liveMedia.hh>
 #include <BasicUsageEnvironment.hh>
@@ -25,429 +25,376 @@
 #include "x264_encoder.h"
 #include "priv.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cerrno>
-#include <sys/select.h>
-#include <pthread.h>
-#include <queue>
-#include <mutex>
-#include <atomic>
+// ---------------------------------------------------------------------------
+// Annex-B helpers (for discrete framer input)
+// ---------------------------------------------------------------------------
 
-// H.264 NAL unit frame from encoder
-struct EncodedFrame {
-	std::vector<uint8_t> data;
-	uint64_t timestamp;
-};
-
-// Thread-safe queue for encoded frames
-class EncodedFrameQueue {
-public:
-	void push(const EncodedFrame& frame) {
-		std::lock_guard<std::mutex> lock(m_mutex);
-		m_queue.push(frame);
-	}
-
-	bool pop(EncodedFrame& frame) {
-		std::lock_guard<std::mutex> lock(m_mutex);
-		if (m_queue.empty()) return false;
-		frame = m_queue.front();
-		m_queue.pop();
-		return true;
-	}
-
-	bool empty() {
-		std::lock_guard<std::mutex> lock(m_mutex);
-		return m_queue.empty();
-	}
-
-private:
-	std::queue<EncodedFrame> m_queue;
-	std::mutex m_mutex;
-};
-
-// Global frame queue and encoder state
-static EncodedFrameQueue g_frameQueue;
-static std::atomic<bool> g_captureRunning(false);
-static V4L2Capture* g_capture = nullptr;
-static X264Encoder* g_encoder = nullptr;
-
-// Capture thread function
-static void* captureThread(void* arg) {
-	if (!g_capture || !g_encoder) return nullptr;
-
-	const auto& buffers = g_capture->buffers();
-	uint32_t actualWidth = g_capture->width();
-	uint32_t actualHeight = g_capture->height();
-	uint64_t frameCount = 0;
-	uint64_t timestampBase = 0;
-	int frameInterval = 1; // for fps calculation
-
-	log_d("Capture thread started\n");
-
-	while (g_captureRunning) {
-		// Wait for the device to be readable (frame available)
-		fd_set read_fds;
-		FD_ZERO(&read_fds);
-		FD_SET(g_capture->m_fd, &read_fds);
-
-		struct timeval timeout;
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
-
-		int ret = select(g_capture->m_fd + 1, &read_fds, nullptr, nullptr, &timeout);
-		if (ret < 0) {
-			if (errno == EINTR) continue;
-			log_e("select() failed: %s\n", strerror(errno));
-			break;
-		}
-		if (ret == 0) {
-			// Timeout, no frame ready
-			continue;
-		}
-
-		// Dequeue a filled buffer
-		int bufIndex = -1;
-		if (!g_capture->dequeueBuffer(bufIndex)) {
-			log_e("Failed to dequeue buffer\n");
-			break;
-		}
-
-		const V4L2Buffer& buf = buffers[bufIndex];
-		const uint8_t* data = static_cast<const uint8_t*>(buf.start);
-
-		// YUV420 planar: Y plane, then U plane, then V plane
-		uint32_t stride = actualWidth;
-		const uint8_t* yPlane = data;
-		const uint8_t* uPlane = data + stride * actualHeight;
-		const uint8_t* vPlane = uPlane + (stride / 2) * (actualHeight / 2);
-
-		// Encode the frame
-		std::vector<uint8_t> encodedData;
-		int encSize = g_encoder->encode(yPlane, uPlane, vPlane, stride, encodedData);
-
-		if (encSize < 0) {
-			log_e("Encode failed on frame %llu\n", (unsigned long long)frameCount);
-		} else if (encSize > 0) {
-			// Queue the encoded frame for streaming
-			EncodedFrame frame;
-			frame.data = encodedData;
-			frame.timestamp = frameCount * frameInterval;
-			g_frameQueue.push(frame);
-		}
-
-		// Requeue the buffer for next capture
-		g_capture->enqueueBuffer(bufIndex);
-		frameCount++;
-	}
-
-	log_d("Capture thread exiting after %llu frames\n", (unsigned long long)frameCount);
-	return nullptr;
+static size_t annexBStartCodeSize(const uint8_t* p, size_t size, size_t pos)
+{
+  if (pos + 4 <= size && p[pos] == 0 && p[pos + 1] == 0 &&
+      p[pos + 2] == 0 && p[pos + 3] == 1) {
+    return 4;
+  }
+  if (pos + 3 <= size && p[pos] == 0 && p[pos + 1] == 0 && p[pos + 2] == 1) {
+    return 3;
+  }
+  return 0;
 }
 
-// Custom FramedSource for live555 that feeds H.264 data
-class V4L2H264Source : public FramedSource {
+static void splitAnnexBNals(const std::vector<uint8_t>& annexB,
+                            std::vector<std::vector<uint8_t>>& nalUnits)
+{
+  size_t i = 0;
+  while (i < annexB.size()) {
+    size_t sc = annexBStartCodeSize(annexB.data(), annexB.size(), i);
+    if (sc == 0) {
+      ++i;
+      continue;
+    }
+    i += sc;
+    size_t nalStart = i;
+    while (i < annexB.size()) {
+      if (annexBStartCodeSize(annexB.data(), annexB.size(), i) > 0)
+        break;
+      ++i;
+    }
+    if (nalStart < i) {
+      nalUnits.emplace_back(annexB.begin() + nalStart, annexB.begin() + i);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared V4L2 + x264 capture pipeline
+// ---------------------------------------------------------------------------
+
+struct V4l2RtspPipeline {
+  V4L2Capture capture;
+  X264Encoder* encoder = nullptr;
+  int fps;
+  unsigned frameDurationUs;
+  int bitrateKbps;
+  bool streaming = false;
+
+  std::deque<std::vector<uint8_t>> nalQueue;
+
+  V4l2RtspPipeline(const char* device, uint32_t width, uint32_t height,
+                   int fpsIn, int bitrateIn)
+      : capture(device, width, height),
+        fps(fpsIn),
+        frameDurationUs(static_cast<unsigned>(1000000 / (fpsIn > 0 ? fpsIn : 30))),
+        bitrateKbps(bitrateIn) {}
+
+  ~V4l2RtspPipeline() { delete encoder; }
+
+  bool init() {
+    if (!capture.init()) return false;
+
+    uint32_t w = capture.width();
+    uint32_t h = capture.height();
+    encoder = new X264Encoder(w, h, fps, bitrateKbps);
+    if (!encoder->init()) {
+      delete encoder;
+      encoder = nullptr;
+      return false;
+    }
+    if (!capture.startStreaming()) return false;
+    streaming = true;
+    return true;
+  }
+
+  void stop() {
+    if (streaming) {
+      capture.stopStreaming();
+      streaming = false;
+    }
+  }
+};
+
+static V4l2RtspPipeline* gPipeline = nullptr;
+
+// ---------------------------------------------------------------------------
+// Live555 FramedSource: one discrete NAL unit per delivered frame
+// ---------------------------------------------------------------------------
+
+class V4l2H264FramedSource : public FramedSource {
 public:
-	static V4L2H264Source* createNew(UsageEnvironment& env) {
-		return new V4L2H264Source(env);
-	}
+  size_t maxNalSize = 0;
+
+  static V4l2H264FramedSource* createNew(UsageEnvironment& env) {
+    return new V4l2H264FramedSource(env);
+  }
 
 protected:
-	V4L2H264Source(UsageEnvironment& env)
-		: FramedSource(env), m_frameCount(0), m_sendSPS(true), m_sendPPS(false) {
-		// Get SPS/PPS for initialization
-		size_t spsSize = 0, ppsSize = 0;
-		g_encoder->getSPS(spsSize, ppsSize);
+  V4l2H264FramedSource(UsageEnvironment& env)
+      : FramedSource(env), fHaveStartedReading(False) {
+    gettimeofday(&fNextPresentTime, nullptr);
+  }
 
-		const uint8_t* spsData = g_encoder->getSPSData();
-		const uint8_t* ppsData = g_encoder->getPPSData();
+  virtual ~V4l2H264FramedSource() {
+    envir().taskScheduler().turnOffBackgroundReadHandling(gPipeline->capture.m_fd);
+  }
 
-		// Store SPS/PPS for initial transmission
-		if (spsSize > 0) {
-			m_spsData.insert(m_spsData.end(), spsData, spsData + spsSize);
-		}
-		if (ppsSize > 0) {
-			m_ppsData.insert(m_ppsData.end(), ppsData, ppsData + ppsSize);
-		}
-
-		// Initialize timestamp
-		gettimeofday(&m_lastPresentationTime, nullptr);
-
-		log_d("V4L2H264Source created: SPS=%zu, PPS=%zu\n", spsSize, ppsSize);
-	}
-
-	virtual ~V4L2H264Source() {
-		log_d("V4L2H264Source destroyed\n");
-	}
-
-	virtual void doGetNextFrame() {
-		// Try to get an encoded frame from the queue
-		EncodedFrame frame;
-
-		// Send SPS first on initial connection
-		if (m_sendSPS && !m_spsData.empty()) {
-			uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
-			if (m_spsData.size() + 4 <= fMaxSize) {
-				memcpy(fTo, startCode, 4);
-				memcpy(fTo + 4, m_spsData.data(), m_spsData.size());
-				fFrameSize = m_spsData.size() + 4;
-				fPresentationTime = m_lastPresentationTime;
-				m_sendSPS = false;
-				m_sendPPS = true;
-				afterGetting(this);
-				return;
-			}
-		}
-
-		// Send PPS second
-		if (m_sendPPS && !m_ppsData.empty()) {
-			uint8_t startCode[] = {0x00, 0x00, 0x00, 0x01};
-			if (m_ppsData.size() + 4 <= fMaxSize) {
-				memcpy(fTo, startCode, 4);
-				memcpy(fTo + 4, m_ppsData.data(), m_ppsData.size());
-				fFrameSize = m_ppsData.size() + 4;
-				fPresentationTime = m_lastPresentationTime;
-				m_sendPPS = false;
-				afterGetting(this);
-				return;
-			}
-		}
-
-		// Try to get next video frame from queue
-		if (g_frameQueue.pop(frame)) {
-			if (frame.data.size() <= fMaxSize) {
-				memcpy(fTo, frame.data.data(), frame.data.size());
-				fFrameSize = frame.data.size();
-
-				// Update timestamp
-				gettimeofday(&fPresentationTime, nullptr);
-				m_lastPresentationTime = fPresentationTime;
-
-				afterGetting(this);
-				return;
-			} else {
-				log_e("Frame too large: %zu > %u\n", frame.data.size(), fMaxSize);
-			}
-		}
-
-		// No frame available, reschedule to try again later (10ms for responsive streaming)
-		nextTask() = envir().taskScheduler().scheduleDelayedTask(
-			10000,  // 10ms delay
-			(TaskFunc*)FramedSource::handleClosure, this);
-	}
-
-	virtual void doStopGettingFrames() {
-		// Cleanup if needed
-		FramedSource::doStopGettingFrames();
-	}
+  virtual unsigned maxFrameSize() const { return 500000; }
 
 private:
-	std::vector<uint8_t> m_spsData;
-	std::vector<uint8_t> m_ppsData;
-	struct timeval m_lastPresentationTime;
-	int m_frameCount;
-	bool m_sendSPS;
-	bool m_sendPPS;
+  virtual void doGetNextFrame() {
+    if (!gPipeline || !gPipeline->streaming) {
+      handleClosure();
+      return;
+    }
+
+    if (!fHaveStartedReading) {
+      envir().taskScheduler().turnOnBackgroundReadHandling(
+          gPipeline->capture.m_fd,
+          (TaskScheduler::BackgroundHandlerProc*)&v4l2ReadableHandler,
+          this);
+      fHaveStartedReading = True;
+    }
+
+    if (!deliverQueuedNal()) {
+      // Wait for v4l2ReadableHandler to call doGetNextFrame again.
+    }
+  }
+
+  static void v4l2ReadableHandler(V4l2H264FramedSource* source, int /*mask*/) {
+    if (!gPipeline || !gPipeline->streaming) return;
+
+    int bufIndex = -1;
+    if (!gPipeline->capture.dequeueBuffer(bufIndex)) return;
+
+    const auto& buffers = gPipeline->capture.buffers();
+    const V4L2Buffer& buf = buffers[bufIndex];
+    const uint8_t* data = static_cast<const uint8_t*>(buf.start);
+
+    uint32_t width = gPipeline->capture.width();
+    uint32_t height = gPipeline->capture.height();
+    uint32_t stride = width;
+
+    const uint8_t* yPlane = data;
+    const uint8_t* uPlane = data + stride * height;
+    const uint8_t* vPlane = uPlane + (stride / 2) * (height / 2);
+
+    std::vector<uint8_t> annexB;
+    int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, stride, annexB);
+
+    gPipeline->capture.enqueueBuffer(bufIndex);
+
+    if (encSize > 0 && !annexB.empty()) {
+      std::vector<std::vector<uint8_t>> nalUnits;
+      splitAnnexBNals(annexB, nalUnits);
+      for (auto& nal : nalUnits) {
+        if (nal.size() > source->maxNalSize) source->maxNalSize = nal.size();
+        gPipeline->nalQueue.push_back(std::move(nal));
+      }
+      while (gPipeline->nalQueue.size() > 120) {
+        gPipeline->nalQueue.pop_front();
+      }
+    }
+
+    if (source->isCurrentlyAwaitingData()) {
+      source->doGetNextFrame();
+    }
+  }
+
+  Boolean deliverQueuedNal() {
+    if (gPipeline->nalQueue.empty()) return False;
+
+    std::vector<uint8_t> nal = std::move(gPipeline->nalQueue.front());
+    gPipeline->nalQueue.pop_front();
+
+    if (nal.size() > fMaxSize) {
+      fFrameSize = fMaxSize;
+      fNumTruncatedBytes = static_cast<unsigned>(nal.size() - fMaxSize);
+      log_e("truncated NAL %u bytes (nal %zu, max %u)\n",
+            fNumTruncatedBytes, nal.size(), fMaxSize);
+    } else {
+      fFrameSize = static_cast<unsigned>(nal.size());
+      fNumTruncatedBytes = 0;
+    }
+
+    memmove(fTo, nal.data(), fFrameSize);
+
+    fPresentationTime = fNextPresentTime;
+    fDurationInMicroseconds = gPipeline->frameDurationUs;
+    fNextPresentTime.tv_usec += gPipeline->frameDurationUs;
+    fNextPresentTime.tv_sec += fNextPresentTime.tv_usec / 1000000;
+    fNextPresentTime.tv_usec %= 1000000;
+
+    FramedSource::afterGetting(this);
+    return True;
+  }
+
+private:
+  Boolean fHaveStartedReading;
+  struct timeval fNextPresentTime;
 };
 
-// Custom H.264 ServerMediaSubsession for live V4L2 streaming
-class V4L2H264ServerMediaSubsession : public ServerMediaSubsession {
+// ---------------------------------------------------------------------------
+// RTSP ServerMediaSubsession (discrete framer)
+// ---------------------------------------------------------------------------
+
+class H264V4l2ServerMediaSubsession : public OnDemandServerMediaSubsession {
 public:
-	static V4L2H264ServerMediaSubsession* createNew(UsageEnvironment& env) {
-		return new V4L2H264ServerMediaSubsession(env);
-	}
+  static H264V4l2ServerMediaSubsession* createNew(UsageEnvironment& env,
+                                                   Boolean reuseFirstSource,
+                                                   unsigned bitrateKbps) {
+    return new H264V4l2ServerMediaSubsession(env, reuseFirstSource, bitrateKbps);
+  }
 
 protected:
-	V4L2H264ServerMediaSubsession(UsageEnvironment& env)
-		: ServerMediaSubsession(env), m_estimatedBitrate(2000) { }
+  H264V4l2ServerMediaSubsession(UsageEnvironment& env, Boolean reuseFirstSource,
+                                unsigned bitrateKbps)
+      : OnDemandServerMediaSubsession(env, reuseFirstSource),
+        fBitrateKbps(bitrateKbps),
+        fAuxSDPLine(nullptr) {}
 
-	virtual ~V4L2H264ServerMediaSubsession() { }
+  virtual ~H264V4l2ServerMediaSubsession() { delete[] fAuxSDPLine; }
 
-	virtual FramedSource* createNewStreamSource(unsigned /*clientSessionId*/,
-			unsigned& estBitrate) {
-		estBitrate = m_estimatedBitrate;
-		return V4L2H264Source::createNew(envir());
-	}
+  virtual FramedSource* createNewStreamSource(unsigned /*clientSessionId*/,
+                                              unsigned& estBitrate) {
+    estBitrate = fBitrateKbps;
 
-	virtual RTPSink* createNewRTPSink(Groupsock* rtpGroupsock,
-			unsigned char rtpPayloadTypeIfDynamic,
-			FramedSource* inputSource) {
-		// Create an H.264 RTP sink
-		return H264VideoRTPSink::createNew(envir(), rtpGroupsock, rtpPayloadTypeIfDynamic);
-	}
+    FramedSource* source = V4l2H264FramedSource::createNew(envir());
+    return H264VideoStreamDiscreteFramer::createNew(envir(), source);
+  }
 
-	virtual void startStream(unsigned clientSessionId, void* streamToken,
-			TaskFunc* rtcpRRHandler, void* rtcpRRHandlerClientData,
-			unsigned short& rtpSeqNum, unsigned int& rtpTimestamp,
-			ServerRequestAlternativeByteHandler* alternativeRequestHandler,
-			void* alternativeRequestClientData) {
-		ServerMediaSubsession::startStream(clientSessionId, streamToken,
-			rtcpRRHandler, rtcpRRHandlerClientData,
-			rtpSeqNum, rtpTimestamp,
-			alternativeRequestHandler, alternativeRequestClientData);
-	}
+  virtual RTPSink* createNewRTPSink(Groupsock* rtpGroupsock,
+                                    unsigned char rtpPayloadTypeIfDynamic,
+                                    FramedSource* /*inputSource*/) {
+    size_t spsSize = 0, ppsSize = 0;
+    gPipeline->encoder->getSPS(spsSize, ppsSize);
+    return H264VideoRTPSink::createNew(
+        envir(), rtpGroupsock, rtpPayloadTypeIfDynamic,
+        gPipeline->encoder->getSPSData(), static_cast<unsigned>(spsSize),
+        gPipeline->encoder->getPPSData(), static_cast<unsigned>(ppsSize));
+  }
+
+  virtual char const* getAuxSDPLine(RTPSink* rtpSink,
+                                    FramedSource* /*inputSource*/) {
+    if (fAuxSDPLine != nullptr) return fAuxSDPLine;
+    if (rtpSink == nullptr) return nullptr;
+
+    char const* dasl = rtpSink->auxSDPLine();
+    if (dasl != nullptr) fAuxSDPLine = strDup(dasl);
+    return fAuxSDPLine;
+  }
 
 private:
-	unsigned m_estimatedBitrate;
+  unsigned fBitrateKbps;
+  char* fAuxSDPLine;
 };
 
-// Signal handlers for graceful shutdown
-static std::atomic<bool> g_shutdownRequested(false);
+// ---------------------------------------------------------------------------
+// RTSP server helpers
+// ---------------------------------------------------------------------------
 
-static void signalHandler(int signum) {
-	log_d("Signal %d received, shutting down...\n", signum);
-	g_shutdownRequested = true;
-	g_captureRunning = false;
-}
+static void announceURL(RTSPServer* rtspServer, ServerMediaSession* sms) {
+  if (rtspServer == nullptr || sms == nullptr) return;
 
-static void announceURL(RTSPServer *rtspServer, ServerMediaSession *sms) {
-	if (rtspServer == NULL || sms == NULL) return;
+  UsageEnvironment& env = rtspServer->envir();
 
-	UsageEnvironment &env = rtspServer->envir();
-
-	env << "Play this stream using the URL ";
-	if (weHaveAnIPv4Address(env)) {
-		char *url = rtspServer->ipv4rtspURL(sms);
-		env << "\"" << url << "\"";
-		delete[] url;
-		if (weHaveAnIPv6Address(env)) env << " or ";
-	}
-	if (weHaveAnIPv6Address(env)) {
-		char *url = rtspServer->ipv6rtspURL(sms);
-		env << "\"" << url << "\"";
-		delete[] url;
-	}
-	env << "\n";
-}
-
-static void announceStream(RTSPServer *rtspServer, ServerMediaSession *sms,
-		char const *streamName) {
-	UsageEnvironment &env = rtspServer->envir();
-
-	env << "\n\"" << streamName << "\" stream from V4L2\n";
-	announceURL(rtspServer, sms);
+  env << "Play this stream using the URL ";
+  if (weHaveAnIPv4Address(env)) {
+    char* url = rtspServer->ipv4rtspURL(sms);
+    env << "\"" << url << "\"";
+    delete[] url;
+    if (weHaveAnIPv6Address(env)) env << " or ";
+  }
+  if (weHaveAnIPv6Address(env)) {
+    char* url = rtspServer->ipv6rtspURL(sms);
+    env << "\"" << url << "\"";
+    delete[] url;
+  }
+  env << "\n";
 }
 
 static void usage(const char* prog) {
-	fprintf(stderr,
-			"Usage: %s <device> [width] [height] [fps] [bitrate_kbps] [rtsp_port]\n"
-			"  device        V4L2 video device (e.g. /dev/video0)\n"
-			"  width         Frame width  (default: 1920)\n"
-			"  height        Frame height (default: 1080)\n"
-			"  fps           Frames per second (default: 30)\n"
-			"  bitrate_kbps  Target bitrate in kbps (default: 2000)\n"
-			"  rtsp_port     RTSP server port (default: 8554)\n", prog);
-	exit(1);
+  fprintf(stderr,
+          "Usage: %s <device> [width] [height] [fps] [bitrate_kbps] [rtsp_port]\n"
+          "  device        V4L2 video device (e.g. /dev/video0)\n"
+          "  width         Frame width  (default: 1920)\n"
+          "  height        Frame height (default: 1080)\n"
+          "  fps           Frames per second (default: 30)\n"
+          "  bitrate_kbps  Target bitrate in kbps (default: 2000)\n"
+          "  rtsp_port     RTSP server port (default: 8554)\n",
+          prog);
+  exit(1);
 }
 
-int main(int argc, const char **argv) {
-	if (argc < 2) {
-		usage(argv[0]);
-	}
+static int live555_main(int argc, char** argv) {
+  if (argc < 2) usage(argv[0]);
 
-	dump_argv(argc, argv);
+  const char* device = argv[1];
+  uint32_t width = (argc > 2) ? static_cast<uint32_t>(atoi(argv[2])) : 1920;
+  uint32_t height = (argc > 3) ? static_cast<uint32_t>(atoi(argv[3])) : 1080;
+  int fps = (argc > 4) ? atoi(argv[4]) : 30;
+  int bitrateKbps = (argc > 5) ? atoi(argv[5]) : 2000;
+  portNumBits rtspPort = (argc > 6) ? static_cast<portNumBits>(atoi(argv[6])) : 8554;
 
-	const char* device = argv[1];
-	uint32_t width = (argc > 2) ? static_cast<uint32_t>(atoi(argv[2])) : 1920;
-	uint32_t height = (argc > 3) ? static_cast<uint32_t>(atoi(argv[3])) : 1080;
-	int fps = (argc > 4) ? atoi(argv[4]) : 30;
-	int bitrateKbps = (argc > 5) ? atoi(argv[5]) : 2000;
-	int rtspPort = (argc > 6) ? atoi(argv[6]) : 8554;
+  printf("Device: %s\n", device);
+  printf("Resolution: %ux%u @ %d fps, %d kbps\n", width, height, fps, bitrateKbps);
+  printf("RTSP port: %u\n", rtspPort);
 
-	log_d("Device: %s\n", device);
-	log_d("Resolution: %ux%u @ %d fps, %d kbps\n", width, height, fps, bitrateKbps);
-	log_d("RTSP port: %d\n", rtspPort);
+  V4l2RtspPipeline pipeline(device, width, height, fps, bitrateKbps);
+  if (!pipeline.init()) {
+    fprintf(stderr, "Failed to initialize V4L2/x264 pipeline\n");
+    return 1;
+  }
 
-	// ---- 1. Open and init V4L2 capture ----
-	V4L2Capture capture(device, width, height);
-	if (!capture.init()) {
-		fprintf(stderr, "Failed to initialize V4L2 capture\n");
-		return 1;
-	}
+  uint32_t actualWidth = pipeline.capture.width();
+  uint32_t actualHeight = pipeline.capture.height();
+  if (actualWidth != width || actualHeight != height) {
+    printf("Device adjusted resolution to %ux%u\n", actualWidth, actualHeight);
+  }
 
-	uint32_t actualWidth = capture.width();
-	uint32_t actualHeight = capture.height();
+  gPipeline = &pipeline;
 
-	if (actualWidth != width || actualHeight != height) {
-		log_d("Device adjusted resolution to %ux%u\n", actualWidth, actualHeight);
-	}
+  OutPacketBuffer::increaseMaxSizeTo(500000);
 
-	// ---- 2. Open and init x264 encoder ----
-	X264Encoder encoder(actualWidth, actualHeight, fps, bitrateKbps);
-	if (!encoder.init()) {
-		fprintf(stderr, "Failed to initialize x264 encoder\n");
-		return 1;
-	}
+  TaskScheduler* scheduler = BasicTaskScheduler::createNew();
+  UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
 
-	// ---- 3. Start capture streaming ----
-	if (!capture.startStreaming()) {
-		fprintf(stderr, "Failed to start streaming\n");
-		return 1;
-	}
+  RTSPServer* rtspServer = RTSPServer::createNew(*env, rtspPort);
+  if (rtspServer == nullptr) {
+    *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
+    pipeline.stop();
+    return 1;
+  }
 
-	// Store global pointers for capture thread
-	g_capture = &capture;
-	g_encoder = &encoder;
-	g_captureRunning = true;
+  char const* streamName = "h264";
+  char const* descriptionString =
+      "Session streamed by \"tester_v4l2rtsp2\" (live V4L2 H.264, discrete NAL)";
 
-	// ---- 4. Start capture thread ----
-	pthread_t captureThreadId;
-	if (pthread_create(&captureThreadId, nullptr, captureThread, nullptr) != 0) {
-		fprintf(stderr, "Failed to create capture thread\n");
-		capture.stopStreaming();
-		return 1;
-	}
+  ServerMediaSession* sms =
+      ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
+  sms->addSubsession(
+      H264V4l2ServerMediaSubsession::createNew(*env, True,
+                                               static_cast<unsigned>(bitrateKbps)));
+  rtspServer->addServerMediaSession(sms);
 
-	// ---- 5. Setup Live555 RTSP server ----
-	TaskScheduler *scheduler = BasicTaskScheduler::createNew();
-	UsageEnvironment *env = BasicUsageEnvironment::createNew(*scheduler);
+  *env << "\n\"" << streamName << "\" stream, live from V4L2 device \""
+      << device << "\" (H264VideoStreamDiscreteFramer)\n";
+  announceURL(rtspServer, sms);
 
-	RTSPServer *rtspServer = RTSPServer::createNew(*env, rtspPort, nullptr);
-	if (rtspServer == NULL) {
-		*env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
-		g_captureRunning = false;
-		pthread_join(captureThreadId, nullptr);
-		capture.stopStreaming();
-		return 1;
-	}
+  char const* httpProtocolStr = "HTTP";
+  if (rtspServer->setUpTunnelingOverHTTP(80) ||
+      rtspServer->setUpTunnelingOverHTTP(8000) ||
+      rtspServer->setUpTunnelingOverHTTP(8080)) {
+    *env << "\n(We use port " << rtspServer->httpServerPortNum()
+        << " for optional RTSP-over-" << httpProtocolStr << " tunneling.)\n";
+  } else {
+    *env << "\n(RTSP-over-" << httpProtocolStr << " tunneling is not available.)\n";
+  }
 
-	// Create a ServerMediaSession for the stream
-	char const *descriptionString = "Session streamed by tester_v4l2rtsp2";
-	char const *streamName = "h264v4l2stream";
+  *env << "RTSP streaming started. Press Ctrl+C to stop.\n";
+  env->taskScheduler().doEventLoop();
 
-	ServerMediaSession *sms = ServerMediaSession::createNew(*env,
-			streamName, streamName, descriptionString);
+  pipeline.stop();
+  return 0;
+}
 
-	// Add our custom V4L2 H.264 subsession
-	sms->addSubsession(V4L2H264ServerMediaSubsession::createNew(*env));
-
-	rtspServer->addServerMediaSession(sms);
-	announceStream(rtspServer, sms, streamName);
-
-	// Setup signal handlers for graceful shutdown
-	signal(SIGINT, signalHandler);
-	signal(SIGTERM, signalHandler);
-
-	log_d("RTSP server running...\n");
-
-	// Event loop
-	while (!g_shutdownRequested) {
-		env->taskScheduler().doEventLoop(1);  // 1 second timeout
-	}
-
-	// ---- 6. Cleanup ----
-	log_d("Shutting down...\n");
-
-	g_captureRunning = false;
-	pthread_join(captureThreadId, nullptr);
-
-	Medium::close(rtspServer);
-	env->reclaim();
-	delete scheduler;
-
-	capture.stopStreaming();
-
-	log_d("Done\n");
-	return 0;
+int main(int argc, char** argv) {
+  dump_argv(argc, argv);
+  return live555_main(argc, argv);
 }

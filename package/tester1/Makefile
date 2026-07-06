@@ -113,11 +113,6 @@ endef
 #
 tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT USE_V4L2 USE_X264
 
-tester_ev3_CPPFLAGS+=$(CPPFLAGS)
-tester_ev3_CFLAGS+=$(CFLAGS)
-tester_ev3_CXXFLAGS+=$(CXXFLAGS)
-tester_ev3_LDFLAGS+=$(LDFLAGS)
-
 tester_ev3_SRCS+=$(tester_aloe_SRCS)
 tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
@@ -145,10 +140,15 @@ endif
 
 ifneq ($(filter USE_X264,$(tester_ev3_ATTR)),)
 tester_ev3_SRCS+=x264_encoder.cpp
-tester_ev3_CPPFLAGS+=-DUSE_X264=1
-tester_ev3_LDFLAGS+=-lx264
+tester_ev3_CPPFLAGS+=-DUSE_X264=1 $(x264_CPPFLAGS)
+tester_ev3_LDFLAGS+=$(x264_LDFLAGS)
 # end of USE_X264
 endif
+
+tester_ev3_CPPFLAGS+=$(CPPFLAGS)
+tester_ev3_CFLAGS+=$(CFLAGS)
+tester_ev3_CXXFLAGS+=$(CXXFLAGS)
+tester_ev3_LDFLAGS+=$(LDFLAGS)
 
 $(eval $(call TESTER1_APP2,tester_ev3, \
     ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp))
@@ -160,12 +160,14 @@ ARTIFACT+=$(tester_ev3_BIN)
 tester_rtsp2_SRCS+=$(tester_aloe_SRCS)
 tester_rtsp2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
-tester_rtsp2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(CPPFLAGS)
+$(foreach pkg,live555 openssl x264, \
+  $(eval tester_rtsp2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
+  $(eval tester_rtsp2_LDFLAGS+=$($(pkg)_LDFLAGS)))
+
+tester_rtsp2_CPPFLAGS+=$(CPPFLAGS)
 tester_rtsp2_CFLAGS+=$(CFLAGS)
 tester_rtsp2_CXXFLAGS+=$(CXXFLAGS)
-tester_rtsp2_LDFLAGS+=$(live555_LDFLAGS) $(openssl_LDFLAGS) $(LDFLAGS)
-
-tester_rtsp2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_rtsp2_LDFLAGS+=$(LDFLAGS)
 
 $(eval $(call TESTER1_APP2,tester_rtsp2, \
     tester_rtsp2.cpp))
@@ -174,14 +176,12 @@ ARTIFACT+=$(tester_rtsp2_BIN)
 
 #------------------------------------
 #
-x264_CPPFLAGS=
-x264_LDFLAGS+=-lx264
-
 tester_v4l2r2_SRCS+=$(tester_aloe_SRCS)
 tester_v4l2r2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
-tester_v4l2r2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(x264_CPPFLAGS)
-tester_v4l2r2_LDFLAGS+=$(live555_LDFLAGS) $(openssl_LDFLAGS) $(x264_LDFLAGS)
+$(foreach pkg,live555 openssl x264, \
+  $(eval tester_v4l2r2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
+  $(eval tester_v4l2r2_LDFLAGS+=$($(pkg)_LDFLAGS)))
 
 tester_v4l2r2_CPPFLAGS+=$(CPPFLAGS)
 tester_v4l2r2_CFLAGS+=$(CFLAGS)
@@ -201,8 +201,9 @@ ARTIFACT+=$(tester_v4l2r2_BIN)
 tester_v4l2rtsp_SRCS+=$(abspath $(tester_aloe_SRCS))
 tester_v4l2rtsp_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
-tester_v4l2rtsp_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(x264_CPPFLAGS)
-tester_v4l2rtsp_LDFLAGS+=$(live555_LDFLAGS) $(openssl_LDFLAGS) $(x264_LDFLAGS)
+$(foreach pkg,live555 openssl x264, \
+  $(eval tester_v4l2rtsp_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
+  $(eval tester_v4l2rtsp_LDFLAGS+=$($(pkg)_LDFLAGS)))
 
 tester_v4l2rtsp_CPPFLAGS+=$(CPPFLAGS)
 tester_v4l2rtsp_CFLAGS+=$(CFLAGS)
@@ -222,8 +223,9 @@ ARTIFACT+=$(tester_v4l2rtsp_BIN)
 tester_v4l2rtsp2_SRCS+=$(abspath $(tester_aloe_SRCS))
 tester_v4l2rtsp2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
-tester_v4l2rtsp2_CPPFLAGS+=$(live555_CPPFLAGS) $(openssl_CPPFLAGS) $(x264_CPPFLAGS)
-tester_v4l2rtsp2_LDFLAGS+=$(live555_LDFLAGS) $(openssl_LDFLAGS) $(x264_LDFLAGS)
+$(foreach pkg,live555 openssl x264, \
+  $(eval tester_v4l2rtsp2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
+  $(eval tester_v4l2rtsp2_LDFLAGS+=$($(pkg)_LDFLAGS)))
 
 tester_v4l2rtsp2_CPPFLAGS+=$(CPPFLAGS)
 tester_v4l2rtsp2_CFLAGS+=$(CFLAGS)
@@ -236,7 +238,7 @@ $(eval $(call TESTER1_APP2,tester_v4l2rtsp2, \
 	x264_encoder.cpp \
 	))
 
-#ARTIFACT+=$(tester_v4l2rtsp2_BIN)
+ARTIFACT+=$(tester_v4l2rtsp2_BIN)
 
 #------------------------------------
 #

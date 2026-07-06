@@ -1836,7 +1836,7 @@ libnl_%: | $(libnl_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-x264_DIR?=$(PKGDIR2)/x264
+x264_DIR?=$(PKGDIR)/x264
 x264_BUILDDIR?=$(BUILDDIR2)/x264-$(APP_BUILD)
 x264_MAKE=$(MAKE) -C $(x264_BUILDDIR)
 # x264_AC_EXTRACFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
@@ -1924,7 +1924,7 @@ live555: | $(live555_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-onvifsrvd_DIR=$(PKGDIR2)/onvif_srvd
+onvifsrvd_DIR=$(PKGDIR)/onvif_srvd
 onvifsrvd_BUILDDIR=$(BUILDDIR)/onvif_srvd-$(APP_BUILD)
 onvifsrvd_MAKE=$(MAKE) -C $(onvifsrvd_BUILDDIR)
 

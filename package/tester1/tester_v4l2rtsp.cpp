@@ -8,6 +8,12 @@
  * @brief Capture V4L2 video, encode to H.264, and serve RTSP streaming
  */
 
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <vector>
+
 #include <liveMedia.hh>
 #include <BasicUsageEnvironment.hh>
 #include <GroupsockHelper.hh>
@@ -15,12 +21,6 @@
 #include "v4l2_capture.h"
 #include "x264_encoder.h"
 #include "priv.h"
-
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <deque>
-#include <vector>
 
 // ---------------------------------------------------------------------------
 // Shared V4L2 + x264 capture pipeline
@@ -70,14 +70,15 @@ struct V4l2RtspPipeline {
 };
 
 static V4l2RtspPipeline* gPipeline = nullptr;
-static UsageEnvironment* gEnv = nullptr;
 
 // ---------------------------------------------------------------------------
-// Live555 FramedSource: delivers encoded H.264 access units
+// Live555 FramedSource: delivers encoded H.264 access units (Annex-B)
 // ---------------------------------------------------------------------------
 
 class V4l2H264FramedSource : public FramedSource {
 public:
+  size_t max_pkg = 0;
+
   static V4l2H264FramedSource* createNew(UsageEnvironment& env) {
     return new V4l2H264FramedSource(env);
   }
@@ -101,7 +102,9 @@ private:
 
     if (!fHaveStartedReading) {
       envir().taskScheduler().turnOnBackgroundReadHandling(
-          gPipeline->capture.m_fd, (TaskScheduler::BackgroundHandlerProc*)v4l2ReadableHandler, this);
+          gPipeline->capture.m_fd,
+          (TaskScheduler::BackgroundHandlerProc*)&v4l2ReadableHandler,
+          this);
       fHaveStartedReading = True;
     }
 
@@ -131,6 +134,9 @@ private:
     std::vector<uint8_t> encodedData;
     int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, stride, encodedData);
 
+    if (encSize > 0 && encSize > static_cast<int>(source->max_pkg))
+      source->max_pkg = static_cast<size_t>(encSize);
+
     gPipeline->capture.enqueueBuffer(bufIndex);
 
     if (encSize > 0 && !encodedData.empty()) {
@@ -154,6 +160,8 @@ private:
     if (frame.size() > fMaxSize) {
       fFrameSize = fMaxSize;
       fNumTruncatedBytes = static_cast<unsigned>(frame.size() - fMaxSize);
+      log_e("truncated %u bytes (frame %zu, max %u)\n",
+            fNumTruncatedBytes, frame.size(), fMaxSize);
     } else {
       fFrameSize = static_cast<unsigned>(frame.size());
       fNumTruncatedBytes = 0;
@@ -177,7 +185,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// RTSP ServerMediaSubsession for live V4L2 H.264
+// RTSP ServerMediaSubsession for live V4L2 H.264 (byte-stream framer)
 // ---------------------------------------------------------------------------
 
 class H264V4l2ServerMediaSubsession : public OnDemandServerMediaSubsession {
@@ -190,7 +198,7 @@ public:
 
 protected:
   H264V4l2ServerMediaSubsession(UsageEnvironment& env, Boolean reuseFirstSource,
-                                 unsigned bitrateKbps)
+                                unsigned bitrateKbps)
       : OnDemandServerMediaSubsession(env, reuseFirstSource),
         fBitrateKbps(bitrateKbps),
         fAuxSDPLine(nullptr) {}
@@ -232,7 +240,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// RTSP server helpers (from tester_rtsp2.cpp)
+// RTSP server helpers
 // ---------------------------------------------------------------------------
 
 static void announceURL(RTSPServer* rtspServer, ServerMediaSession* sms) {
@@ -296,47 +304,46 @@ static int live555_main(int argc, char** argv) {
 
   gPipeline = &pipeline;
 
-  // Live555 StreamParser BANK_SIZE is 150000; keep buffers within that limit.
-//  OutPacketBuffer::increaseMaxSizeTo(150000);
-  OutPacketBuffer::increaseMaxSizeTo(2000000);
+  // H264VideoStreamFramer StreamParser BANK_SIZE is 150000 (live555 compile-time).
+  OutPacketBuffer::increaseMaxSizeTo(150000);
 
   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
-  gEnv = BasicUsageEnvironment::createNew(*scheduler);
-  UsageEnvironment& env = *gEnv;
+  UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
 
-  RTSPServer* rtspServer = RTSPServer::createNew(env, rtspPort);
+  RTSPServer* rtspServer = RTSPServer::createNew(*env, rtspPort);
   if (rtspServer == nullptr) {
-    env << "Failed to create RTSP server: " << env.getResultMsg() << "\n";
+    *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
     pipeline.stop();
     return 1;
   }
 
-  char const* streamName = "h264esvideotest";
+  char const* streamName = "h264";
   char const* descriptionString =
       "Session streamed by \"tester_v4l2rtsp\" (live V4L2 H.264)";
 
   ServerMediaSession* sms =
-      ServerMediaSession::createNew(env, streamName, streamName, descriptionString);
+      ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
   sms->addSubsession(
-      H264V4l2ServerMediaSubsession::createNew(env, True, static_cast<unsigned>(bitrateKbps)));
+      H264V4l2ServerMediaSubsession::createNew(*env, True,
+                                               static_cast<unsigned>(bitrateKbps)));
   rtspServer->addServerMediaSession(sms);
 
-  env << "\n\"" << streamName << "\" stream, live from V4L2 device \""
-      << device << "\"\n";
+  *env << "\n\"" << streamName << "\" stream, live from V4L2 device \""
+      << device << "\" (H264VideoStreamFramer)\n";
   announceURL(rtspServer, sms);
 
   char const* httpProtocolStr = "HTTP";
   if (rtspServer->setUpTunnelingOverHTTP(80) ||
       rtspServer->setUpTunnelingOverHTTP(8000) ||
       rtspServer->setUpTunnelingOverHTTP(8080)) {
-    env << "\n(We use port " << rtspServer->httpServerPortNum()
+    *env << "\n(We use port " << rtspServer->httpServerPortNum()
         << " for optional RTSP-over-" << httpProtocolStr << " tunneling.)\n";
   } else {
-    env << "\n(RTSP-over-" << httpProtocolStr << " tunneling is not available.)\n";
+    *env << "\n(RTSP-over-" << httpProtocolStr << " tunneling is not available.)\n";
   }
 
-  env << "RTSP streaming started. Press Ctrl+C to stop.\n";
-  env.taskScheduler().doEventLoop();
+  *env << "RTSP streaming started. Press Ctrl+C to stop.\n";
+  env->taskScheduler().doEventLoop();
 
   pipeline.stop();
   return 0;

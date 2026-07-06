@@ -207,7 +207,7 @@ static void v4l2_streamcap_cb(int fd, unsigned ev, void *cbarg) {
 	if (v4l2_streamcap_deq(v4l2->evconn.fd, &qbuf_idx) != 0) {
 		goto finally;
 	}
-	log_d("deq %d\n", qbuf_idx);
+//	log_d("deq %d\n", qbuf_idx);
 
 #ifdef USE_X264
 	{

@@ -38,7 +38,7 @@ Host: Ubuntu 22.04 X11 (not wayland)
 RTSP server
 ----
 
-    build/tester_v4l2rtsp-ub20/tester_v4l2rtsp /dev/video10 1920 1080 30 2000 9554
+    LD_LIBRARY_PATH=../build/sysroot-ub20/lib build/tester_v4l2rtsp-ub20/tester_v4l2rtsp /dev/video10 1920 1080 30 2000 9554
 
 Test
 
@@ -55,7 +55,7 @@ Source
 
 Run
 
-    build/onvif_srvd-ub20/onvif_srvd --no_fork \
+    LD_LIBRARY_PATH=../build/sysroot-ub20/lib build/onvif_srvd-ub20/onvif_srvd --no_fork \
       --ifs enx086d41e611a8 --port 10080 \
       --scope onvif://www.onvif.org/name/UbuntuDesktop \
       --scope onvif://www.onvif.org/type/NetworkVideoTransmitter \
