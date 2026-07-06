@@ -298,7 +298,7 @@ static int live555_main(int argc, char** argv) {
 
   // Live555 StreamParser BANK_SIZE is 150000; keep buffers within that limit.
 //  OutPacketBuffer::increaseMaxSizeTo(150000);
-  OutPacketBuffer::increaseMaxSizeTo(1000000);
+  OutPacketBuffer::increaseMaxSizeTo(2000000);
 
   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
   gEnv = BasicUsageEnvironment::createNew(*scheduler);
