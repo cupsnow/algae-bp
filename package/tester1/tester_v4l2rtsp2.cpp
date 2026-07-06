@@ -350,7 +350,7 @@ static int live555_main(int argc, char** argv) {
 
   gPipeline = &pipeline;
 
-  OutPacketBuffer::increaseMaxSizeTo(500000);
+  OutPacketBuffer::increaseMaxSizeTo(600000);
 
   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
   UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
