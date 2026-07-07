@@ -38,7 +38,7 @@ Host: Ubuntu 22.04 X11 (not wayland)
 RTSP server
 ----
 
-    LD_LIBRARY_PATH=../build/sysroot-ub20/lib build/tester_v4l2rtsp-ub20/tester_v4l2rtsp /dev/video10 1920 1080 30 2000 9554
+    LD_LIBRARY_PATH=../build/sysroot-ub20/lib build/tester_v4l2rtsp2-ub20/tester_v4l2rtsp2 /dev/video10 1920 1080 30 2000 9554
 
 Test
 
@@ -66,3 +66,19 @@ Run
       --url "rtsp://%s:9554/h264esvideotest" --type H264 \
       --user admin --password password
 
+ffmpeg with intel gpu acceleration
+----
+
+ffmpeg \
+    -hwaccel vaapi \
+    -hwaccel_device /dev/dri/renderD128 \
+    -hwaccel_output_format vaapi \
+    -i xxxxx.h264 \
+    -vf hwdownload,format=nv12 \
+    -f rawvideo - \
+| \
+ffplay \
+    -f rawvideo \
+    -pixel_format nv12 \
+    -video_size 1080x720 \
+    -

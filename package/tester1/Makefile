@@ -111,6 +111,24 @@ endef
 
 #------------------------------------
 #
+tester_abc_ATTR+=
+
+tester_abc_SRCS+=$(tester_aloe_SRCS)
+tester_abc_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+
+tester_abc_CPPFLAGS+=$(CPPFLAGS)
+tester_abc_CFLAGS+=$(CFLAGS)
+tester_abc_CXXFLAGS+=$(CXXFLAGS)
+tester_abc_LDFLAGS+=$(LDFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_abc, \
+    tester_abc2.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp \
+    tester_neu2.cpp))
+
+ARTIFACT+=$(tester_abc_BIN)
+
+#------------------------------------
+#
 tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT USE_V4L2 USE_X264
 
 tester_ev3_SRCS+=$(tester_aloe_SRCS)
@@ -151,7 +169,7 @@ tester_ev3_CXXFLAGS+=$(CXXFLAGS)
 tester_ev3_LDFLAGS+=$(LDFLAGS)
 
 $(eval $(call TESTER1_APP2,tester_ev3, \
-    ev3_main.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp))
+    tester_ev3.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp))
 
 ARTIFACT+=$(tester_ev3_BIN)
 
@@ -270,6 +288,22 @@ $(eval $(call TESTER1_APP2,tester_fb2, \
     tester_fb1.c))
 
 #ARTIFACT+=$(tester_fb2_BIN)
+
+#------------------------------------
+#
+tester_neu2_SRCS+=$(abspath $(tester_aloe_SRCS))
+
+tester_neu2_CPPFLAGS+=$(CPPFLAGS)
+tester_neu2_CFLAGS+=$(CFLAGS)
+tester_neu2_CXXFLAGS+=$(CXXFLAGS)
+tester_neu2_LDFLAGS+=$(LDFLAGS)
+
+tester_neu2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_neu2, \
+    tester_neu2.cpp))
+
+ARTIFACT+=$(tester_neu2_BIN)
 
 #------------------------------------
 #

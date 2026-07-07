@@ -136,6 +136,7 @@ static int cli_cmd_forkwait(void*, int argc, const char **argv) {
 	return r;
 }
 
+
 static const char opt_short[] = "hv";
 enum {
 	opt_key_reflags = 0x201,
@@ -170,6 +171,8 @@ static void help(int argc, const char **argv) {
 "        interface\n"
 "\n", ((argc > 0) && argv && argv[0] ? argv[0] : "Program"));
 }
+
+extern "C" int cli_cmd_neu2(void*, int argc, const char **argv);
 
 int main(int argc, const char **argv) {
 	enum {
@@ -229,6 +232,8 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "q", &cli_cmd_quit, NULL, "q -> quit program");
 	cli1_cmd_add(cli_global, "fork", &cli_cmd_fork, NULL, "fork -> fork to execute program");
 	cli1_cmd_add(cli_global, "forkwait", &cli_cmd_forkwait, NULL, "forkwait -> fork to execute program");
+
+	cli1_cmd_add(cli_global, "neu2", &cli_cmd_neu2, NULL, "");
 
 	while (!impl.quit) {
 		aloe_ev_once(impl.ev_ctx);

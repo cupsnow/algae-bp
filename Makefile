@@ -29,7 +29,7 @@ APP_PLATFORM?=qemuarm64
 # locale_posix2c coreutils systemd
 APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
-ifneq ($(strip $(filter bp qemuarm64 iq9,$(APP_PLATFORM))),)
+ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
 else ifneq ($(strip $(filter bbb xm sa7715 esh,$(APP_PLATFORM))),)
 APP_BUILD=arm
@@ -1435,6 +1435,7 @@ else
 tmux_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
 tmux_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 endif
+
 tmux_ACARGS_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
 tmux_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
 
@@ -1901,6 +1902,8 @@ live555_defconfig $(live555_BUILDDIR)/Makefile: $(PROJDIR)/builder/live555.confi
 live555_install: DESTDIR=$(BUILD_SYSROOT)
 live555_install: live555
 	$(live555_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
+
+$(eval $(call DEF_DESTDEP,live555))
 
 live555_clean:
 ifneq ($(wildcard $(live555_BUILDDIR)/Makefile),)
