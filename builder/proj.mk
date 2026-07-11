@@ -141,8 +141,8 @@ CMD_DTC2=dtc -O dtb -I dts -b 0 -@ $(DTC_LINUX_WNO) $(1:%=-d %)
 
 #------------------------------------
 # 
-CMD_CDEF= echo | $(CC) -dM -E -
-CMD_CXXDEF= echo | $(C++) -dM -E -x c++ -
+CMD_CDEF= echo | $(CC) -E -dM -
+CMD_CXXDEF= echo | $(C++) -E -dM -x c++ -
 
 #------------------------------------
 # $(eval $(call DECL_TOOLCHAIN_GCC,$(HOME)/07_sw/gcc-aarch64-none-linux-gnu))

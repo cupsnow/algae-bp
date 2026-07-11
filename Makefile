@@ -19,12 +19,12 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 APP_ATTR_ub20?=ub20
 
 # bp wl18xx powervr ti_linux bb_linux powervr gdbserver
-APP_ATTR_bp?=bp wl18xx powervr bb_linux gdbserver
+APP_ATTR_bp?=bp wl18xx powervr gdbserver
 
 APP_ATTR_qemuarm64?=qemuarm64
 
 # bp qemuarm64 ub20
-APP_PLATFORM?=qemuarm64
+APP_PLATFORM?=bp
 
 # locale_posix2c coreutils systemd
 APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
@@ -268,6 +268,8 @@ uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
     -C $(uboot_DIR)
 
+
+
 uboot_MAKEARGS-bp-r5+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)
 
@@ -434,33 +436,27 @@ linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
 
 linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
-
 ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
-linux_defconfig-site-bp=$(PROJDIR)/linux-$(APP_PLATFORM)-bb.config
+linux_configfile-bp=linux-bp-bb.config
 linux_defconfig-bp=bb.org_defconfig
 else
 linux_defconfig-bp=defconfig
 endif
 
 linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
-
 linux_defconfig-qemuarm64=defconfig
 
-linux_defconfig-site=$(or $(linux_defconfig-site-$(APP_PLATFORM)),$(PROJDIR)/linux-$(APP_PLATFORM).config)
+linux_configfile-$(APP_PLATFORM)?=linux-$(APP_PLATFORM).config
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	$(linux_MAKE_BASE) mrproper
-ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
-	$(linux_MAKE) defconfig ti_arm64_prune.config
-else
-	if [ -f "$(linux_defconfig-site)" ]; then \
-	  rsync -a $(RSYNC_VERBOSE) $(linux_defconfig-site) $(linux_BUILDDIR)/.config \
+	if [ -f "linux_configfile-$(APP_PLATFORM)" ]; then \
+	  rsync -a $(RSYNC_VERBOSE) linux_configfile-$(APP_PLATFORM) $(linux_BUILDDIR)/.config \
 	    && yes "" | $(linux_MAKE) oldconfig; \
 	  $(linux_MAKE) prepare; \
 	else \
 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
-endif
 
 $(addprefix linux_,help):
 	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
@@ -878,6 +874,7 @@ libgpiod_defconfig $(libgpiod_BUILDDIR)/Makefile: | $(libgpiod_BUILDDIR) $(libgp
 	cd $(libgpiod_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(libgpiod_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
+		  --enable-tools \
 	      $(libgpiod_ACARGS_$(APP_PLATFORM))
 
 libgpiod_install: DESTDIR=$(BUILD_SYSROOT)
@@ -1954,8 +1951,8 @@ onvifsrvd: | $(onvifsrvd_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-wl18xx_DIR=$(PKGDIR2)/18xx-ti-utils
-wl18xx_BUILDDIR=$(BUILDDIR2)/18xx-ti-utils-$(APP_BUILD)
+wl18xx_DIR=$(PKGDIR2)/wl18xx-ti-utils
+wl18xx_BUILDDIR=$(BUILDDIR2)/wl18xx-ti-utils-$(APP_BUILD)
 wl18xx_DEP+=libnl
 wl18xx_CFLAGS+=-DCONFIG_LIBNL32 -I$(BUILD_SYSROOT)/include/libnl3 -Wall
 wl18xx_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib
@@ -2675,6 +2672,47 @@ $(eval $(call DEF_DESTDEP,kmod))
 kmod: | $(kmod_BUILDDIR)/build.ninja
 	$(kmod_MESON) compile -C $(kmod_BUILDDIR)
 
+
+#------------------------------------
+#
+v4lutils_DEP=jsonc
+v4lutils_DIR=$(PKGDIR2)/v4l-utils
+v4lutils_BUILDDIR?=$(BUILDDIR2)/v4lutils-$(APP_BUILD)
+v4lutils_MESON=. $(PYVENVDIR)/bin/activate && meson
+
+v4lutils_ACARGS_CFLAGS+=-I$(BUILD_SYSROOT)/include -I$(BUILD_SYSROOT)/include/json-c
+v4lutils_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include -I$(BUILD_SYSROOT)/include/json-c
+v4lutils_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
+    -L$(BUILD_SYSROOT)/lib
+v4lutils_ACARGS_$(APP_PLATFORM)+=
+
+v4lutils_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
+    $(BUILD_SYSROOT)/share/pkgconfig
+
+GENPYVENV+=meson ninja
+
+v4lutils_defconfig $(v4lutils_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+	. $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) meson setup \
+	      -Dprefix=/ \
+		  -Dc_args="$(subst $(SPACE),$(SPACE),$(v4lutils_ACARGS_CFLAGS))" \
+	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(v4lutils_ACARGS_LDFLAGS))" \
+		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(v4lutils_ACARGS_CPPFLAGS))" \
+	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(v4lutils_ACARGS_LDFLAGS))" \
+		  -Dpkg_config_path="$(subst $(SPACE),:,$(v4lutils_ACARGS_PKGDIR))" \
+		  $(v4lutils_ACARGS_$(APP_PLATFORM)) \
+		  --cross-file=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini \
+		  $(v4lutils_BUILDDIR) $(v4lutils_DIR)
+
+v4lutils_install: DESTDIR=$(BUILD_SYSROOT)
+v4lutils_install: | $(v4lutils_BUILDDIR)/build.ninja
+	$(v4lutils_MESON) compile -C $(v4lutils_BUILDDIR)
+	$(v4lutils_MESON) install -C $(v4lutils_BUILDDIR) --destdir=$(DESTDIR)
+
+$(eval $(call DEF_DESTDEP,v4lutils))
+
+v4lutils: | $(v4lutils_BUILDDIR)/build.ninja
+	$(v4lutils_MESON) compile -C $(v4lutils_BUILDDIR)
 
 #------------------------------------
 #
@@ -3473,9 +3511,10 @@ ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 dist_DTINCDIR+=$(linux_DIR)/arch/arm64/boot/dts/ti
 endif
 
+ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
 dts_bp=$(or $(wildcard linux-bb-bp.dts))
-
-dts_$(APP_PLATFORM):=$(or $(dts_bp),linux-$(APP_PLATFORM).dts)
+endif
+dts_$(APP_PLATFORM)?=linux-$(APP_PLATFORM).dts
 
 dist-bp_dtb: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_dtb: DTBFILE=k3-am625-beagleplay.dtb
@@ -3493,7 +3532,20 @@ dist-bp_dtb:
 	dtc -I dtb -O dts $(DTC_LINUX_WNO) $(DESTDIR)/$(DTBFILE) \
 	    > $(BUILDDIR)/$(DTBFILE:%.dtb=%).dts
 
+CMD_DTBO=$(call CMD_CPPDTS) $(addprefix -I,$(dist_DTINCDIR)) \
+    -o $(BUILDDIR)/$(notdir $(1:%.dtso=%)).dtso $(1) \
+  && $(call CMD_DTC2) $(addprefix -i,$(dist_DTINCDIR)) \
+    -o $(DESTDIR)/$(notdir $(1:%.dtso=%)).dtbo $(BUILDDIR)/$(notdir $(1:%.dtso=%)).dtso \
+  && dtc -I dtb -O dts $(DTC_LINUX_WNO) \
+    -o $(BUILDDIR)/$(notdir $(1:%.dtso=%))-dis.dtso $(DESTDIR)/$(notdir $(1:%.dtso=%)).dtbo
+
+dist-bp_dtbo: DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot
+dist-bp_dtbo:
+	$(call CMD_DTBO,k3-am625-beagleplay-csi2-imx219.dtso)
+
 # dist_bp_phase1_pkg+=libdrm
+dist_bp_phase1_pkg+=libgpiod
+dist_bp_phase1_pkg+=v4lutils
 
 dist-bp_phase1:
 # build all package
@@ -3516,8 +3568,13 @@ dist-bp_bootpart: | $(PROJDIR)/tool/bin/genimage
 	$(call CMD_VFATIMG_ADD,$(bootpart_prefix)_emmc.img,$(dist_DIR)/$(APP_PLATFORM)/boot_emmc/*)
 	mdir -a -/ -i $(bootpart_prefix)_emmc.img
 
-dist-bp_itb_loadaddr=0x82000000
-dist-bp_itb_fdtaddr=0x88000000
+# dist-bp_itb_loadaddr=0x82000000
+# dist-bp_itb_fdtaddr=0x88000000
+dist-bp_itb_loadaddr=$(shell $(call CMD_SED_KEYVAL1,loadaddr) ubootenv-bp-a53.txt)
+dist-bp_itb_fdtaddr=$(shell $(call CMD_SED_KEYVAL1,fdtaddr) ubootenv-bp-a53.txt)
+# $(info dist-bp_itb_loadaddr: $(dist-bp_itb_loadaddr))
+# $(info dist-bp_itb_fdtaddr: $(dist-bp_itb_fdtaddr))
+
 dist-bp_mkimage_dtcargs+=-I dts -O dtb -p 500
 dist-bp_mkimage_dtcargs+=-Wno-unit_address_vs_reg
 
@@ -3526,7 +3583,6 @@ dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr
 dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
-ifeq (1,1)
 	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
 	### serve sbl
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
@@ -3555,7 +3611,7 @@ ifeq (1,1)
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
 	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
 	#     $(dist_DIR)/$(APP_PLATFORM)/boot/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot dist-bp_dtb
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot dist-bp_dtb dist-bp_dtbo
 	### serve uboot fit image
 	sed \
 	  -e "s/\$$\$$(KERNEL_DATA_FILE)/$(subst /,\/,$(linux_BUILDDIR)/arch/arm64/boot/Image)/g" \
@@ -3563,6 +3619,7 @@ ifeq (1,1)
 	  -e "s/\$$\$$(KERNEL_LOAD_ADDR)/$(dist-bp_itb_loadaddr)/g" \
 	  -e "s/\$$\$$(KERNEL_ENTRY_ADDR)/$(dist-bp_itb_loadaddr)/g" \
 	  -e "s/\$$\$$(FDT_DATA_FILE)/$(subst /,\/,$(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay.dtb)/g" \
+	  -e "s/\$$\$$(FDT2_DATA_FILE)/$(subst /,\/,$(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay-csi2-imx219.dtbo)/g" \
 	  -e "s/\$$\$$(FDT_LOAD_ADDR)/$(dist-bp_itb_fdtaddr)/g" \
 	  -e "s/\$$\$$(SIGNATURE_KEY_NAME)/$(ubsignkey)/g" \
 	  $(PROJDIR)/linux-$(APP_PLATFORM).its | tee $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its
@@ -3579,25 +3636,20 @@ ifeq (1,1)
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib64/*.a
 	### serve kmod
 	$(MAKE) INSTALL_MOD_PATH=$(dist_DIR)/$(APP_PLATFORM)/rootfs linux_modules_install
-endif
 ifneq ($(strip $(filter powervr,$(APP_ATTR))),)
 	rsync -a $(RSYNC_VERBOSE) $(ti-linux-fw_DIR)/powervr/rogue_33.15.11.3_v1.fw \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr/
 endif
-ifeq (1,1)
 	$(busybox_DIR)/examples/depmod.pl \
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
 	    -F $(linux_BUILDDIR)/System.map
-endif
 	$(PYVENVDIR)/bin/python3 builder/elfstrip.py $(ELFSTRIP_VERBOSE) \
 	      -l $(BUILDDIR)/elfstrip.log \
 	      --strip=$(TOOLCHAIN_PATH)/bin/$(STRIP) \
 		  --bound=$(dist_DIR)/$(APP_PLATFORM)/rootfs \
 		  --exclude="$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/*" \
 	      $(dist_DIR)/$(APP_PLATFORM)/rootfs
-ifeq (1,1)
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/rootfs dist_rootfs_phase2
-endif
 
 dist-bp_depmod:
 	$(busybox_DIR)/examples/depmod.pl \
@@ -3637,7 +3689,7 @@ dist-bp_phase3:
 	  --inputpath $(BUILDDIR)/genimage_work \
 	  --outputpath $(dist_DIR)/$(APP_PLATFORM) \
 	  --config $(BUILDDIR)/genimage_work/genimage.cfg
-	$(RMTREE) $(BUILDDIR)/genimage_work
+# 	$(RMTREE) $(BUILDDIR)/genimage_work
 
 GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs
 
@@ -3729,4 +3781,3 @@ always:; # always build
 #------------------------------------
 #------------------------------------
 #
-

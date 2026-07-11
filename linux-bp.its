@@ -21,6 +21,12 @@
             load = <$$(FDT_LOAD_ADDR)>;
             fdt-version = <1>;
         };
+        fdt-2 {
+            description = "Linux device tree";
+            data = /incbin/("$$(FDT2_DATA_FILE)");
+            type = "flat_dt";
+            arch = "arm64";
+        };
     };
     configurations {
         default = "conf-1";
@@ -28,6 +34,15 @@
             description = "Set 1";
             kernel = "kernel-1";
             fdt = "fdt-1";
+        };
+        conf-2 {
+            description = "Set 2";
+            kernel = "kernel-1";
+            fdt = "fdt-1", "fdt-2";
+        };
+        fdt-2 {
+            description = "fdt-2";
+            fdt = "fdt-2";
         };
     };
 };

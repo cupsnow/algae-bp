@@ -1,8 +1,8 @@
 # common between bp a53
 
-# mem offset 256 MB
-addr_fit=0x90000000
-fitaddr=0x90000000
+# mem offset 512 MB
+addr_fit=0xa0000000
+fitaddr=0xa0000000
 
 # mem offset 32 MB
 loadaddr=0x82000000
@@ -16,8 +16,8 @@ fdt_addr_r=0x88000000
 dtboaddr=0x89000000
 fdtoverlay_addr_r=0x89000000
 
-# mem offset 80 MB
-kernel_comp_addr_r=0x85000000
+# mem offset 256 MB
+kernel_comp_addr_r=0x90000000
 
 # size 32 MB
 kernel_comp_size=0x2000000
@@ -48,8 +48,10 @@ loadkern=fatload ${bootsetdev} ${loadaddr} ${kernpath}
 loadfdt=fatload ${bootsetdev} ${fdtaddr} ${dtbpath}
 loadfit=fatload ${bootsetdev} ${addr_fit} ${fitpath}
 
+# fitext=
+
 sdboot=run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs && booti ${loadaddr} - ${fdtaddr}
-sdboot_fit=run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}
+sdboot_fit=run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}${fitext}
 bootcmd=run sdboot_fit
 
 # variant between sdcard and emmc

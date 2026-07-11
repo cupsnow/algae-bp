@@ -98,7 +98,7 @@ get_ip () {
   if [ "$_pri_devsite" = "mbp_ub22" ]; then
     _lo_iptest="192.168.234.86 192.168.50.42"
   else
-    _lo_iptest="192.168.234.16 192.168.50.123"
+    _lo_iptest="192.168.16.6"
   fi
   for i in $_lo_iptest; do
     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1" >/dev/null 2>&1; then
@@ -639,6 +639,41 @@ destpkg_install() {
   fi
 }
 
+gadget_cdcacm() {
+  [ -d "/sys/kernel/config/usb_gadget" ] \
+    || { log_e "invalid usb configfs"; return 1; }
+
+  _lo_g1dir=/sys/kernel/config/usb_gadget/g1
+
+  [ -d "$_lo_g1dir" ] || mkdir $_lo_g1dir || { log_e "mkdir g1"; return 1; }
+  echo 0x1d6b >${_lo_g1dir}/idVendor
+  echo 0x0104 >${_lo_g1dir}/idProduct
+
+  [ -d "${_lo_g1dir}/strings/0x409" ] \
+    || mkdir -p ${_lo_g1dir}/strings/0x409 \
+    || { log_e "mkdir g1/strings/0x409"; return 1; }
+  echo "12345678" >${_lo_g1dir}/strings/0x409/serialnumber
+  echo "BeaglePlay" >${_lo_g1dir}/strings/0x409/manufacturer
+  echo "USB Serial" >${_lo_g1dir}/strings/0x409/product
+
+  [ -d "${_lo_g1dir}/configs/c.1/strings/0x409" ] \
+    || mkdir -p ${_lo_g1dir}/configs/c.1/strings/0x409 \
+    || { log_e "mkdir g1/configs/c.1/strings/0x409"; return 1; }
+  echo "CDC ACM" >${_lo_g1dir}/configs/c.1/strings/0x409/configuration
+
+  [ -d "${_lo_g1dir}/functions/acm.usb0" ] \
+    || mkdir -p ${_lo_g1dir}/functions/acm.usb0 \
+    || { log_e "mkdir g1/functions/acm.usb0"; return 1; }
+  [ -e ${_lo_g1dir}/configs/c.1/acm.usb0 ] \
+    && rm ${_lo_g1dir}/configs/c.1/acm.usb0
+  ln -sfn ${_lo_g1dir}/functions/acm.usb0 ${_lo_g1dir}/configs/c.1/
+
+  _lo_udc=$("ls" /sys/class/udc | head -n 1)
+  [ -n "$_lo_udc" ] \
+    || { log_e "empty $_lo_udc/"; return 1; }
+  echo "$_lo_udc" > ${_lo_g1dir}/UDC
+}
+
 show_help() {
 cat <<-EOHELP
 USAGE
@@ -784,27 +819,36 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
 
-    # # kernel, dtb
-    # cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
-    #     "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
-    #     "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
-    #     "/media/mmcblk0p1/" \
-    #   || { log_e "Failed"; exit 1; }
-
     _lo_bl_num="$(( ${opt1#bl} ))"
 
-    # bl2 -> tispl.bin, uboot.env, u-boot.img, uboot-redund.env
-    if [ "${_lo_bl_num}" -ge 2 ]; then
-      cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot_emmc/* \
-          "/media/mmcblk0p1/" \
-        || { log_e "Failed"; exit 1; }
-    fi
+    # tispl.bin, uboot.env, u-boot.img, uboot-redund.env
+    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot_emmc/* \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
 
     # bl3 -> tiboot3
     if [ "${_lo_bl_num}" -ge 3 ]; then
       flash_tiboot3 "${_pri_nfsalgaebp}"/destdir/bp/boot/tiboot3.bin \
         || { log_e "Failed"; exit 1; }
     fi
+    sync; sync
+    exit
+    ;;
+  otakernel)
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+    # kernel, dtb
+    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
+
+    # dt-overlay
+    cmd_run cp -Hv \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
     sync; sync
     exit
     ;;
@@ -818,6 +862,13 @@ while test -n "$1"; do
         "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
+
+    # dt-overlay
+    cmd_run cp -Hv \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
+
 
     # _pri_uenv_txt="uenv.txt"
     _pri_uenv_txt="/media/mmcblk0p1/uenv.txt"
@@ -875,6 +926,28 @@ while test -n "$1"; do
         fi
     fi
     sync; sync
+    exit
+    ;;
+  dtb)
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+    cmd_run cp -Hv \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
+    exit
+    ;;
+  dtbo)
+    nfsmount || exit
+    devmount /dev/mmcblk0p1 || exit
+    cmd_run cp -Hv \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
+    exit
+    ;;
+  gadget_cdcacm)
+    gadget_cdcacm
     exit
     ;;
   gdb|gdbserver)

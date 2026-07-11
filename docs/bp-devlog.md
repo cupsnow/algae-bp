@@ -47,11 +47,11 @@ U-Boot
 
 U-Boot version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
 
-After boot, assume to read `uboot.env` in 1st partition (FAT)
+After boot, designed to read `uboot.env` in 1st partition (FAT)
 
-### U-Boot menuconfig to read uboot.env
+Config U-Boot to read uboot.env
 
-- for SDCARD
+For SDCARD
 
       CONFIG_ENV_IS_NOWHERE=y
       CONFIG_ENV_IS_IN_FAT=y
@@ -60,7 +60,7 @@ After boot, assume to read `uboot.env` in 1st partition (FAT)
       CONFIG_SYS_MMC_ENV_DEV=1
       CONFIG_SYS_MMC_ENV_PART=1
 
-- for EMMC
+For EMMC
 
       CONFIG_ENV_IS_NOWHERE=y
       CONFIG_ENV_IS_IN_FAT=y
@@ -69,7 +69,7 @@ After boot, assume to read `uboot.env` in 1st partition (FAT)
       CONFIG_SYS_MMC_ENV_DEV=0
       CONFIG_SYS_MMC_ENV_PART=1
 
-### memory for boot
+Memory usage for boot
 
 | addr       | offset | related varable             | memo |
 | ---------- | ------ | --------------------------- | ---- |
@@ -80,55 +80,46 @@ After boot, assume to read `uboot.env` in 1st partition (FAT)
 | 0x89000000 | 144M   | dtboaddr, fdtoverlay_addr_r |      |
 | 0x90000000 | 256M   | addr_fit                    |      |
 
-### kernel bootargs
+The kernel bootargs
 
-```sh
-setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
-```
+    setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 
-### write uboot to emmc
-
-commands in linux shell
-
-```
-echo "Enable Boot0 boot"
-mmc bootpart enable 1 2 /dev/mmcblk0
-mmc bootbus set single_backward x1 x8 /dev/mmcblk0
-mmc hwreset enable /dev/mmcblk0
-
-echo "Clearing eMMC boot0"
-echo '0' >> /sys/class/block/mmcblk0boot0/force_ro
-dd if=/dev/zero of=/dev/mmcblk0boot0 count=32 bs=128k
-
-mkdir /media/boot-sd && mount /dev/mmcblk1p1 /media/boot-sd
-
-echo "Write bootloader"
-dd if=/media/boot-sd/tiboot3.bin of=/dev/mmcblk0boot0 bs=128k
-
-echo "Copy the rest of the boot binaries"
-mkdir /media/boot-emmc && mount /dev/mmcblk0p1 /media/boot-emmc
-cp /media/boot-sd/tispl.bin /media/boot-emmc/
-cp /media/boot-sd/u-boot.img /media/boot-emmc/
-sync
-```
-
-### other commands
-
-```
-mmc dev 1 && fatls mmc 1:1
-
-fatload mmc 1:1 ${addr_fit} ubootenv-bp-a53.txt && env import ${addr_fit};
-
-fatload mmc 1:1 ${addr_fit} linux.itb && iminfo ${addr_fit};
-
-bootm ${addr_fit} -
-
-fatload mmc 1:1 ${addr_fit} Image
-
-setenv sdboot 'run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}'
+Write bootloader to emmc
 
 
-```
+    echo "Enable Boot0 boot"
+    mmc bootpart enable 1 2 /dev/mmcblk0
+    mmc bootbus set single_backward x1 x8 /dev/mmcblk0
+    mmc hwreset enable /dev/mmcblk0
+
+    echo "Clearing eMMC boot0"
+    echo '0' >> /sys/class/block/mmcblk0boot0/force_ro
+    dd if=/dev/zero of=/dev/mmcblk0boot0 count=32 bs=128k
+
+    mkdir /media/boot-sd && mount /dev/mmcblk1p1 /media/boot-sd
+
+    echo "Write bootloader"
+    dd if=/media/boot-sd/tiboot3.bin of=/dev/mmcblk0boot0 bs=128k
+
+    echo "Copy the rest of the boot binaries"
+    mkdir /media/boot-emmc && mount /dev/mmcblk0p1 /media/boot-emmc
+    cp /media/boot-sd/tispl.bin /media/boot-emmc/
+    cp /media/boot-sd/u-boot.img /media/boot-emmc/
+    sync
+
+More commands
+
+    mmc dev 1 && fatls mmc 1:1
+
+    fatload mmc 1:1 ${addr_fit} ubootenv-bp-a53.txt && env import ${addr_fit};
+
+    fatload mmc 1:1 ${addr_fit} linux.itb && iminfo ${addr_fit};
+
+    bootm ${addr_fit} -
+
+    fatload mmc 1:1 ${addr_fit} Image
+
+    setenv sdboot 'run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}'
 
 yocto
 ----
@@ -141,110 +132,84 @@ Reference
 [guide1]: https://kickstartembedded.com/2023/08/06/beagleplay-part-1-building-a-base-image-using-yocto/
 [meta-ti-bsp readme]: https://git.ti.com/cgit/arago-project/meta-ti/tree/meta-ti-bsp/README?h=kirkstone
 
-### step
+Build
 
 1. Clone
 
-   ```sh
-   git clone -b kirkstone https://git.yoctoproject.org/poky poky-bp
-   cd poky-bp
-   git clone -b kirkstone git://git.yoctoproject.org/meta-arm
-   git clone -b kirkstone https://git.ti.com/cgit/arago-project/meta-ti
-   ```
+        git clone -b kirkstone https://git.yoctoproject.org/poky poky-bp
+        cd poky-bp
+        git clone -b kirkstone git://git.yoctoproject.org/meta-arm
+        git clone -b kirkstone https://git.ti.com/cgit/arago-project/meta-ti
+
 2. Startup dev console
 
-   ```sh
-   cd poky-bp
-   source oe-init-build-env build-ti
-   sudo sysctl -w fs.inotify.max_user_watches=1048576
-   ```
+        cd poky-bp
+        source oe-init-build-env build-ti
+        sudo sysctl -w fs.inotify.max_user_watches=1048576
 
 3. Modify **poky-bp/build-ti/conf/bblayers.conf**
 
-   ```
-   BBLAYERS ?= " \
-   /home/shashank/work/yocto/poky/meta \
-   /home/shashank/work/yocto/poky/meta-poky \
-   /home/shashank/work/yocto/poky/meta-yocto-bsp \
-   /home/shashank/work/yocto/meta-arm/meta-arm-toolchain \
-   /home/shashank/work/yocto/meta-arm/meta-arm \
-   /home/shashank/work/yocto/meta-ti/meta-ti-bsp \
-   "
-   ```
+        BBLAYERS ?= " \
+        /home/shashank/work/yocto/poky/meta \
+        /home/shashank/work/yocto/poky/meta-poky \
+        /home/shashank/work/yocto/poky/meta-yocto-bsp \
+        /home/shashank/work/yocto/meta-arm/meta-arm-toolchain \
+        /home/shashank/work/yocto/meta-arm/meta-arm \
+        /home/shashank/work/yocto/meta-ti/meta-ti-bsp \
+        "
 
 4. Modify **poky-bp/build-ti/conf/local.conf**
 
    Choose target from **poky-bp/meta-ti/meta-ti-bsp/conf/machine**
 
-   ```
-   MACHINE ??= "beagleplay"
-   ```
+        MACHINE ??= "beagleplay"
 
 5. Run
 
    Fetch source only
 
-   ```sh
-   bitbake core-image-minimal --runall=fetch
-   ```
+         bitbake core-image-minimal --runall=fetch
 
 Garage
 ----
 
-- u-boot comand collection
+u-boot comand collection
 
-   fatls mmc 1:1
-   fatload mmc ${mmcdev} ${loadaddr} ${bootenvfile} && env import -t ${loadaddr} ${filesize}
-   run loadbootenv && run importbootenv
+    fatls mmc 1:1
+    fatload mmc ${mmcdev} ${loadaddr} ${bootenvfile} && env import -t ${loadaddr} ${filesize}
+    run loadbootenv && run importbootenv
 
-   env export -t ${loadaddr} && fatwrite mmc ${mmcdev} ${loadaddr} ${bootenvfile} ${filesize}
-   env export -t ${loadaddr} && fatwrite mmc ${mmcdev} ${loadaddr} uboot-env2.txt ${filesize}
+    env export -t ${loadaddr} && fatwrite mmc ${mmcdev} ${loadaddr} ${bootenvfile} ${filesize}
+    env export -t ${loadaddr} && fatwrite mmc ${mmcdev} ${loadaddr} uboot-env2.txt ${filesize}
 
-   fatload mmc 1:1 ${loadaddr} Image.gz && fatload mmc 1:1 ${fdtaddr} k3-am625-beagleplay.dtb
-   setenv kernel_comp_addr_r 0x85000000 && setenv kernel_comp_size 0x2000000
-   setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
+    fatload mmc 1:1 ${loadaddr} Image.gz && fatload mmc 1:1 ${fdtaddr} k3-am625-beagleplay.dtb
+    setenv kernel_comp_addr_r 0x85000000 && setenv kernel_comp_size 0x2000000
+    setenv bootargs console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
 
-   booti ${loadaddr} - ${fdtaddr}
+    booti ${loadaddr} - ${fdtaddr}
 
-   setenv bootargs_console "root=/dev/mmcblk1p2 rootwait earlycon=ns16550a,mmio32,0x02800000"
+    setenv bootargs_console "root=/dev/mmcblk1p2 rootwait earlycon=ns16550a,mmio32,0x02800000"
 
-   setenv bootargs_root root=/dev/mmcblk1p2 rw rootwait rootfstype=ext4
+    setenv bootargs_root root=/dev/mmcblk1p2 rw rootwait rootfstype=ext4
 
-   \# emmc
-   setenv bootargs_root root=/dev/mmcblk0p2 rootfstype=ext4 rootwait
+    \# emmc
+    setenv bootargs_root root=/dev/mmcblk0p2 rootfstype=ext4 rootwait
 
-- preload u-boot
+imx219
 
-   ```sh
-   => part list mmc 0
+    run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs
 
-   Partition Map for MMC device 0  --   Partition Type: DOS
+    fatload ${bootsetdev} ${dtboaddr} k3-am625-beagleplay-csi2-imx219.dtbo
 
-   Part    Start Sector    Num Sectors     UUID            Type
-   1     2048            262144          c5802c6f-01     0c Boot
-   2     264192          30357504        c5802c6f-02     83
-   => part list mmc 1
+    fdt addr ${fdtaddr} && fdt resize 8192 && fdt apply ${dtboaddr}
 
-   Partition Map for MMC device 1  --   Partition Type: DOS
+    booti ${loadaddr} - ${fdtaddr}
 
-   Part    Start Sector    Num Sectors     UUID            Type
-   1     4096            512000          925eb125-01     0c Boot
-   2     516096          120545280       925eb125-02     83
-   => fatls mmc 0:1
-               System Volume Information/
-               extlinux/
-               overlays/
-      61704   k3-am625-beagleplay.dtb
-         54   ID.txt
-   29315584   Image
-   15402499   initrd.img
-      56043   k3-am625-sk-lpmdemo.dtb
-      55532   k3-am625-sk.dtb
-      42192   k3-am625-skeleton.dtb
-      323786   tiboot3.bin
-      996328   tispl.bin
-   1044684   u-boot.img
+    fdt addr ${fdtaddr} && fdt list
+    fdt addr ${fdtaddr} && fdt print
+    fdt addr ${fitaddr} && fdt list
 
-   10 file(s), 3 dir(s)
-   ```
+    modprobe j721e-csi2rx
+    modprobe imx219
 
+    setenv fitext "#conf-2"

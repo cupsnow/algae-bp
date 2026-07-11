@@ -35,6 +35,8 @@ done
 
 mount -t debugfs none /sys/kernel/debug # >/dev/null 2>&1
 
+mount -t configfs none /sys/kernel/config # >/dev/null 2>&1
+
 [ -e /etc/ld.so.cache ] || ldconfig -C /var/run/ld.so.cache
 
 fw_fallback_ignore_knob=/proc/sys/kernel/firmware_config/ignore_sysfs_fallback

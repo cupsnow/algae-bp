@@ -87,12 +87,13 @@ CMD_INFOCMP=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib \
 
 terminfo_BUILDDIR?=$(BUILDDIR)/terminfo
 
-terminfo_install: DESTDIR=$(BUILD_SYSROOT)/usr/share
+terminfo_install: TERMINFODIR=/usr/share/terminfo
+terminfo_install: DESTDIR=$(BUILD_SYSROOT)
 terminfo_install: | $(PROJDIR)/tool/bin/tic
-	[ -d "$(DESTDIR)/terminfo" ] || $(MKDIR) $(DESTDIR)/terminfo
+	[ -d "$(DESTDIR)$(TERMINFODIR)" ] || $(MKDIR) $(DESTDIR)$(TERMINFODIR)
 	for i in vt100 linux xterm xterm-256color screen screen-256color tmux-256color; do \
 	  $(CMD_INFOCMP) -x $$i \
-	    | $(CMD_TIC) -x -o $(DESTDIR)/terminfo -; \
+	    | $(CMD_TIC) -x -o $(DESTDIR)$(TERMINFODIR) -; \
 	done
 
 $(eval $(call DEF_DESTDEP,terminfo))
