@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: GPL-2.0
+/**
+ * DT Overlay for RPi Camera V2.1 (Sony IMX219) interfaced with CSI2 on Beagleplay.
+ * There is no ISP on AM62x, this results in raw bayer data stream not being processed. 
+ * https://gstreamer.freedesktop.org/documentation/bayer/bayer2rgb.html?gi-language=c could work..
+ * To configure sensor in RAW8 480p mode:
+media-ctl -V '"imx219 4-0010":0[SRGGB8_1X8/640x480]'
+ * To capture the data at 640x480:
+ * gst-launch-1.0 v4l2src device=/dev/video2 io-mode=4 ! video/x-bayer,width=640,height=480,format=rggb ! bayer2rgb ! video/x-raw,format=BGRx ! kmssink driver-name=tidss sync=false
+ *
+ * Copyright (C) 2022-2023 Texas Instruments Incorporated - https://www.ti.com/
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	fragment@101 {
+		target-path = "/";
+
+		__overlay__ {
+			clk_imx219_fixed: imx219-xclk {
+				compatible = "fixed-clock";
+				#clock-cells = <0>;
+				clock-frequency = <24000000>;
+			};
+		};
+	};
+};
+
+&wkup_i2c0 {
+	status = "okay";
+	clock-frequency = <400000>;
+
+	imx219: imx219@10 {
+		compatible = "sony,imx219";
+		reg = <0x10>;
+
+		clocks = <&clk_imx219_fixed>;
+		clock-names = "xclk";
+		powerdown-gpios = <&main_gpio0 11 GPIO_ACTIVE_LOW>;   
+		reset-gpios = <&main_gpio0 12 GPIO_ACTIVE_LOW>;       
+
+		port {
+			csi2_cam0: endpoint {
+				remote-endpoint = <&csi2rx0_in_sensor>;
+				link-frequencies = /bits/ 64 <456000000>;
+				clock-lanes = <0>;
+				data-lanes = <1 2>;
+			};
+		};
+	};
+};
+
+&dphy0 {
+	status = "okay";
+};
+
+&ti_csi2rx0 {
+	status = "okay";
+};
+
+&csi0_port0 {
+	status = "okay";
+
+	csi2rx0_in_sensor: endpoint {
+		remote-endpoint = <&csi2_cam0>;
+		bus-type = <4>; /* CSI2 DPHY. */
+		clock-lanes = <0>;
+		data-lanes = <1 2>;
+	};
+};
