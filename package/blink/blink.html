@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Flash</title>
+
+<style>
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+#screen {
+    width: 100vw;
+    height: 100vh;
+    background: black;
+    cursor: pointer;
+}
+
+#settings {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: rgba(255,255,255,0.9);
+    padding: 15px;
+    border-radius: 8px;
+    font-family: sans-serif;
+    user-select: none;
+}
+
+#settings label {
+    display: block;
+    margin-top: 10px;
+}
+
+button {
+    margin-top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="screen"></div>
+
+<div id="settings">
+    <label>
+        Frequency (Hz)
+        <input id="freq" type="number"
+               value="2"
+               min="0.1"
+               step="0.1">
+    </label>
+
+    <label>
+        Color A
+        <input id="color1" type="color" value="#000000">
+    </label>
+
+    <label>
+        Color B
+        <input id="color2" type="color" value="#ffffff">
+    </label>
+
+    <button id="apply">Apply</button>
+    <button id="hide">Hide Settings</button>
+</div>
+
+<script>
+const screen = document.getElementById("screen");
+
+const freqInput = document.getElementById("freq");
+const color1Input = document.getElementById("color1");
+const color2Input = document.getElementById("color2");
+
+const settings = document.getElementById("settings");
+
+let timer = null;
+let state = false;
+
+function startFlashing()
+{
+    if (timer)
+        clearInterval(timer);
+
+    const hz = Math.max(0.1, parseFloat(freqInput.value));
+
+    const interval = 1000 / (hz * 2);
+
+    timer = setInterval(() => {
+        state = !state;
+        screen.style.backgroundColor =
+            state ? color1Input.value : color2Input.value;
+    }, interval);
+
+    screen.style.backgroundColor = color1Input.value;
+    state = true;
+}
+
+let running = false;
+let lastSwitch = 0;
+let switchInterval = 500; // ms
+
+function r2StartFlashing()
+{
+    const hz = Math.max(0.1, parseFloat(freqInput.value));
+
+    // Toggle interval
+    switchInterval = 1000 / (hz * 2);
+
+    running = true;
+    state = true;
+    screen.style.backgroundColor = color1Input.value;
+
+    lastSwitch = performance.now();
+
+    requestAnimationFrame(r2UpdateFlash);
+}
+
+function r2UpdateFlash(now)
+{
+    if (!running)
+        return;
+
+    if (now - lastSwitch >= switchInterval)
+    {
+        state = !state;
+        screen.style.backgroundColor =
+            state ? color1Input.value : color2Input.value;
+
+        // Preserve any extra elapsed time to reduce long-term drift.
+        lastSwitch += switchInterval;
+
+        while (now - lastSwitch >= switchInterval)
+            lastSwitch += switchInterval;
+    }
+
+    requestAnimationFrame(r2UpdateFlash);
+}
+
+let startTime = 0;
+
+function r3StartFlashing()
+{
+    const hz = Math.max(0.1, parseFloat(freqInput.value));
+
+    switchInterval = 1000 / (hz * 2);
+
+    startTime = performance.now();
+
+    requestAnimationFrame(r3UpdateFlash);
+}
+
+function r3UpdateFlash(now)
+{
+    const n = Math.floor((now - startTime) / switchInterval);
+
+    screen.style.backgroundColor =
+        (n & 1)
+            ? color2Input.value
+            : color1Input.value;
+
+    requestAnimationFrame(r3UpdateFlash);
+}
+
+document.getElementById("apply").onclick = r3StartFlashing;
+
+document.getElementById("hide").onclick = () => {
+    settings.style.display = "none";
+};
+
+screen.addEventListener("click", () => {
+    if (settings.style.display === "none")
+        settings.style.display = "block";
+});
+
+document.addEventListener("keydown", e => {
+    if (e.code === "Space") {
+        e.preventDefault();
+        settings.style.display =
+            settings.style.display === "none"
+            ? "block"
+            : "none";
+    }
+});
+
+startFlashing();
+</script>
+
+</body>
+</html>
