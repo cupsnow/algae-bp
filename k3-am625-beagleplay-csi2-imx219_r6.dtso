@@ -49,15 +49,15 @@
 	};
 };
 
-&main_gpio0 {
-	p11-hog {
-		/* CSI2_CAMERA_GPIO1 / CAM_GPIO (XCLR) */
-		gpio-hog;
-		gpios = <11 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "CSI2_CAMERA_GPIO1";
-	};
-};
+// &main_gpio0 {
+// 	p11-hog {
+// 		/* CSI2_CAMERA_GPIO1 / CAM_GPIO (XCLR) */
+// 		gpio-hog;
+// 		gpios = <11 GPIO_ACTIVE_HIGH>;
+// 		output-high;
+// 		line-name = "CSI2_CAMERA_GPIO1";
+// 	};
+// };
 
 &wkup_i2c0 {
 	#address-cells = <1>;
@@ -73,6 +73,8 @@
 		VANA-supply = <&reg_2p8v>;
 		VDIG-supply = <&reg_1p8v>;
 		VDDL-supply = <&reg_1p2v>;
+
+		reset-gpios = <&main_gpio0 11 GPIO_ACTIVE_HIGH>;
 
 		port {
 			csi2_cam0: endpoint {
