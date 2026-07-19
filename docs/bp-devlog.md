@@ -213,3 +213,12 @@ imx219
     modprobe imx219
 
     setenv fitext "#conf-2"
+
+    root@algae:~# i2ctransfer -y 4 w2@0x10 0x00 0x00 r2
+    0x02 0x19
+
+  
+    media-ctl -p
+
+    v4l2-ctl --list-devices
+

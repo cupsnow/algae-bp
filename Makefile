@@ -450,11 +450,13 @@ linux_configfile-$(APP_PLATFORM)?=linux-$(APP_PLATFORM).config
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	$(linux_MAKE_BASE) mrproper
-	if [ -f "linux_configfile-$(APP_PLATFORM)" ]; then \
-	  rsync -a $(RSYNC_VERBOSE) linux_configfile-$(APP_PLATFORM) $(linux_BUILDDIR)/.config \
+	if [ -f "$(linux_configfile-$(APP_PLATFORM))" ]; then \
+	  echo "Apply $(linux_configfile-$(APP_PLATFORM))"; \
+	  rsync -aL $(RSYNC_VERBOSE) $(linux_configfile-$(APP_PLATFORM)) $(linux_BUILDDIR)/.config \
 	    && yes "" | $(linux_MAKE) oldconfig; \
 	  $(linux_MAKE) prepare; \
 	else \
+	  echo "Apply $(linux_defconfig-$(APP_PLATFORM))"; \
 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
 
@@ -506,7 +508,7 @@ GENDIR+=$(busybox_BUILDDIR)
 
 busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
 	if [ -f "$(PROJDIR)/busybox.config" ]; then \
-	  rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
+	  rsync -aL $(RSYNC_VERBOSE) $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
 	  yes "" | $(busybox_MAKE) oldconfig; \
 	else \
 	  $(busybox_MAKE) defconfig; \
@@ -3547,12 +3549,15 @@ dist-bp_dtbo:
 dist_bp_phase1_pkg+=libgpiod
 dist_bp_phase1_pkg+=v4lutils
 
-dist-bp_phase1:
+dist-bp_phase1_boot:
 # build all package
 	$(MAKE) atf optee linux uboot $(kernelrelease)
 	$(MAKE) linux_modules linux_dtbs
+
+dist-bp_phase1:
+# build all package
+	$(MAKE) dist-bp_phase1_boot
 	$(MAKE) INSTALL_HDR_PATH=$(BUILD_SYSROOT) linux_headers_install
-	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) $(addsuffix _destdep_install, \
 		$(dist_bp_phase1_pkg))
 	$(MAKE) dist_rootfs_phase1
@@ -3578,11 +3583,9 @@ dist-bp_itb_fdtaddr=$(shell $(call CMD_SED_KEYVAL1,fdtaddr) ubootenv-bp-a53.txt)
 dist-bp_mkimage_dtcargs+=-I dts -O dtb -p 500
 dist-bp_mkimage_dtcargs+=-Wno-unit_address_vs_reg
 
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr
-dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
+dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot
+dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
+dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
 	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
 	### serve sbl
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
@@ -3626,6 +3629,13 @@ dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 	$(PROJDIR)/tool/bin/mkimage $(if $(dist-bp_mkimage_dtcargs),-D "$(dist-bp_mkimage_dtcargs)") \
 	  -f $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/linux.itb
+
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/firmware/powervr
+dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
+	$(MAKE) dist-bp_phase2_boot
 	### serve rootfs
 	rsync -a $(RSYNC_VERBOSE) $(BUILD_SYSROOT)/* \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/
@@ -3635,6 +3645,7 @@ dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib/*.a \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib64/*.a
 	### serve kmod
+	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
 	$(MAKE) INSTALL_MOD_PATH=$(dist_DIR)/$(APP_PLATFORM)/rootfs linux_modules_install
 ifneq ($(strip $(filter powervr,$(APP_ATTR))),)
 	rsync -a $(RSYNC_VERBOSE) $(ti-linux-fw_DIR)/powervr/rogue_33.15.11.3_v1.fw \
@@ -3667,6 +3678,7 @@ dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 700M)
 	### genimage
+	$(RMTREE) $(BUILDDIR)/genimage_work
 	for i in root input output; do \
 	  $(MKDIR) $(BUILDDIR)/genimage_work/$$i; \
 	done
@@ -3735,7 +3747,8 @@ memo_git:
 #------------------------------------
 #
 distclean:
-	$(RMTREE) $(BUILDDIR) $(BUILDDIR2)
+	$(RMTREE) $(BUILDDIR) $(BUILDDIR2) $(dist_DIR)
+
 
 #------------------------------------
 #

@@ -856,20 +856,6 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
 
-    # kernel, dtb
-    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
-        "/media/mmcblk0p1/" \
-      || { log_e "Failed"; exit 1; }
-
-    # dt-overlay
-    cmd_run cp -Hv \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
-        "/media/mmcblk0p1/" \
-      || { log_e "Failed"; exit 1; }
-
-
     # _pri_uenv_txt="uenv.txt"
     _pri_uenv_txt="/media/mmcblk0p1/uenv.txt"
     _pri_uenv_bootset="$(( $(sed -n "s/^[[:space:]]*bootset=\(\d*\)/\1/p" ${_pri_uenv_txt} 2>/dev/null) ))"
@@ -909,6 +895,19 @@ while test -n "$1"; do
 
     # show info only
     [ "$_lo_ota_num" == "?" ] && exit
+
+    # kernel, dtb
+    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
+
+    # dt-overlay
+    cmd_run cp -Hv \
+        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "/media/mmcblk0p1/" \
+      || { log_e "Failed"; exit 1; }
 
     # shellcheck disable=SC2086
     cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" \
@@ -965,7 +964,7 @@ while test -n "$1"; do
   esac
 
   case "$opt1" in
-  $(basename "$0")|$(basename -s .sh "$0"))
+  devsync|devsync.sh|$(basename "$0")|$(basename -s .sh "$0"))
     nfsmount || exit
     nfsget_s "${_pri_nfsalgaebp}/builder/$(basename "$0")"
     ;;

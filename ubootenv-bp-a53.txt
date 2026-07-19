@@ -1,4 +1,5 @@
 # common between bp a53
+# uboot do not support recursively expend variable
 
 # mem offset 512 MB
 addr_fit=0xa0000000
@@ -48,6 +49,7 @@ loadkern=fatload ${bootsetdev} ${loadaddr} ${kernpath}
 loadfdt=fatload ${bootsetdev} ${fdtaddr} ${dtbpath}
 loadfit=fatload ${bootsetdev} ${addr_fit} ${fitpath}
 
+# #conf-2
 # fitext=
 
 sdboot=run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs && booti ${loadaddr} - ${fdtaddr}

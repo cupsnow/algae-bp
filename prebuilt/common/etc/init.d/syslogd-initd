@@ -8,7 +8,7 @@ log_d "$0 $*"
 
 SYSLOGD_DAEMON=/sbin/syslogd
 SYSLOGD_PIDFILE="/var/run/syslogd.pid"
-SYSLOGD_CONF="/tmp/syslog.conf"
+SYSLOGD_CONF="/etc/syslog.conf"
 SYSLOGD_ROTATECNT=5
 SYSLOGD_SHM=800
 SYSLOGD_ARGS="-L ${SYSLOGD_SHM:+-C${SYSLOGD_SHM}} ${SYSLOGD_ROTATECNT:+-b${SYSLOGD_ROTATECNT}} ${SYSLOGD_CONF:+-f${SYSLOGD_CONF}}"
@@ -27,10 +27,6 @@ tz_start () {
 }
 
 syslogd_start () {
-  if [ -n "$SYSLOGD_CONF" ] && [ ! -f "$SYSLOGD_CONF" ]; then
-    cp /etc/syslog.conf "$SYSLOGD_CONF"
-  fi
-
   cmd_run start-stop-daemon -p $SYSLOGD_PIDFILE -x $SYSLOGD_DAEMON -S -- $SYSLOGD_ARGS
 }
 
@@ -39,9 +35,6 @@ syslogd_stop () {
 }
 
 klogd_start () {
-  if [ -n "$KLOGD_CONF" ] && [ ! -f "$KLOGD_CONF" ]; then
-    cp /etc/syslog.conf "$KLOGD_CONF"
-  fi
   cmd_run start-stop-daemon -p $KLOGD_PIDFILE -x $KLOGD_DAEMON -S -- $KLOGD_ARGS
 }
 
@@ -63,7 +56,9 @@ stop)
   ;;
 restart)
   shift
-  $0 stop && $0 start "$@"
+  $0 stop
+  sleep 1
+  $0 start "$@"
   ;;
 *)
   cat <<-EOHERE

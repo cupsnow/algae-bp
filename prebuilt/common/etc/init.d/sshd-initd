@@ -8,18 +8,20 @@ log_d "$0 $*"
 
 _pri_daemin_exec="/sbin/sshd"
 _pri_daemin_pid="/var/run/sshd.pid"
-# _pri_sshd_log="/var/run/sshd.log"
-# log_f "$_pri_sshd_log"
-# log_f "$_pri_sshd_log" "$0 $*"
 
 sshd_start () {
-  if [ ! -d "/var/empty" ]; then
-    cmd_run mkdir -p /var/empty || { log_e "failed"; return 1; }
-  fi
 
-  if ! find_mount "*" /var/empty >/dev/null; then
-    cmd_run mount -t tmpfs none /var/empty || { log_e "failed"; return 1; }
-    cmd_run chmod 0755 /var/empty || { log_e "failed"; return 1; }
+  # fix message: Privilege separation user sshd does not exist
+  id sshd >/dev/null 2>&1 || adduser sshd -DH -s /usr/sbin/nologin
+
+  # fix message: must be owned by root and not group or world-writable.
+  _lo_emptydir=/var/empty
+  [ -d "${_lo_emptydir}" ] || mkdir -p ${_lo_emptydir} || { log_e "failed"; return 1; }
+
+  if ! find_mount "*" ${_lo_emptydir} >/dev/null; then
+    cmd_run mount -t tmpfs none ${_lo_emptydir} || { log_e "failed"; return 1; }
+    cmd_run chown 0 ${_lo_emptydir} || { log_e "failed"; return 1; }
+    cmd_run chmod 0755 ${_lo_emptydir} || { log_e "failed"; return 1; }
   fi
 
   cmd_run start-stop-daemon -p ${_pri_daemin_pid} -x ${_pri_daemin_exec} -S
@@ -40,7 +42,9 @@ stop)
   ;;
 restart)
   shift
-  $0 stop && $0 start "$@"
+  $0 stop
+  sleep 1
+  $0 start "$@"
   ;;
 *)
   cat <<-EOHERE

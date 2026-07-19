@@ -42,46 +42,46 @@ usb_ax88772_did=772b
 # ifplugd_up_dly=2
 ifplugd_down_dly=0
 
-func_rel () {
+func_rel() {
   return 1
 }
 
-ts_dt () {
+ts_dt() {
   date "+%y-%m-%d %H:%M:%S"
 }
 
-ts_dt2 () {
+ts_dt2() {
   date +%y%m%d%H%M%S
 }
 
-ts_dt3 () {
+ts_dt3() {
   date "+%H:%M:%S"
 }
 
-log_d () {
+log_d() {
   func_rel && return
   logger ${_pri_tag:+-t "$_pri_tag"} -p user.debug "$*"
 }
 
-log_sd () {
+log_sd() {
   echo "[debug]${_pri_tag:+[$_pri_tag]} $*"
   func_rel && return
   log_d "$*"
 }
 
-log_i () {
+log_i() {
   logger ${_pri_tag:+-t "$_pri_tag"} -p user.info "$*"
 }
 
-log_e () {
+log_e() {
   logger ${_pri_tag:+-t "$_pri_tag"} -p user.err "$*"
 }
 
-log_se () {
+log_se() {
   logger -s ${_pri_tag:+-t "$_pri_tag"} -p user.err "$*"
 }
 
-log_f () {
+log_f() {
   # [ -n "$1" ] || return
   # local log_file="$1"
   # shift
@@ -95,7 +95,7 @@ log_f () {
   :
 }
 
-log_cmd () {
+log_cmd() {
   [ -n "$log_cmd_fn" ] || log_cmd_fn=/media/$(basename $0).log
   echo "==============================================" >> $log_cmd_fn
   echo "$(ts_dt3) Execute: $*" >> $log_cmd_fn
@@ -106,18 +106,18 @@ log_cmd () {
   return $_lo_ret
 }
 
-log_ts1 () {
+log_ts1() {
   func_rel && return
   echo "[$(ts_dt3)]${_pri_tag:+[$_pri_tag]} $*" >> $air192_ts1_LOG_PATH
   log_d "$*"
 }
 
-cmd_run () {
+cmd_run() {
   log_d "Execute: $*"
   "$@"
 }
 
-positive1 () {
+positive1() {
   case "$1" in
   1|on|y|yes|true|positive)
     echo 1
@@ -132,7 +132,7 @@ positive1 () {
 }
 
 #  join_str '' "11 22 33"
-join_str () {
+join_str() {
   [ "$#" -ge 3 ] || echo "$2"
   sep="$1"
   str="$2"
@@ -145,7 +145,7 @@ join_str () {
 }
 
 # add_list _list_name_only fn1 fn2 fn2 fn3
-add_list () {
+add_list() {
   [ "$#" -ge 2 ] || { log_e "Nothing to add"; return 1; }
   _lo_list=$1
   shift
@@ -165,7 +165,7 @@ add_list () {
 }
 
 # rm_list list_name_only fn1 fn2
-rm_list () {
+rm_list() {
   [ "$#" -ge 2 ] || { log_e "Nothing to rm"; return 1; }
   _lo_list=$1
   shift
@@ -188,12 +188,12 @@ rm_list () {
   fi
 }
 
-as_num () {
+as_num() {
   _pri_num=`printf "%d" $1 2>/dev/null` && echo "$_pri_num"
 }
 
 # norm_setupcode 86984245 # output: 869-84-245
-norm_setupcode () {
+norm_setupcode() {
   [ -n "$1" ] || return 1
   _lo_val=$(echo "$1" | sed -En "s/^([0-9]{3})-([0-9]{2})-([0-9]{3}).*/\1-\2-\3/p")
   if [ -n "$_lo_val" ]; then
@@ -208,7 +208,7 @@ norm_setupcode () {
   return 1
 }
 
-norm_setupid () {
+norm_setupid() {
   [ -n "$1" ] || return 1
   _lo_pat1="[0-9a-zA-Z]"
   _lo_val=$(echo "$1" | sed -En "s/^(${_lo_pat1}${_lo_pat1}${_lo_pat1}${_lo_pat1}).*/\1/p" | tr [:lower:] [:upper:])
@@ -221,7 +221,7 @@ norm_setupid () {
 
 # norm_macaddr 06:32:42:54:5e:54 # output: 063242545e54
 # norm_macaddr 063242545e54 ":" # output: 06:32:42:54:5e:54
-norm_macaddr () {
+norm_macaddr() {
   [ -n "$1" ] || return 1
   _lo_sep="$2"
   _lo_pat1="([0-9A-Fa-f][0-9A-Fa-f])"
@@ -239,17 +239,21 @@ norm_macaddr () {
 }
 
 # get_inient1 "/etc/outofbox" "bct"
-get_inient1 () {
+get_inient1() {
   [ $# -ge 2 ] && [ -f "$1" ] || return 1
   local ent1="$(sed -E -n -e "s/^\s*$2\s*=\s*(.*)/\1/p" $1 2>/dev/null)"
   [ -n "$ent1" ] && echo $ent1
 }
 
-rm_inient1 () {
+rm_inient1() {
   sed -E -i -e "/^\s*$2\s*=.*/d" $1 2>/dev/null
 }
 
-file_size () {
+file_owner() {
+  stat -c "%U" $1
+}
+
+file_size() {
   [ -n "$1" ] || return 1
   local msg=$(wc -c $1 2>/dev/null) || return 1
   local sz=$(echo $msg | awk '{print $1;}')
@@ -257,49 +261,49 @@ file_size () {
   [ -n "$sz" ] && echo $sz
 }
 
-hex_gen () {
+hex_gen() {
   local str="$(join_str "${2}" `od -An -tx1 -N${1:-6} /dev/urandom`)"
   echo "$str"
 }
 
-ifce_reset1 () {
+ifce_reset1() {
   _lo_ifce=$1
   cmd_run ip a flush dev ${_lo_ifce}
   cmd_run ip l set ${_lo_ifce} down
   cmd_run ip l set ${_lo_ifce} up
 }
 
-ifce_down1 () {
+ifce_down1() {
   _lo_ifce=$1
   cmd_run ip l set ${_lo_ifce} down
 }
 
-ifce_list2 () {
+ifce_list2() {
   local ifce=$(ip l 2>/dev/null | sed -n "s/^[0-9]*:\s\(${1}[^:]*\):\s*<.*${2}.*>.*/\1/p")
   [ -n "$ifce" ] && echo $ifce
 }
 
-ifce_link_up () {
+ifce_link_up() {
   [ "`cat /sys/class/net/${1}/carrier 2>/dev/null`" = "1" ]
 }
 
 # phy=`iw_phy` && echo "Wifi deivce: $phy"
-iw_phy () {
+iw_phy() {
   local phy=$(iw dev 2>/dev/null | sed -n "s/^phy#\(\d*\)/phy\1/p")
   [ -n "$phy" ] && echo $phy
 }
 
-iw_dev () {
+iw_dev() {
   local dev=$(iw dev 2>/dev/null | sed -n "s/^\s*Interface\s*\(.*\)/\1/p")
   [ -n "$dev" ] && echo $dev
 }
 
-wpa_ssid () {
+wpa_ssid() {
  local ssid="$(sed -n 's/^\s*[^#]\s*ssid\s*=\s*["]\(.*\)["]/\1/p' $wpasup_cfg 2>/dev/null)"
   [ -n "$ssid" ] && echo $ssid
 }
 
-wphy_wait () {
+wphy_wait() {
   local ct=${1:-3}
   local wphy=
   while ! wphy="$(iw_phy)" && [ $ct -gt 0 ]; do
@@ -310,7 +314,7 @@ wphy_wait () {
   [ -n "$wphy" ] && echo $wphy
 }
 
-do_insmod () {
+do_insmod() {
   [ -n "$1" ] || { log_e "do_insmod invalid parameter"; return 1; }
   local modname=$(basename $1)
   modname="$(echo ${modname%.*} | tr '-' '_')"
@@ -323,7 +327,7 @@ do_insmod () {
   fi
 }
 
-do_modprobe () {
+do_modprobe() {
   [ -n "$1" ] || { log_e "do_modprobe invalid parameter"; return 1; }
   local modname=$(basename $1)
   modname="$(echo ${modname%.*} | tr '-' '_')"
@@ -336,16 +340,16 @@ do_modprobe () {
   fi
 }
 
-get_led () {
+get_led() {
   cat $1 | sed -n -e 's/.*"led"\s*\:\s*\[\(.*\)\].*/\1/' \
     -e 's/.*\s*"color"\s*:\s*"white".*"pin"\s*:\s*\([0-9]*\).*/\1/p'
 }
 
-adk_paired () {
+adk_paired() {
   [ -f "/root/.HomeKitStore/A0.00" ]
 }
 
-find_usbdev () {
+find_usbdev() {
   local dev_vid=$(echo ${1:-$_pri_vid} | tr [:lower:] [:upper:])
   dev_vid=${dev_vid#0X}
   local dev_pid=$(echo ${2:-$_pri_pid} | tr [:lower:] [:upper:])
@@ -372,7 +376,7 @@ find_usbdev () {
   return 1
 }
 
-find_sddev () {
+find_sddev() {
   local dev_vid=$(echo ${1:-$_pri_vid} | tr [:lower:] [:upper:])
   dev_vid=${dev_vid#0X}
   local dev_did=$(echo ${2:-$_pri_did} | tr [:lower:] [:upper:])
@@ -400,7 +404,7 @@ find_sddev () {
   return 1
 }
 
-find_mtd () {
+find_mtd() {
 # cat /proc/mtd
 # dev:    size   erasesize  name
 # mtd3: 00040000 00020000 "pref"
@@ -408,14 +412,14 @@ find_mtd () {
   [ -n "$dev" ] && echo $dev
 }
 
-find_ubi () {
+find_ubi() {
 # /sys/class/ubi/ubi0/mtd_num:10
   local dev="$(grep -iwR ${1} /sys/class/ubi/ubi[0-9]/mtd_num | \
       sed -n -E "s/\/sys\/class\/ubi\/ubi(.*)\/mtd_num:.*/\1/p")"
   [ -n "$dev" ] && echo $dev
 }
 
-find_mount () {
+find_mount() {
   # root@Eve_Play: ~ # cat /proc/mounts
   # ubi0:rootfs / ubifs rw,sync,relatime,assert=read-only,ubi=0,vol=0 0 0
   # devtmpfs /dev devtmpfs rw,relatime,size=51140k,nr_inodes=12785,mode=755 0 0
@@ -452,13 +456,13 @@ EOR
 }
 
 # state=`wpa_state` || echo "WPA not ready"
-wpa_state () {
+wpa_state() {
   local st=$(wpa_cli ${1:+-i${1}} status 2>/dev/null | sed -n "s/^wpa_state\s*=\s*\(.*\)/\1/p")
   echo $st
   [ "$st" == "COMPLETED" ]
 }
 
-wpa_wait () {
+wpa_wait() {
   local ct=${1:-3}
   local wpast=
   while ! wpast="$(wpa_state)" && [ $ct -gt 0 ]; do
@@ -471,7 +475,7 @@ wpa_wait () {
   [ "$wpast" == "COMPLETED" ]
 }
 
-wpa_scan_wait () {
+wpa_scan_wait() {
   _lo_ct=${1:-10}
   _lo_st=$(wpa_state)
   [ -n "$_lo_st" ] || return 1
@@ -486,33 +490,33 @@ wpa_scan_wait () {
 }
 
 # state=`hostapd_state` && [ "$state" == "ENABLED" ] && echo "hostapd ready"
-hostapd_state () {
+hostapd_state() {
   wpa_cli -p /var/run/hostapd -i wlan0 status 2>/dev/null | sed -n "s/^state\s*=\s*\(.*\)/\1/p"
 }
 
-ifce_list () {
+ifce_list() {
   ifce_list2 "" "$@"
 }
 
-mifce_list () {
+mifce_list() {
   ifce_list2 "" "MULTICAST"
 }
 
-ip_list () {
+ip_list() {
   [ -n "$1" ] || return
   for ifce in $*; do
     ip a show dev $ifce 2>/dev/null | sed -n "s/^\s*inet\s\s*\([.0-9]*\).*/\1/p"
   done
 }
 
-ip6_list () {
+ip6_list() {
   [ -n "$1" ] || return
   for ifce in $*; do
     ip a show dev $ifce 2>/dev/null | sed -n "s/^\s*inet6\s\s*\([:a-f0-9]*\).*/\1/p"
   done
 }
 
-ip6_eui64_gen () {
+ip6_eui64_gen() {
   [ -n "$1" ] || return
   for ifce in $*; do
     sysctl -w net.ipv6.conf.${ifce}.addr_gen_mode=1
@@ -520,11 +524,11 @@ ip6_eui64_gen () {
   done
 }
 
-dns_list () {
+dns_list() {
   sed -n "s/^\s*nameserver\s\s*\([^\s]*\).*/\1/p" "$@"
 }
 
-countdown () {
+countdown() {
   local _pri_ct=${1:-3}
   while [ $_pri_ct -gt 0 ]; do
     [ -z "$2" ] || eval "$2 $_pri_ct"
@@ -533,7 +537,7 @@ countdown () {
   done
 }
 
-add_resolv_dns () {
+add_resolv_dns() {
   [ $# -eq 2 ] || return 1
   local resolv=$1
   local dns=$2
@@ -547,7 +551,7 @@ add_resolv_dns () {
   echo "nameserver $dns" >> $resolv
 }
 
-ip_del_ifce () {
+ip_del_ifce() {
   [ -n "$1" ] || return
   for ifce in $*; do
     ip_list $ifce | while read ip; do
@@ -557,7 +561,7 @@ ip_del_ifce () {
   done
 }
 
-route_del_ifce () {
+route_del_ifce() {
   [ -n "$1" ] || return
   for ifce in $*; do
     ip r list dev $ifce 2>/dev/null | \
@@ -571,7 +575,7 @@ route_del_ifce () {
 
 # kill_prog "wpa_supplicant|udhcpc"
 # return true when all killed
-kill_prog () {
+kill_prog() {
   local _pri_pat="$@"
   for _pri_pid in `pgrep -x "$_pri_pat"`; do
     kill $_pri_pid 2>/dev/null
@@ -594,7 +598,7 @@ kill_prog () {
 
 # daemon [start|stop] <PROG> [ARGS...]
 # Start PROG when not running or kill all instance
-daemon () {
+daemon() {
   case "$1" in
   "start")
     shift
