@@ -1,12 +1,24 @@
 Frigate usage
 ====
 
+Build Host: Ubuntu 22.04
+
+X11 (not wayland)
+
 Frigate
 ----
 
-Host: Ubuntu 22.04
+Upstream: `https://github.com/blakeblackshear/frigate.git`
 
-My patch to build frigate: [frigate-build2.patch](frigate-build2.patch)
+GIT describe: `v0.17.1-504-gefe585a92`
+
+Build
+----
+
+In my case this patch is required for building frigate: [frigate-build2.patch](frigate-build2.patch)
+
+    cd frigate \
+        && patch -p1 <frigate-build2.patch
 
 Change directory to frigate, run
 
@@ -44,7 +56,7 @@ Test
 
     vlc v4l2:///dev/video10
 
-    ffplay rtsp://172.20.0.1:9554/h264esvideotest
+    ffplay rtsp://172.20.0.1:9554/h264
 
 ONVIF server
 ----
@@ -63,22 +75,22 @@ Run
       --scope onvif://www.onvif.org/Profile/S \
       --name Desktop \
       --width 1920 --height 1080 \
-      --url "rtsp://%s:9554/h264esvideotest" --type H264 \
+      --url "rtsp://%s:9554/h264" --type H264 \
       --user admin --password password
 
-ffmpeg with intel gpu acceleration
+ffmpeg with intel GPU acceleration
 ----
 
-ffmpeg \
-    -hwaccel vaapi \
-    -hwaccel_device /dev/dri/renderD128 \
-    -hwaccel_output_format vaapi \
-    -i xxxxx.h264 \
-    -vf hwdownload,format=nv12 \
-    -f rawvideo - \
-| \
-ffplay \
-    -f rawvideo \
-    -pixel_format nv12 \
-    -video_size 1080x720 \
-    -
+    ffmpeg \
+        -hwaccel vaapi \
+        -hwaccel_device /dev/dri/renderD128 \
+        -hwaccel_output_format vaapi \
+        -i xxxxx.h264 \
+        -vf hwdownload,format=nv12 \
+        -f rawvideo - \
+    | \
+    ffplay \
+        -f rawvideo \
+        -pixel_format nv12 \
+        -video_size 1280x720 \
+        -
