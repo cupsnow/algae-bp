@@ -3645,7 +3645,7 @@ dist-bp_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib/*.a \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/usr/lib64/*.a
 	### serve kmod
-	$(RMTREE) $(BUILD_SYSROOT)/lib/modules
+	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules
 	$(MAKE) INSTALL_MOD_PATH=$(dist_DIR)/$(APP_PLATFORM)/rootfs linux_modules_install
 ifneq ($(strip $(filter powervr,$(APP_ATTR))),)
 	rsync -a $(RSYNC_VERBOSE) $(ti-linux-fw_DIR)/powervr/rogue_33.15.11.3_v1.fw \

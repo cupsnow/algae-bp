@@ -209,6 +209,7 @@ imx219
     fdt addr ${fdtaddr} && fdt print
     fdt addr ${fitaddr} && fdt list
 
+    modprobe cdns-dphy-rx
     modprobe j721e-csi2rx
     modprobe imx219
 
