@@ -21,6 +21,8 @@
 #include <BasicUsageEnvironment.hh>
 #include <GroupsockHelper.hh>
 
+#include <aloe/util_img.h>
+
 #include "v4l2_capture.h"
 #include "x264_encoder.h"
 #include "priv.h"
@@ -79,8 +81,8 @@ struct V4l2RtspPipeline {
   std::deque<std::vector<uint8_t>> nalQueue;
 
   V4l2RtspPipeline(const char* device, uint32_t width, uint32_t height,
-                   int fpsIn, int bitrateIn)
-      : capture(device, width, height),
+                   int fpsIn, int bitrateIn, uint32_t pixelformat = 0)
+      : capture(device, width, height, pixelformat),
         fps(fpsIn),
         frameDurationUs(static_cast<unsigned>(1000000 / (fpsIn > 0 ? fpsIn : 30))),
         bitrateKbps(bitrateIn) {}
@@ -157,6 +159,8 @@ private:
     }
   }
 
+  std::vector<uint8_t> i420_buf;
+
   static void v4l2ReadableHandler(V4l2H264FramedSource* source, int /*mask*/) {
     if (!gPipeline || !gPipeline->streaming) return;
 
@@ -170,6 +174,26 @@ private:
     uint32_t width = gPipeline->capture.width();
     uint32_t height = gPipeline->capture.height();
     uint32_t stride = width;
+
+#if 1
+    if (gPipeline->capture.m_pixelformat == V4L2_PIX_FMT_SRGGB10) {
+    	size_t srcsz = width * height * 2;
+    	if (buf.length < srcsz) {
+    		log_e("unexpect size\n");
+    	    gPipeline->capture.enqueueBuffer(bufIndex);
+    	    return;
+    	}
+    	size_t i420_sz = width * height + (width / 2) * (height / 2) * 2;
+    	std::vector<uint8_t> &i420_buf = source->i420_buf;
+    	if (i420_buf.size() < i420_sz) {
+    		i420_buf.resize(i420_sz);
+    	}
+
+    	const uint16_t *rg10 = static_cast<const uint16_t*>(buf.start);
+    	aloe_rggb10_to_rgb888_i420(width, height, rg10, i420_buf.data(), NULL);
+    	data = i420_buf.data();
+    }
+#endif
 
     const uint8_t* yPlane = data;
     const uint8_t* uPlane = data + stride * height;
@@ -331,12 +355,18 @@ static int live555_main(int argc, char** argv) {
   int fps = (argc > 4) ? atoi(argv[4]) : 30;
   int bitrateKbps = (argc > 5) ? atoi(argv[5]) : 2000;
   portNumBits rtspPort = (argc > 6) ? static_cast<portNumBits>(atoi(argv[6])) : 8554;
+  uint32_t pixelformat = 0;
+
+#if 1
+  pixelformat = V4L2_PIX_FMT_SRGGB10;
+  printf("V4L2_PIX_FMT_SRGGB10\n");
+#endif
 
   printf("Device: %s\n", device);
   printf("Resolution: %ux%u @ %d fps, %d kbps\n", width, height, fps, bitrateKbps);
   printf("RTSP port: %u\n", rtspPort);
 
-  V4l2RtspPipeline pipeline(device, width, height, fps, bitrateKbps);
+  V4l2RtspPipeline pipeline(device, width, height, fps, bitrateKbps, pixelformat);
   if (!pipeline.init()) {
     fprintf(stderr, "Failed to initialize V4L2/x264 pipeline\n");
     return 1;

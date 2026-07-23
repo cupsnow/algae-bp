@@ -6,9 +6,11 @@
 #include <cstring>
 #include <cstdio>
 
-V4L2Capture::V4L2Capture(const char* device, uint32_t width, uint32_t height)
+V4L2Capture::V4L2Capture(const char* device, uint32_t width, uint32_t height,
+		uint32_t pixelformat)
   : m_width(width), m_height(height)
 {
+	if (pixelformat == 0) m_pixelformat = V4L2_PIX_FMT_YUV420;
   openDevice(device);
 }
 
@@ -38,7 +40,7 @@ bool V4L2Capture::init()
     fprintf(stderr, "Device does not support video capture\n");
     return false;
   }
-  if (!configureFormat(m_width, m_height)) {
+  if (!configureFormat2(m_width, m_height, m_pixelformat)) {
     fprintf(stderr, "Failed to configure YU12 format %ux%u\n", m_width, m_height);
     return false;
   }
@@ -57,33 +59,109 @@ bool V4L2Capture::queryCapabilities()
 {
   struct v4l2_capability cap;
   memset(&cap, 0, sizeof(cap));
-  if (ioctl(m_fd, VIDIOC_QUERYCAP, &cap) < 0) return false;
-  return (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) &&
-         (cap.capabilities & V4L2_CAP_STREAMING);
+  if (ioctl(m_fd, VIDIOC_QUERYCAP, &cap) < 0) {
+	  fprintf(stderr, "Failed VIDIOC_QUERYCAP\n");
+	  return false;
+  }
+  if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) return false;
+  if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
+	  fprintf(stderr, "miss V4L2_CAP_STREAMING\n");
+	  return false;
+  }
+  return true;
+}
+
+#define fourccValid1(_v) ( \
+		((_v) >= 'A' && (_v) <= 'Z') \
+		|| ((_v) >= 'a' && (_v) <= 'z') \
+		|| ((_v) >= '0' && (_v) <= '9') \
+		|| ((_v) == ' ') \
+)
+
+#define fourccValid(_v) ( \
+		fourccValid1   (((_v) >>  0) & 0xff) \
+		&& fourccValid1(((_v) >>  8) & 0xff) \
+		&& fourccValid1(((_v) >> 16) & 0xff) \
+		&& fourccValid1(((_v) >> 24) & 0xff) \
+)
+
+static const char *fourccStr(char *str, size_t sz, uint32_t fourcc) {
+	uint32_t cc[] = {
+		(((fourcc) >>  0) & 0xff),
+		(((fourcc) >>  8) & 0xff),
+		(((fourcc) >> 16) & 0xff),
+		(((fourcc) >> 24) & 0xff)
+	};
+	if (fourccValid1(cc[0])
+			&& fourccValid1(cc[1])
+			&& fourccValid1(cc[2])
+			&& fourccValid1(cc[3])) {
+		if (sz > 0) str[0] = cc[0];
+		if (sz > 1) str[1] = cc[1];
+		if (sz > 2) str[2] = cc[2];
+		if (sz > 3) str[3] = cc[3];
+		if (sz > 4) str[4] = '\0';
+	} else {
+		snprintf(str, sz, "%x", fourcc);
+	}
+	if (sz > 0) str[sz - 1] = '\0';
+	return str;
+}
+
+bool V4L2Capture::configureFormat2(uint32_t width, uint32_t height,
+		uint32_t pixelformat) {
+	struct v4l2_format fmt;
+	char fourcc_str[16];
+
+	memset(&fmt, 0, sizeof(fmt));
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmt.fmt.pix.width = width;
+	fmt.fmt.pix.height = height;
+	fmt.fmt.pix.pixelformat = pixelformat; // YU12 = YUV420 planar
+	fmt.fmt.pix.field = V4L2_FIELD_NONE;
+
+	if (ioctl(m_fd, VIDIOC_S_FMT, &fmt) < 0) {
+		fprintf(stderr, "VIDIOC_S_FMT failed\n");
+		return false;
+	}
+
+	ioctl(m_fd, VIDIOC_G_FMT, &fmt);
+	m_width = fmt.fmt.pix.width;
+	m_height = fmt.fmt.pix.height;
+	m_pixelformat = fmt.fmt.pix.pixelformat;
+
+	printf("Pixel Format: %s (%x) %ux%u, bytesperline=%u, sizeimage=%u\n",
+			fourccStr(fourcc_str, sizeof(fourcc_str), m_pixelformat), m_pixelformat,
+			m_width, m_height, fmt.fmt.pix.bytesperline,
+			fmt.fmt.pix.sizeimage);
+	return true;
 }
 
 bool V4L2Capture::configureFormat(uint32_t width, uint32_t height)
 {
-  struct v4l2_format fmt;
-  memset(&fmt, 0, sizeof(fmt));
-  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  fmt.fmt.pix.width = width;
-  fmt.fmt.pix.height = height;
-  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420; // YU12 = YUV420 planar
-  fmt.fmt.pix.field = V4L2_FIELD_NONE;
+//  struct v4l2_format fmt;
+//  memset(&fmt, 0, sizeof(fmt));
+//  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+//  fmt.fmt.pix.width = width;
+//  fmt.fmt.pix.height = height;
+//  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420; // YU12 = YUV420 planar
+//  fmt.fmt.pix.field = V4L2_FIELD_NONE;
+//
+//  if (ioctl(m_fd, VIDIOC_S_FMT, &fmt) < 0) {
+//    fprintf(stderr, "VIDIOC_S_FMT failed\n");
+//    return false;
+//  }
+//
+//  ioctl(m_fd, VIDIOC_G_FMT, &fmt);
+//  m_width = fmt.fmt.pix.width;
+//  m_height = fmt.fmt.pix.height;
+//
+//  printf("Format: YU12 (YUV420P) %ux%u, bytesperline=%u, sizeimage=%u\n",
+//         m_width, m_height, fmt.fmt.pix.bytesperline, fmt.fmt.pix.sizeimage);
+//  return true;
 
-  if (ioctl(m_fd, VIDIOC_S_FMT, &fmt) < 0) {
-    fprintf(stderr, "VIDIOC_S_FMT failed\n");
-    return false;
-  }
-
-  ioctl(m_fd, VIDIOC_G_FMT, &fmt);
-  m_width = fmt.fmt.pix.width;
-  m_height = fmt.fmt.pix.height;
-
-  printf("Format: YU12 (YUV420P) %ux%u, bytesperline=%u, sizeimage=%u\n",
-         m_width, m_height, fmt.fmt.pix.bytesperline, fmt.fmt.pix.sizeimage);
-  return true;
+	// YU12 = YUV420 planar
+	return configureFormat2(width, height, V4L2_PIX_FMT_YUV420);
 }
 
 bool V4L2Capture::allocateBuffers(uint32_t count)

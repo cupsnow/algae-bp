@@ -815,6 +815,37 @@ while test -n "$1"; do
     ${opt1} $*
     exit
     ;;
+  sh)
+    nfsmount || exit
+    cmd_run cp -Hv ${_pri_nfsalgaebp}/prebuilt/bp/common/etc/init.d/imx219 /etc/init.d/ \
+      || { log_e "Failed"; exit 1; }
+    exit
+    ;;
+  v4l2dump)
+    nfsmount || exit
+    nfsmount /home/joelai/Downloads "${_pri_nfsdw}"  || exit
+    _lo_destdir=v4l2dump
+    mkdir -p $_lo_destdir
+
+    _lo_dst=${_lo_destdir}/media_ctl-topology.txt
+    rm -rf ${_lo_dst}
+    script -c "media-ctl -p" ${_lo_dst}
+
+    _lo_dst=${_lo_destdir}/v4l2_ctl-links.txt
+    rm -rf ${_lo_dst}
+    script -c "v4l2-ctl -d /dev/video0 --all" ${_lo_dst}
+
+    _lo_dst=${_lo_destdir}/v4l2_ctl-fmts.txt
+    rm -rf ${_lo_dst}
+    script -c "v4l2-ctl -d /dev/video0 --list-formats-ext" ${_lo_dst}
+
+    exit
+    ;;
+  v4l2rg10)
+    cmd_run media-ctl -d /dev/media0 --set-v4l2 '"imx219 4-0010":0[fmt:SRGGB10_1X10/3280x2464]' || exit
+    cmd_run media-ctl -d /dev/media0 --set-v4l2 '"cdns_csi2rx.30101000.csi-bridge":0[fmt:SRGGB10_1X10/3280x2464]' || exit
+    cmd_run v4l2-ctl -d /dev/video0 --set-fmt-video=width=3280,height=2464,pixelformat=RG10 || exit
+    ;;
   bl|bl[2-3])
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit

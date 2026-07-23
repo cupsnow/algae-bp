@@ -1,8 +1,5 @@
-Developer Note
-====
-
 Repo
-----
+====
 
 linux-upstream: v6.11.11, v6.11, 98f7e32f20d28ec452afb208f9cffc08448a2652, de0a9f4486337d0eabacc23bd67ff73146eacdc0
 - `6.19.9` ethernet and wifi unavailable
@@ -20,19 +17,19 @@ arm-trusted-firmware-upstream: `f2735ebccf5173f74c0458736ec526276106097e`
 busybox-upstream: `a6ce017a8a2db09c6f23aa6abf7ce21fd00c2fdf`
 
 Build
-----
+====
 
     make dist
 
 Flash to SD Card
-----
+====
 
     cp -a destdir/bp/boot/* destdir/bp/boot_sd/* /media/joelai/BOOT/
     umount /dev/sddx
     dd if=destdir/bp/rootfs.img of=/dev/sddx bs=4M conv=fdatasync status=progress iflag=nonblock oflag=nonblock
 
 Format emmc
-----
+====
 
       sfdisk /dev/mmcblk0 <<-EOSFDISK
     label:gpt
@@ -43,7 +40,7 @@ Format emmc
     EOSFDISK
 
 U-Boot
-----
+====
 
 U-Boot version (**v2024.10**) failure to use external defconfig, workaround to apply upstream defconfig then patch
 
@@ -122,7 +119,7 @@ More commands
     setenv sdboot 'run importenv; run initbootset${bootset} && run loadfit && run loadbootargs && bootm ${addr_fit}'
 
 yocto
-----
+====
 
 Reference
 
@@ -171,7 +168,7 @@ Build
          bitbake core-image-minimal --runall=fetch
 
 Garage
-----
+====
 
 u-boot comand collection
 
@@ -196,6 +193,9 @@ u-boot comand collection
     setenv bootargs_root root=/dev/mmcblk0p2 rootfstype=ext4 rootwait
 
 imx219
+----
+
+command
 
     run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs
 
@@ -218,8 +218,15 @@ imx219
     root@algae:~# i2ctransfer -y 4 w2@0x10 0x00 0x00 r2
     0x02 0x19
 
-  
     media-ctl -p
+    v4l2-ctl -d /dev/video0 --list-formats-ext
 
-    v4l2-ctl --list-devices
+    media-ctl -d /dev/media0 --set-v4l2 '"imx219 4-0010":0[fmt:SRGGB10_1X10/3280x2464]'
+    media-ctl -d /dev/media0 --set-v4l2 '"cdns_csi2rx.30101000.csi-bridge":0[fmt:SRGGB10_1X10/3280x2464]'
+    v4l2-ctl -d /dev/video0 --set-fmt-video=width=3280,height=2464,pixelformat=RG10
 
+    v4l2-ctl -d /dev/video0 --get-fmt-video
+
+    v4l2-ctl -d /dev/video0 --set-fmt-video=width=3280,height=2464,pixelformat=RG10 --stream-mmap --stream-count=10 --stream-to=imx219.raw --verbose
+
+    ffplay -f rawvideo -pixel_format bayer_rggb16le -video_size 3280x2464 -i imx219.raw

@@ -13,7 +13,8 @@ struct V4L2Buffer {
 
 class V4L2Capture {
 public:
-  V4L2Capture(const char* device, uint32_t width, uint32_t height);
+  V4L2Capture(const char* device, uint32_t width, uint32_t height,
+		  uint32_t pixelformat = 0);
   ~V4L2Capture();
 
   bool init();
@@ -29,6 +30,7 @@ public:
 public:
   bool openDevice(const char* device);
   bool queryCapabilities();
+  bool configureFormat2(uint32_t width, uint32_t height, uint32_t pixelformat);
   bool configureFormat(uint32_t width, uint32_t height);
   bool allocateBuffers(uint32_t count = 4);
   bool initMMap();
@@ -37,6 +39,7 @@ public:
   uint32_t m_width;
   uint32_t m_height;
   std::vector<V4L2Buffer> m_buffers;
+  uint32_t m_pixelformat;
 };
 
 #endif // V4L2_CAPTURE_H
