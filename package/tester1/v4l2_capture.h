@@ -6,6 +6,20 @@
 #include <cstdint>
 #include <vector>
 
+#define aloe_fourcc_valid1(_v) ( \
+		((_v) >= 'A' && (_v) <= 'Z') \
+		|| ((_v) >= 'a' && (_v) <= 'z') \
+		|| ((_v) >= '0' && (_v) <= '9') \
+		|| ((_v) == ' ') \
+)
+
+#define aloe_fourcc_valid(_v) ( \
+		aloe_fourcc_valid1   (((_v) >>  0) & 0xff) \
+		&& aloe_fourcc_valid1(((_v) >>  8) & 0xff) \
+		&& aloe_fourcc_valid1(((_v) >> 16) & 0xff) \
+		&& aloe_fourcc_valid1(((_v) >> 24) & 0xff) \
+)
+
 struct V4L2Buffer {
   void* start;
   size_t length;

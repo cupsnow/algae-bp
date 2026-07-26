@@ -239,11 +239,30 @@ ARTIFACT+=$(tester_v4l2rtsp_BIN)
 #------------------------------------
 #
 tester_v4l2rtsp2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_v4l2rtsp2_SRCS+=$(abspath $(wildcard \
+  $(PROJDIR)/package/aloe/simd/*.cpp \
+  $(PROJDIR)/package/aloe/simd/*.c \
+))
+
 tester_v4l2rtsp2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
 $(foreach pkg,live555 openssl x264, \
   $(eval tester_v4l2rtsp2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
   $(eval tester_v4l2rtsp2_LDFLAGS+=$($(pkg)_LDFLAGS)))
+
+ifneq ($(filter bp,$(APP_PLATFORM)),)
+tester_v4l2rtsp2_CFLAGS+=-O3 -march=armv8-a+simd
+tester_v4l2rtsp2_CXXFLAGS+=-O3 -march=armv8-a+simd
+tester_v4l2rtsp2_LDFLAGS+=-O3 -march=armv8-a+simd
+else ifneq ($(filter bb,$(APP_PLATFORM)),)
+tester_v4l2rtsp2_CFLAGS+=-O3 -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
+tester_v4l2rtsp2_CXXFLAGS+=-O3 -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
+tester_v4l2rtsp2_LDFLAGS+=-O3 -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
+else
+tester_v4l2rtsp2_CFLAGS+=-O3 -mavx2
+tester_v4l2rtsp2_CXXFLAGS+=-O3 -mavx2
+tester_v4l2rtsp2_LDFLAGS+=-O3 -mavx2
+endif
 
 tester_v4l2rtsp2_CPPFLAGS+=$(CPPFLAGS)
 tester_v4l2rtsp2_CFLAGS+=$(CFLAGS)

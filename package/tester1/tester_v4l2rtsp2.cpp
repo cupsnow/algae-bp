@@ -16,6 +16,9 @@
 #include <cstring>
 #include <deque>
 #include <vector>
+#include <chrono>
+
+#include <getopt.h>
 
 #include <liveMedia.hh>
 #include <BasicUsageEnvironment.hh>
@@ -26,6 +29,21 @@
 #include "v4l2_capture.h"
 #include "x264_encoder.h"
 #include "priv.h"
+
+#define VERBOSE_LEVEL_NONE 0
+#define VERBOSE_LEVEL_ERR 1
+#define VERBOSE_LEVEL_INFO 2
+#define VERBOSE_LEVEL_DEBUG 3
+#define VERBOSE_LEVEL_VERBOSE 4
+
+static const char *vcap_device = "/dev/video0";
+static int vcap_width = 1920;
+static int vcap_height = 1080;
+static int vcap_fps = 30;
+static uint32_t vcap_pixelformat = aloe_fourcc_val("YU12"); // YU12 = YUV420 planar
+static int venc_kbps = 2000;
+static int rtsp_port = 8554;
+static int verbose_level = VERBOSE_LEVEL_INFO;
 
 // ---------------------------------------------------------------------------
 // Annex-B helpers (for discrete framer input)
@@ -77,6 +95,8 @@ struct V4l2RtspPipeline {
   unsigned frameDurationUs;
   int bitrateKbps;
   bool streaming = false;
+	int m_venc_w = 0;
+	int m_venc_h = 0;
 
   std::deque<std::vector<uint8_t>> nalQueue;
 
@@ -90,17 +110,24 @@ struct V4l2RtspPipeline {
   ~V4l2RtspPipeline() { delete encoder; }
 
   bool init() {
-    if (!capture.init()) return false;
+    if (!capture.init()) {
+		log_e("Failed init capture\n");
+		return false;
+	}
 
-    uint32_t w = capture.width();
-    uint32_t h = capture.height();
+    uint32_t w = m_venc_w > 0 ? m_venc_w : capture.width();
+    uint32_t h = m_venc_h > 0 ? m_venc_h : capture.height();
     encoder = new X264Encoder(w, h, fps, bitrateKbps);
     if (!encoder->init()) {
+		log_e("Failed init encoder\n");
       delete encoder;
       encoder = nullptr;
       return false;
     }
-    if (!capture.startStreaming()) return false;
+    if (!capture.startStreaming()) {
+		log_e("Failed start capture\n");
+		return false;
+	}
     streaming = true;
     return true;
   }
@@ -171,11 +198,32 @@ private:
     const V4L2Buffer& buf = buffers[bufIndex];
     const uint8_t* data = static_cast<const uint8_t*>(buf.start);
 
-    uint32_t width = gPipeline->capture.width();
-    uint32_t height = gPipeline->capture.height();
+    uint32_t width = gPipeline->m_venc_w ? gPipeline->m_venc_w : gPipeline->capture.width();
+    uint32_t height = gPipeline->m_venc_h ? gPipeline->m_venc_h : gPipeline->capture.height();
     uint32_t stride = width;
 
-#if 1
+	log_d("get data %d\n", (int)buf.length);
+
+	static int cnt = 10;
+	do {
+		const char *filepath = "/media/dw/imx219.raw";
+		int len;
+
+		if (cnt <= 0) break;
+		log_d("writing file (%s)\n", filepath);
+		cnt--;
+		if ((len = aloe_bio_write_fn(filepath, data, (size_t)buf.length, 
+				O_WRONLY | O_CREAT | O_APPEND)) != buf.length) {
+			log_e("incomplete write: %d/%d\n", len, (int)buf.length);
+			cnt = 0;
+			break;
+		}
+		log_d("written file, %d more\n", cnt);
+	} while(0);
+
+	std::chrono::steady_clock::time_point t1;
+	std::chrono::milliseconds td1;
+#if 0
     if (gPipeline->capture.m_pixelformat == V4L2_PIX_FMT_SRGGB10) {
     	size_t srcsz = width * height * 2;
     	if (buf.length < srcsz) {
@@ -190,31 +238,50 @@ private:
     	}
 
     	const uint16_t *rg10 = static_cast<const uint16_t*>(buf.start);
-    	aloe_rggb10_to_rgb888_i420(width, height, rg10, i420_buf.data(), NULL);
+		t1 = std::chrono::steady_clock::now();
+    	aloe_rggb10_to_rgb888_i420_simd_v2(width, height, rg10, i420_buf.data(), NULL);
+		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t1);
+		log_d("rggb10 to i420 cost %llu milliseconds\n", (unsigned long long)td1.count());
     	data = i420_buf.data();
     }
 #endif
 
-    const uint8_t* yPlane = data;
-    const uint8_t* uPlane = data + stride * height;
-    const uint8_t* vPlane = uPlane + (stride / 2) * (height / 2);
+	bool do_encode = true;
 
-    std::vector<uint8_t> annexB;
-    int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, stride, annexB);
+	// do_encode = false;
 
-    gPipeline->capture.enqueueBuffer(bufIndex);
+	if (do_encode) {
+		const uint8_t* yPlane = data;
+		const uint8_t* uPlane = data + stride * height;
+		const uint8_t* vPlane = uPlane + (stride / 2) * (height / 2);
 
-    if (encSize > 0 && !annexB.empty()) {
-      std::vector<std::vector<uint8_t>> nalUnits;
-      splitAnnexBNals(annexB, nalUnits);
-      for (auto& nal : nalUnits) {
-        if (nal.size() > source->maxNalSize) source->maxNalSize = nal.size();
-        gPipeline->nalQueue.push_back(std::move(nal));
-      }
-      while (gPipeline->nalQueue.size() > 120) {
-        gPipeline->nalQueue.pop_front();
-      }
-    }
+		std::vector<uint8_t> annexB;
+		t1 = std::chrono::steady_clock::now();
+		int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, stride, annexB);
+		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t1);
+		log_d("x264 encode cost %llu milliseconds\n", (unsigned long long)td1.count());
+
+		gPipeline->capture.enqueueBuffer(bufIndex);
+
+		if (encSize > 0 && !annexB.empty()) {
+			std::vector<std::vector<uint8_t>> nalUnits;
+			splitAnnexBNals(annexB, nalUnits);
+			for (auto& nal : nalUnits) {
+				if (nal.size() > source->maxNalSize) source->maxNalSize = nal.size();
+				gPipeline->nalQueue.push_back(std::move(nal));
+			}
+			int drain_cnt = 0;
+			while (gPipeline->nalQueue.size() > 120) {
+				drain_cnt++;
+				gPipeline->nalQueue.pop_front();
+			}
+			if (drain_cnt > 0) {
+				log_d("drain_cnt: %d\n", drain_cnt);
+			}
+		}
+	} else {
+		gPipeline->capture.enqueueBuffer(bufIndex);
+	}	
 
     if (source->isCurrentlyAwaitingData()) {
       source->doGetNextFrame();
@@ -346,24 +413,151 @@ static void usage(const char* prog) {
   exit(1);
 }
 
+static const char opt_short[] = "hv";
+enum {
+	opt_key_reflags = 0x201,
+	opt_key_help,
+	opt_key_vcap_device,
+	opt_key_vcap_width,
+	opt_key_vcap_height,
+	opt_key_vcap_pixelformat,
+	opt_key_vcap_fps,
+	opt_key_venc_kbps,
+	opt_key_rtsp_port,
+	opt_key_app_preset,
+	opt_key_max
+};
+
+static struct option opt_long[] = {
+	{"help", no_argument, NULL, 'h'},
+	{"verbose", no_argument, NULL, 'v'},
+	{"device", required_argument, NULL, opt_key_vcap_device},
+	{"width", required_argument, NULL, opt_key_vcap_width},
+	{"height", required_argument, NULL, opt_key_vcap_height},
+	{"pixelformat", required_argument, NULL, opt_key_vcap_pixelformat},
+	{"fps", required_argument, NULL, opt_key_vcap_fps},
+	{"kbps", required_argument, NULL, opt_key_venc_kbps},
+	{"port", required_argument, NULL, opt_key_rtsp_port},
+	{"preset", required_argument, NULL, opt_key_app_preset},
+	{0},
+};
+
+static void help(int argc, const char **argv) {
+	int i;
+	char fourcc_str[5];
+
+//	dump_argv(argc, argv)
+	fprintf(stdout,
+"COMMAND\n"
+"    %s [OPTIONS] [APPLET]\n"
+"\n"
+"OPTIONS\n"
+"    -h, --help          Show help\n"
+"    -v, --verbose       Verbose output (default mimic debug and more)\n"
+"    --device=<DEV>      Video capture device (default: %s)\n"
+"    --width=<WIDTH>     Video capture width (default: %d)\n"
+"    --height=<HEIGHT>   Video capture height (default: %d)\n"
+"    --fps=<FPS>         Video capture fps (default: %d)\n"
+"    --pixelformat=<4CC> Video capture pixel format (default: %s)\n"
+"    --kbps=<BITRATE>    Video encoder kbps (default: %d)\n"
+"    --port=<PORT>       RTSP port (default: %d)\n"
+"    --preset=<PRESET>   Preset (default: None)\n"
+"\n", ((argc > 0) && argv && argv[0] ? argv[0] : "Program"),
+			vcap_device, vcap_width, vcap_height, vcap_fps,
+			aloe_fourcc_str(fourcc_str, sizeof(fourcc_str), vcap_pixelformat),
+			venc_kbps, rtsp_port);
+
+	if (verbose_level >= VERBOSE_LEVEL_DEBUG) {
+		fprintf(stdout,
+"Description:\n"
+"    Preset: imx219\n"
+"      --width=3280 --height=2464 --pixelformat=RG10 --fps=15\n"
+"\n"
+				);
+	}
+
+}
+
 static int live555_main(int argc, char** argv) {
-  if (argc < 2) usage(argv[0]);
+	int ret = -1, opt_op, opt_idx, i, opt_exit = 0;
+	struct {
+		unsigned opt_help: 1;
+	} opts = {};
+	char pixelformat_str[2][16];
 
-  const char* device = argv[1];
-  uint32_t width = (argc > 2) ? static_cast<uint32_t>(atoi(argv[2])) : 1920;
-  uint32_t height = (argc > 3) ? static_cast<uint32_t>(atoi(argv[3])) : 1080;
-  int fps = (argc > 4) ? atoi(argv[4]) : 30;
-  int bitrateKbps = (argc > 5) ? atoi(argv[5]) : 2000;
-  portNumBits rtspPort = (argc > 6) ? static_cast<portNumBits>(atoi(argv[6])) : 8554;
-  uint32_t pixelformat = 0;
+	optind = 0;
+	while ((opt_op = getopt_long(argc, (char* const*)argv, opt_short, opt_long,
+			&opt_idx)) != -1) {
+		if (opt_op == 'h') {
+			opts.opt_help = 1;
+			continue;
+		}
+		if (opt_op == 'v') {
+			if (verbose_level < VERBOSE_LEVEL_VERBOSE) verbose_level++;
+			continue;
+		}
+		if (opt_op == opt_key_app_preset) {
+			if (strcasecmp(optarg, "imx219") == 0) {
+				vcap_width=3280;
+				vcap_height=2464;
+				vcap_pixelformat=aloe_fourcc_val("RG10");
+				vcap_fps=15;
+				log_d("Preset imx219: width: %d, height %d, pixelformat: %s, fps: %d\n",
+						vcap_width, vcap_height, aloe_fourcc_str(
+								pixelformat_str[0], sizeof(pixelformat_str[0]), vcap_pixelformat),
+						vcap_fps);
+				continue;
+			}
+			log_e("Invalid prefix: %s\n", optarg);
+			return 1;
+		}
+		if (opt_op == opt_key_vcap_device) {
+			vcap_device = optarg;
+			continue;
+		}
+		if (opt_op == opt_key_vcap_width) {
+			vcap_width = strtol(optarg, NULL, 0);
+			continue;
+		}
+		if (opt_op == opt_key_vcap_height) {
+			vcap_height = strtol(optarg, NULL, 0);
+			continue;
+		}
+		if (opt_op == opt_key_vcap_fps) {
+			vcap_fps = strtol(optarg, NULL, 0);
+			continue;
+		}
+		if (opt_op == opt_key_vcap_pixelformat) {
+			vcap_pixelformat = aloe_fourcc_val(optarg);
+			continue;
+		}
+		if (opt_op == opt_key_venc_kbps) {
+			venc_kbps = strtol(optarg, NULL, 0);
+			continue;
+		}
+		if (opt_op == opt_key_rtsp_port) {
+			rtsp_port = strtol(optarg, NULL, 0);
+			continue;
+		}
+	}
 
-#if 1
-  pixelformat = V4L2_PIX_FMT_SRGGB10;
-  printf("V4L2_PIX_FMT_SRGGB10\n");
-#endif
+//	if (optind < argc) dump_argv(argc - optind, &argv[optind]);
+	if (opts.opt_help) {
+		help(argc, (const char**)argv);
+		return 1;
+	}
+  const char* device = vcap_device;
+  uint32_t width = (uint32_t)vcap_width;
+  uint32_t height = (uint32_t)vcap_height;
+  int fps = vcap_fps;
+  int bitrateKbps = venc_kbps;
+  portNumBits rtspPort = (portNumBits)rtsp_port;
+  uint32_t pixelformat = vcap_pixelformat;
 
   printf("Device: %s\n", device);
   printf("Resolution: %ux%u @ %d fps, %d kbps\n", width, height, fps, bitrateKbps);
+  printf("Pixel format: %s\n", aloe_fourcc_str(pixelformat_str[0],
+		  sizeof(pixelformat_str[0]), pixelformat));
   printf("RTSP port: %u\n", rtspPort);
 
   V4l2RtspPipeline pipeline(device, width, height, fps, bitrateKbps, pixelformat);
@@ -381,6 +575,7 @@ static int live555_main(int argc, char** argv) {
   gPipeline = &pipeline;
 
   OutPacketBuffer::increaseMaxSizeTo(600000);
+  OutPacketBuffer::increaseMaxSizeTo(1800000);
 
   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
   UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
@@ -425,6 +620,6 @@ static int live555_main(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
-  dump_argv(argc, argv);
+//  dump_argv(argc, argv);
   return live555_main(argc, argv);
 }

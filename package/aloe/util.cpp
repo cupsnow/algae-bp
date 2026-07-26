@@ -448,3 +448,26 @@ uint32_t aloe_crc32(const void *data, size_t len, uint32_t cksum) {
 	}
 	return ~cksum;
 }
+
+extern "C"
+const char* aloe_fourcc_str(char *str, size_t sz, uint32_t fourcc) {
+	if (!str || sz < 1) return NULL;
+	if (sz < 5) { str[0] = '\0'; return str; }
+	memcpy(str, &fourcc, 4);
+	str[4] = '\0';
+	return str;
+}
+
+extern "C"
+uint32_t aloe_fourcc_val(const char *str) {
+	int len = str ? strlen(str) : 0;
+	uint32_t val = 0;
+
+	if (len < 2) return 0;
+	val |= (str[0] << 0);
+	val |= (str[1] << 8);
+	val |= (((len >= 3) ? str[2] : ' ') << 16);
+	val |= (((len >= 4) ? str[3] : ' ') << 24);
+	return val;
+}
+

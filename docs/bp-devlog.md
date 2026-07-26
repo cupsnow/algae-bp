@@ -230,3 +230,6 @@ command
     v4l2-ctl -d /dev/video0 --set-fmt-video=width=3280,height=2464,pixelformat=RG10 --stream-mmap --stream-count=10 --stream-to=imx219.raw --verbose
 
     ffplay -f rawvideo -pixel_format bayer_rggb16le -video_size 3280x2464 -i imx219.raw
+
+    v4l2-ctl -d /dev/v4l-subdev1 --list-ctrls
+    v4l2-ctl -d /dev/v4l-subdev1 --set-ctrl=analogue_gain=100

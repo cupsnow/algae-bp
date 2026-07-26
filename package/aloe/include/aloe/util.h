@@ -195,6 +195,9 @@ int aloe_bio_write_fn(const char *fn, const void *data, size_t data_sz,
  */
 uint32_t aloe_crc32(const void *data, size_t len, uint32_t cksum);
 
+const char* aloe_fourcc_str(char *str, size_t sz, uint32_t fourcc);
+uint32_t aloe_fourcc_val(const char *str);
+
 /** @} ALOE */
 
 #ifdef __cplusplus

@@ -21,6 +21,18 @@ extern "C" {
 
 void aloe_rggb10_to_rgb888_i420(int width, int height, const uint16_t *raw,
 		uint8_t *i420, uint8_t *rgb);
+void aloe_rggb10_to_rgb888_i420_v2( int width, int height, const uint16_t *raw, 
+		uint8_t *i420, uint8_t *rgb);
+
+void aloe_rggb10_to_rgb888_i420_simd( int width, int height, const uint16_t *raw,
+		uint8_t *i420, uint8_t *rgb);
+void aloe_rggb10_to_i420_simd( int width, int height, const uint16_t *raw,
+		uint8_t *i420);
+void aloe_rggb10_to_rgb888_simd( int width, int height, const uint16_t *raw,
+		uint8_t *rgb);
+
+void aloe_rggb10_to_rgb888_i420_simd_v2( int width, int height, const uint16_t *raw,
+		uint8_t *i420, uint8_t *rgb);
 
 #ifdef __cplusplus
 } /* extern "C" */

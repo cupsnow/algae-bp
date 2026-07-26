@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stddef.h>
 
 /*
  * Select the actual location of the 10-bit data inside the 16-bit word.
@@ -97,7 +98,8 @@ static uint8_t raw10_to_u8(uint16_t value) {
 /* Read one Bayer pixel safely                               */
 /* --------------------------------------------------------- */
 
-static uint16_t get_pixel(int width, int height, const uint16_t *raw, int x, int y) {
+static uint16_t get_pixel(int width, int height, const uint16_t *raw, 
+		int x, int y) {
 	/*
 	 * Clamp coordinates at image boundary.
 	 */
@@ -442,3 +444,519 @@ void aloe_rggb10_to_rgb888_i420(int width, int height, const uint16_t *raw,
 		}
 	} // i420
 }
+
+static inline uint8_t clamp_u8_int(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (uint8_t)v;
+}
+
+/*
+ * RAW10 stored in uint16_t.
+ *
+ * Assumption:
+ *
+ *     raw[x] contains a 10-bit value in bits [9:0]
+ *
+ * If your RAW10 is stored left-shifted, for example:
+ *
+ *     0xFFC0 for 1023
+ *
+ * then you must shift it first.
+ */
+static inline uint8_t raw10_to_u8_fast(uint16_t v) {
+    /*
+     * 10-bit -> 8-bit
+     *
+     * Equivalent approximately to:
+     *
+     *     v / 4
+     *
+     * But rounded instead of truncated.
+     */
+    return (uint8_t)((v + 2) >> 2);
+}
+
+/*
+ * Clamp coordinate to image boundary.
+ */
+static inline int clamp_coord(int v, int max) {
+    if (v < 0) return 0;
+    if (v >= max) return max - 1;
+    return v;
+}
+
+/*
+ * Optimized RGGB10 Bayer -> RGB888 + I420
+ *
+ * Bayer pattern:
+ *
+ *     R G R G
+ *     G B G B
+ *     R G R G
+ *     G B G B
+ *
+ * Input:
+ *
+ *     raw:
+ *         width * height uint16_t pixels
+ *
+ *     Each pixel contains a 10-bit RAW value.
+ *
+ * Output:
+ *
+ *     rgb:
+ *         width * height * 3 bytes
+ *
+ *     i420:
+ *
+ *         Y: width * height
+ *         U: width/2 * height/2
+ *         V: width/2 * height/2
+ *
+ *         Total:
+ *
+ *             width * height * 3 / 2
+ *
+ * Requirements:
+ *
+ *     width  must be even
+ *     height must be even
+ */
+extern "C"
+void aloe_rggb10_to_rgb888_i420_v2( int width, int height, const uint16_t *raw, 
+		uint8_t *i420, uint8_t *rgb) {
+    if (!raw || width <= 0 || height <= 0)
+        return;
+
+    if ((width & 1) || (height & 1))
+        return;
+
+    uint8_t *y_plane = NULL;
+    uint8_t *u_plane = NULL;
+    uint8_t *v_plane = NULL;
+
+    const int uv_width = width >> 1;
+
+    if (i420) {
+        const size_t y_size = (size_t)width * height;
+        const size_t uv_size = (size_t)uv_width * (height >> 1);
+
+        y_plane = i420;
+        u_plane = i420 + y_size;
+        v_plane = u_plane + uv_size;
+    }
+
+    /*
+     * Process one 2x2 Bayer block at a time.
+     *
+     * Each block:
+     *
+     *     R G
+     *     G B
+     *
+     * We calculate the RGB values of all four pixels.
+     *
+     * Then:
+     *
+     *     Y is generated for each pixel
+     *
+     *     U/V are generated from the average RGB
+     *     of the 2x2 block
+     */
+
+    for (int y = 0; y < height; y += 2) {
+
+        const int y0 = y;
+        const int y1 = (y + 1 < height) ? y + 1 : y;
+
+        /*
+         * Row pointers with edge replication.
+         */
+        const uint16_t *row_m1 =
+            (y0 > 0) ? raw + (size_t)(y0 - 1) * width
+                     : raw + (size_t)y0 * width;
+
+        const uint16_t *row_0 =
+            raw + (size_t)y0 * width;
+
+        const uint16_t *row_1 =
+            raw + (size_t)y1 * width;
+
+        const uint16_t *row_p2 =
+            (y + 2 < height) ? raw + (size_t)(y + 2) * width
+                             : row_1;
+
+        uint8_t *y_row_0 =
+            y_plane ? y_plane + (size_t)y0 * width : NULL;
+
+        uint8_t *y_row_1 =
+            y_plane ? y_plane + (size_t)y1 * width : NULL;
+
+        uint8_t *rgb_row_0 =
+            rgb ? rgb + (size_t)y0 * width * 3 : NULL;
+
+        uint8_t *rgb_row_1 =
+            rgb ? rgb + (size_t)y1 * width * 3 : NULL;
+
+        uint8_t *u_row =
+            u_plane ? u_plane + (size_t)(y >> 1) * uv_width : NULL;
+
+        uint8_t *v_row =
+            v_plane ? v_plane + (size_t)(y >> 1) * uv_width : NULL;
+
+        for (int x = 0; x < width; x += 2) {
+
+            /*
+             * ----------------------------------------------------
+             * Bayer block:
+             *
+             *       x       x+1
+             *
+             * y       R        G
+             *
+             * y+1     G        B
+             *
+             * ----------------------------------------------------
+             */
+
+            const int xm1 = (x > 0) ? x - 1 : x;
+            const int xp1 = (x + 1 < width) ? x + 1 : x;
+            const int xp2 = (x + 2 < width) ? x + 2 : xp1;
+
+            /*
+             * ----------------------------------------------------
+             * Pixel 0: R at (x, y)
+             * ----------------------------------------------------
+             */
+
+            int r0 = row_0[x];
+
+            int g0 =
+                row_0[xm1] +
+                row_0[xp1] +
+                row_m1[x] +
+                row_1[x];
+
+            g0 >>= 2;
+
+            int b0 =
+                row_m1[xm1] +
+                row_m1[xp1] +
+                row_1[xm1] +
+                row_1[xp1];
+
+            b0 >>= 2;
+
+            /*
+             * ----------------------------------------------------
+             * Pixel 1: G at (x+1, y)
+             * ----------------------------------------------------
+             */
+
+            int g1 = row_0[xp1];
+
+            int r1 =
+                row_0[x] +
+                row_0[xp2];
+
+            r1 >>= 1;
+
+            int b1 =
+                row_m1[xp1] +
+                row_1[xp1];
+
+            b1 >>= 1;
+
+            /*
+             * ----------------------------------------------------
+             * Pixel 2: G at (x, y+1)
+             * ----------------------------------------------------
+             */
+
+            int g2 = row_1[x];
+
+            int r2 =
+                row_0[x] +
+                row_p2[x];
+
+            r2 >>= 1;
+
+            int b2 =
+                row_1[xm1] +
+                row_1[xp1];
+
+            b2 >>= 1;
+
+            /*
+             * ----------------------------------------------------
+             * Pixel 3: B at (x+1, y+1)
+             * ----------------------------------------------------
+             */
+
+            int b3 = row_1[xp1];
+
+            int g3 =
+                row_1[x] +
+                row_1[xp2] +
+                row_0[xp1] +
+                row_p2[xp1];
+
+            g3 >>= 2;
+
+            int r3 =
+                row_0[x] +
+                row_0[xp2] +
+                row_p2[x] +
+                row_p2[xp2];
+
+            r3 >>= 2;
+
+            /*
+             * ----------------------------------------------------
+             * Convert 10-bit RGB to 8-bit RGB
+             * ----------------------------------------------------
+             */
+
+            const int r0_8 = (r0 + 2) >> 2;
+            const int g0_8 = (g0 + 2) >> 2;
+            const int b0_8 = (b0 + 2) >> 2;
+
+            const int r1_8 = (r1 + 2) >> 2;
+            const int g1_8 = (g1 + 2) >> 2;
+            const int b1_8 = (b1 + 2) >> 2;
+
+            const int r2_8 = (r2 + 2) >> 2;
+            const int g2_8 = (g2 + 2) >> 2;
+            const int b2_8 = (b2 + 2) >> 2;
+
+            const int r3_8 = (r3 + 2) >> 2;
+            const int g3_8 = (g3 + 2) >> 2;
+            const int b3_8 = (b3 + 2) >> 2;
+
+            /*
+             * ----------------------------------------------------
+             * RGB output
+             * ----------------------------------------------------
+             */
+
+            if (rgb) {
+                uint8_t *p0 = rgb_row_0 + (size_t)x * 3;
+                uint8_t *p1 = p0 + 3;
+
+                uint8_t *p2 = rgb_row_1 + (size_t)x * 3;
+                uint8_t *p3 = p2 + 3;
+
+                p0[0] = (uint8_t)r0_8;
+                p0[1] = (uint8_t)g0_8;
+                p0[2] = (uint8_t)b0_8;
+
+                p1[0] = (uint8_t)r1_8;
+                p1[1] = (uint8_t)g1_8;
+                p1[2] = (uint8_t)b1_8;
+
+                p2[0] = (uint8_t)r2_8;
+                p2[1] = (uint8_t)g2_8;
+                p2[2] = (uint8_t)b2_8;
+
+                p3[0] = (uint8_t)r3_8;
+                p3[1] = (uint8_t)g3_8;
+                p3[2] = (uint8_t)b3_8;
+            }
+
+            /*
+             * ----------------------------------------------------
+             * Y output
+             * ----------------------------------------------------
+             */
+
+            if (i420) {
+
+                y_row_0[x] =
+                    clamp_u8_int(
+                        ((66 * r0_8 +
+                          129 * g0_8 +
+                          25 * b0_8 +
+                          128) >> 8) + 16);
+
+                y_row_0[x + 1] =
+                    clamp_u8_int(
+                        ((66 * r1_8 +
+                          129 * g1_8 +
+                          25 * b1_8 +
+                          128) >> 8) + 16);
+
+                y_row_1[x] =
+                    clamp_u8_int(
+                        ((66 * r2_8 +
+                          129 * g2_8 +
+                          25 * b2_8 +
+                          128) >> 8) + 16);
+
+                y_row_1[x + 1] =
+                    clamp_u8_int(
+                        ((66 * r3_8 +
+                          129 * g3_8 +
+                          25 * b3_8 +
+                          128) >> 8) + 16);
+            }
+
+            /*
+             * ----------------------------------------------------
+             * U/V output
+             * ----------------------------------------------------
+             *
+             * Average the 2x2 RGB block.
+             *
+             * Important:
+             *
+             *     Average RGB first
+             *     Then convert to U/V
+             *
+             * This is equivalent to the original implementation.
+             */
+
+            if (i420) {
+
+                const int r_avg =
+                    (r0_8 + r1_8 + r2_8 + r3_8) >> 2;
+
+                const int g_avg =
+                    (g0_8 + g1_8 + g2_8 + g3_8) >> 2;
+
+                const int b_avg =
+                    (b0_8 + b1_8 + b2_8 + b3_8) >> 2;
+
+                const int U =
+                    ((-38 * r_avg -
+                       74 * g_avg +
+                      112 * b_avg +
+                      128) >> 8) + 128;
+
+                const int V =
+                    ((112 * r_avg -
+                       94 * g_avg -
+                       18 * b_avg +
+                      128) >> 8) + 128;
+
+                const int uv_x = x >> 1;
+
+                u_row[uv_x] = clamp_u8_int(U);
+                v_row[uv_x] = clamp_u8_int(V);
+            }
+        }
+    }
+}
+
+#if 0
+/*
+ * Bayer pattern:
+ *
+ *     R G R G
+ *     G B G B
+ *     R G R G
+ *     G B G B
+ *
+ *  output width / 4, height / 4
+ *
+ */
+extern "C"
+void aloe_rggb10_to_rgb888_i420_v3( int width, int height, const uint16_t *raw,
+		uint8_t *i420, uint8_t *rgb) {
+#define B10B8(_b10) (((_b10) >> 2) & 0xff)
+	int out_y, out_w = width / 4, out_h = height / 4;
+	uint8_t *i420_y, *i420_u, *i420_v;
+	int uv_width = out_w / 2;
+
+	if (i420) {
+		int y_size = out_w * out_h, uv_size = uv_width * out_h / 2;
+
+		i420_y = i420;
+		i420_u = i420 + y_size;
+		i420_v = i420_u + uv_size;
+	}
+
+/*
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ *
+ * Ref to docs/yuv420p.png
+ *
+ * Y01(uv01) Y02(uv01)  Y03(uv02)  Y04(uv02)
+ * Y11(uv01) Y12(uv01)  Y13(uv02)  Y14(uv02)
+ * Y21(uv11) Y22(uv11)  Y23(uv12)  Y24(uv12)
+ * Y31(uv11) Y32(uv11)  Y33(uv12)  Y34(uv12)
+ * u01 u02 u11 u12
+ * v01 v02 v11 v12
+ */
+	for (out_y = 0; out_y < out_h; out_y += 2) {
+		uint16_t *raw_pix = raw + width * out_y * 4;
+		int out_x;
+
+		for (out_x = 0; out_x < out_w; out_x += 2, raw_pix += 8) {
+			// get first color
+			int r8 = raw10_to_u8_fast(raw_pix[0]);
+			int g8 = raw10_to_u8_fast(raw_pix[1]);
+			int b8 = raw10_to_u8_fast(raw_pix[width + 1]);
+
+			int r8_rt = raw10_to_u8_fast(raw_pix[4]);
+			int g8_rt = raw10_to_u8_fast(raw_pix[5]);
+			int b8_rt = raw10_to_u8_fast(raw_pix[width + 5]);
+
+			int r8_lb = raw10_to_u8_fast(raw_pix[width * 4]);
+			int g8_lb = raw10_to_u8_fast(raw_pix[width * 4 + 1]);
+			int b8_lb = raw10_to_u8_fast(raw_pix[width * 4 + width + 1]);
+
+			int r8_rb = raw10_to_u8_fast(raw_pix[width * 4 + 4]);
+			int g8_rb = raw10_to_u8_fast(raw_pix[width * 4 + 5]);
+			int b8_rb = raw10_to_u8_fast(raw_pix[width * 4 + width + 5]);
+
+
+			if (rgb) {
+				rgb[out_y * out_w + out_x] = r8;
+				rgb[out_y * out_w + out_x + 1] = g8;
+				rgb[out_y * out_w + out_x + 2] = b8;
+
+				rgb[out_y * out_w + out_x + 3] = r8_rt;
+				rgb[out_y * out_w + out_x + 3 + 1] = g8_rt;
+				rgb[out_y * out_w + out_x + 3 + 2] = b8_rt;
+
+				rgb[(out_y + 1) * out_w + out_x] = r8_lb;
+				rgb[(out_y + 1) * out_w + out_x + 1] = g8_lb;
+				rgb[(out_y + 1) * out_w + out_x + 2] = b8_lb;
+
+				rgb[(out_y + 1) * out_w + out_x + 3] = r8_rb;
+				rgb[(out_y + 1) * out_w + out_x + 3 + 1] = g8_rb;
+				rgb[(out_y + 1) * out_w + out_x + 3 + 2] = b8_rb;
+			}
+
+			if (i420) {
+#define rgb_y(_r, _g, _b) clamp_u8_int(((  66 * (_r) + 129 * (_g) +  25 * (_b) + 128) >> 8) +  16)
+#define rgb_u(_r, _g, _b) clamp_u8_int((( -38 * (_r) -  74 * (_g) + 112 * (_b) + 128) >> 8) + 128)
+#define rgb_v(_r, _g, _b) clamp_u8_int((( 112 * (_r) -  94 * (_g) -  18 * (_b) + 128) >> 8) + 128)
+
+				int y8 = rgb_y(r8, g8, b8);
+				int y8_rt = rgb_y(r8_rt, g8_rt, b8_rt);
+				int y8_lb = rgb_y(r8, g_lb8, b8_lb);
+				int y8_rb = rgb_y(r8, g8, _rbb8)_rb;
+				
+
+				int u8 = clamp_u8_int(((66 * r8 + 129 * g8 + 25 * b8 + 128) >> 8) + 16);
+				int v8 = clamp_u8_int(((66 * r8 + 129 * g8 + 25 * b8 + 128) >> 8) + 16);
+			}
+		}
+	}
+
+} // aloe_rggb10_to_rgb888_i420_v3
+
+#endif
+

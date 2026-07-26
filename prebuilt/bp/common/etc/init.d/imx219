@@ -20,12 +20,75 @@ imx219_stop() {
   done
 }
 
+imx219_rg10() {
+# COMMAND="media-ctl -p"
+# Media controller API version 7.1.3
+
+# Media device information
+# ------------------------
+# driver          j721e-csi2rx
+# model           TI-CSI2RX
+# serial          
+# bus info        platform:30102000.ticsi2rx
+# hw revision     0x1
+# driver version  7.1.3
+
+# Device topology
+# - entity 1: cdns_csi2rx.30101000.csi-bridge (5 pads, 2 links, 0 routes)
+#             type V4L2 subdev subtype Unknown flags 0
+#             device node name /dev/v4l-subdev0
+# 	pad0: SINK
+# 		[stream:0 fmt:UYVY8_1X16/640x480 field:none colorspace:srgb xfer:srgb ycbcr:601 quantization:lim-range]
+# 		<- "imx219 4-0010":0 [ENABLED,IMMUTABLE]
+# 	pad1: SOURCE
+# 		[stream:0 fmt:UYVY8_1X16/640x480 field:none colorspace:srgb xfer:srgb ycbcr:601 quantization:lim-range]
+# 		-> "j721e-csi2rx":0 [ENABLED,IMMUTABLE]
+# 	pad2: SOURCE
+# 		[stream:0 fmt:UYVY8_1X16/640x480 field:none colorspace:srgb xfer:srgb ycbcr:601 quantization:lim-range]
+# 	pad3: SOURCE
+# 		[stream:0 fmt:UYVY8_1X16/640x480 field:none colorspace:srgb xfer:srgb ycbcr:601 quantization:lim-range]
+# 	pad4: SOURCE
+# 		[stream:0 fmt:UYVY8_1X16/640x480 field:none colorspace:srgb xfer:srgb ycbcr:601 quantization:lim-range]
+
+# - entity 7: imx219 4-0010 (1 pad, 1 link, 0 routes)
+#             type V4L2 subdev subtype Sensor flags 0
+#             device node name /dev/v4l-subdev1
+# 	pad0: SOURCE
+# 		[stream:0 fmt:SRGGB10_1X10/3280x2464 field:none colorspace:raw xfer:none ycbcr:601 quantization:full-range
+# 		 crop.bounds:(8,8)/3280x2464
+# 		 crop:(8,8)/3280x2464]
+# 		-> "cdns_csi2rx.30101000.csi-bridge":0 [ENABLED,IMMUTABLE]
+
+# - entity 11: j721e-csi2rx (1 pad, 1 link)
+#              type Node subtype V4L flags 0
+#              device node name /dev/video0
+# 	pad0: SINK
+# 		<- "cdns_csi2rx.30101000.csi-bridge":1 [ENABLED,IMMUTABLE]
+
+  cmd_run media-ctl -d /dev/media0 --set-v4l2 '"imx219 4-0010":0[fmt:SRGGB10_1X10/3280x2464]' || exit
+  cmd_run media-ctl -d /dev/media0 --set-v4l2 '"cdns_csi2rx.30101000.csi-bridge":0[fmt:SRGGB10_1X10/3280x2464]' || exit
+  cmd_run v4l2-ctl -d /dev/video0 --set-fmt-video=width=3280,height=2464,pixelformat=RG10 || exit
+  cmd_run v4l2-ctl -d /dev/video0 --get-fmt-video
+}
+
+imx219_binning2() {
+  cmd_run cmd_run v4l2-ctl -d /dev/video0 --set-fmt-video=width=1600,height=1200,pixelformat=RG10
+  # cmd_run v4l2-ctl -d /dev/video0 --set-fmt-video=width=1640,height=1232,pixelformat=RG10
+}
+
 case "$1" in
 start)
   cmd_run imx219_start "$@"
+  cmd_run imx219_rg10
   ;;
 stop)
   cmd_run imx219_stop
+  ;;
+rg10)
+  cmd_run imx219_rg10
+  ;;
+binning2)
+  cmd_run imx219_binning2
   ;;
 "restart")
   shift

@@ -1,0 +1,26 @@
+Script started on 1970-01-01 00:31:04+00:00 [COMMAND="v4l2-ctl -d /dev/v4l-subdev1 --list-ctrls" TERM="screen" TTY="/dev/pts/0" COLUMNS="80" LINES="24"]
+
+User Controls
+
+                       exposure 0x00980911 (int)    : min=4 max=3522 step=1 default=1600 value=1600 flags=has-min-max
+                horizontal_flip 0x00980914 (bool)   : default=0 value=0 flags=modify-layout, has-min-max
+                  vertical_flip 0x00980915 (bool)   : default=0 value=0 flags=modify-layout, has-min-max
+
+Image Source Controls
+
+              vertical_blanking 0x009e0901 (int)    : min=32 max=63071 step=1 default=1062 value=1062 flags=has-min-max
+            horizontal_blanking 0x009e0902 (int)    : min=168 max=29472 step=1 default=168 value=168 flags=has-min-max
+                  analogue_gain 0x009e0903 (int)    : min=0 max=232 step=1 default=0 value=0 flags=has-min-max
+                red_pixel_value 0x009e0904 (int)    : min=0 max=1023 step=1 default=1023 value=1023 flags=has-min-max
+          green_red_pixel_value 0x009e0905 (int)    : min=0 max=1023 step=1 default=1023 value=1023 flags=has-min-max
+               blue_pixel_value 0x009e0906 (int)    : min=0 max=1023 step=1 default=1023 value=1023 flags=has-min-max
+         green_blue_pixel_value 0x009e0907 (int)    : min=0 max=1023 step=1 default=1023 value=1023 flags=has-min-max
+
+Image Processing Controls
+
+                 link_frequency 0x009f0901 (intmenu): min=0 max=0 default=0 value=0 (456000000 0x1b2e0200) flags=read-only, has-min-max
+                     pixel_rate 0x009f0902 (int64)  : min=182400000 max=182400000 step=1 default=182400000 value=182400000 flags=read-only, has-min-max
+                   test_pattern 0x009f0903 (menu)   : min=0 max=4 default=0 value=0 (Disabled) flags=has-min-max
+                   digital_gain 0x009f0905 (int)    : min=256 max=4095 step=1 default=256 value=256 flags=has-min-max
+
+Script done on 1970-01-01 00:31:04+00:00 [COMMAND_EXIT_CODE="0"]
