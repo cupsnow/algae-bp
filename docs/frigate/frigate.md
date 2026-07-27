@@ -31,12 +31,16 @@ Or
 		--tag frigate:latest \
 		--load
 
-Run
+Start frigate
+----
 
     docker compose -f docs/frigate/frigate-docker-compose.yml up
 
-> Output message shows default user (admin) and password.
-> Connect to https://localhost:8971
+> The output message shows default user (admin) and password.
+
+Browser open
+
+    https://localhost:8971
 
 Capture desktop as v4l2 video source
 ----

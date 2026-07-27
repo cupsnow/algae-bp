@@ -233,3 +233,14 @@ command
 
     v4l2-ctl -d /dev/v4l-subdev1 --list-ctrls
     v4l2-ctl -d /dev/v4l-subdev1 --set-ctrl=analogue_gain=100
+
+ffmpeg decode with hardware acceleration
+----
+  ffmpeg -hwaccel vaapi -hwaccel_device /dev/dri/renderD128 \
+          -hwaccel_output_format vaapi \
+          -i $_lo_in \
+          -vf hwdownload,format=nv12,scale=${_pri_scale_w}:${_pri_scale_h} -f rawvideo - \
+          | ffplay -f rawvideo -pixel_format nv12 \
+          -video_size ${_pri_scale_w}x${_pri_scale_h} -
+
+
