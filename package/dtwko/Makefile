@@ -1,30 +1,37 @@
 #------------------------------------
 # example for external Makefile
-# ko_MAKE=$(build_MAKE) -C $(onvcam_DIR)/ipcam/sdk/kernel/linux_3.18.31
+#
+# dtwko_DIR?=$(PKGDIR)/dtwko
+# dtwko_BUILDDIR?=$(BUILDDIR)/dtwko-$(APP_PLATFORM)
+# dtwko_MAKE=$(MAKE) $(dtwko_MAKEARGS_$(APP_PLATFORM)) -C $(linux_BUILDDIR) \
+#   M=$(or $(dtwko_DIR),$(error miss dtwko_DIR)) MO=$(dtwko_BUILDDIR)
+# dtwko_MAKE+=V=1
 
-# dtwko_DIR?=$(CURDIR)/dtwko
-# dtwko_BUILDDIR?=$(CURDIR)/build/dtwko
-# dtwko_MAKE=$(ko_MAKE) M=$(or $(dtwko_DIR),$(error miss dtwko_DIR)) MO=$(dtwko_BUILDDIR)
+# dtwko_MAKEARGS_bp+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+# dtwko_MAKEARGS_qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+
 # GENDIR+=$(dtwko_BUILDDIR)
+
 # .PHONY: dtwko
-# dtwko: $(BUILDENV_REQUIREMENT) hostlsb_check | $(dtwko_BUILDDIR)
-# 	[ -d "$(CURDIR)/build/dtwko" ] || mkdir -p $(CURDIR)/build/dtwko
+# dtwko: | $(dtwko_BUILDDIR)
 # 	$(dtwko_MAKE)
 
-# dtwko_%: $(BUILDENV_REQUIREMENT) hostlsb_check
+# dtwko_%: 
 # 	$(dtwko_MAKE) $(@:dtwko_%=%)
 
 ko?=dtw
 
 ifeq ($(KERNELRELEASE),)
-linux_BUILDDIR?=/lib/modules/$(shell uname -r)/build
 kmod_DIR?=$(shell pwd)
+linux_BUILDDIR?=/lib/modules/$(shell uname -r)/build
+kmod_MAKE=$(MAKE) -C $(linux_BUILDDIR) M=$(kmod_DIR) \
+  CFLAGS_MODULE=$(CFLAGS_MODULE) LDFLAGS_MODULE=$(LDFLAGS_MODULE)
 
 modules:
-	$(MAKE) -C $(linux_BUILDDIR) M=$(kmod_DIR) EXTRA_CFLAGS="-g -DDEBUG" modules
+	$(kmod_MAKE) modules
 
 modules_install:
-	$(MAKE) -C $(linux_BUILDDIR) M=$(kmod_DIR) modules_install
+	$(kmod_MAKE) modules_install
 
 clean:
 	cd $(kmod_DIR) \

@@ -7,9 +7,7 @@
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/uaccess.h>
-                                                                  
 
-                                                                  
 #include <linux/version.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 #include <linux/minmax.h>
@@ -67,9 +65,9 @@ static struct proc_ops file_ops_4_our_proc_file = {
     .proc_read = procfs_read,
     .proc_write = procfs_write,
     .proc_open = procfs_open,
-                                                                  
 
-                                                                  
+
+
     .proc_release = procfs_close,
 };
 #else

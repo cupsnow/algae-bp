@@ -536,9 +536,10 @@ busybox_%: $(busybox_BUILDDIR)/.config
 #------------------------------------
 #
 dtwko_DIR?=$(PKGDIR)/dtwko
-dtwko_BUILDDIR?=$(BUILDDIR)/dtwko
+dtwko_BUILDDIR?=$(BUILDDIR)/dtwko-$(APP_PLATFORM)
 dtwko_MAKE=$(MAKE) $(dtwko_MAKEARGS_$(APP_PLATFORM)) -C $(linux_BUILDDIR) \
   M=$(or $(dtwko_DIR),$(error miss dtwko_DIR)) MO=$(dtwko_BUILDDIR)
+dtwko_MAKE+=V=1
 
 dtwko_MAKEARGS_bp+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
 dtwko_MAKEARGS_qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
