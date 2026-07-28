@@ -31,7 +31,7 @@ APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
-else ifneq ($(strip $(filter bbb xm sa7715 esh,$(APP_PLATFORM))),)
+else ifneq ($(strip $(filter bbb xm sa7715 esh onvcam,$(APP_PLATFORM))),)
 APP_BUILD=arm
 else
 APP_BUILD=$(APP_PLATFORM)
@@ -57,7 +57,7 @@ TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
 $(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
-else ifneq ($(strip $(filter bbb xm sa7715 esh,$(APP_PLATFORM))),)
+else ifneq ($(strip $(filter bbb xm sa7715 esh onvcam,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
@@ -532,6 +532,25 @@ busybox: | $(busybox_BUILDDIR)/.config
 
 busybox_%: $(busybox_BUILDDIR)/.config
 	$(busybox_MAKE) $(PARALLEL_BUILD) $(@:busybox_%=%)
+
+#------------------------------------
+#
+dtwko_DIR?=$(PKGDIR)/dtwko
+dtwko_BUILDDIR?=$(BUILDDIR)/dtwko
+dtwko_MAKE=$(MAKE) $(dtwko_MAKEARGS_$(APP_PLATFORM)) -C $(linux_BUILDDIR) \
+  M=$(or $(dtwko_DIR),$(error miss dtwko_DIR)) MO=$(dtwko_BUILDDIR)
+
+dtwko_MAKEARGS_bp+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+dtwko_MAKEARGS_qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+
+GENDIR+=$(dtwko_BUILDDIR)
+
+.PHONY: dtwko
+dtwko: | $(dtwko_BUILDDIR)
+	$(dtwko_MAKE)
+
+dtwko_%: 
+	$(dtwko_MAKE) $(@:dtwko_%=%)
 
 #------------------------------------
 #
@@ -1328,6 +1347,7 @@ libffi_%: | $(libffi_BUILDDIR)/Makefile
 #   marked AC_TRY_RUN
 # dependent: ncurses
 #
+screen_DEP=ncursesw
 screen_DIR=$(PKGDIR2)/screen/src
 screen_BUILDDIR=$(BUILDDIR2)/screen-$(APP_BUILD)
 screen_MAKE=$(MAKE) -C $(screen_BUILDDIR)
