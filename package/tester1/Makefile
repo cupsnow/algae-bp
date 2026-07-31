@@ -299,6 +299,26 @@ ARTIFACT+=$(tester_srggb10_BIN)
 
 #------------------------------------
 #
+tester_rg10r2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_rg10r2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+
+#$(foreach pkg,live555 openssl x264, \
+#  $(eval tester_rg10r2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
+#  $(eval tester_rg10r2_LDFLAGS+=$($(pkg)_LDFLAGS)))
+
+tester_rg10r2_CPPFLAGS+=$(CPPFLAGS)
+tester_rg10r2_CFLAGS+=$(CFLAGS)
+tester_rg10r2_CXXFLAGS+=$(CXXFLAGS)
+tester_rg10r2_LDFLAGS+=$(LDFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_rg10r2, \
+    tester_rg10r2.cpp \
+	))
+
+ARTIFACT+=$(tester_rg10r2_BIN)
+
+#------------------------------------
+#
 tester_aloe_DOCSDIR?=$(BUILDDIR)/aloe-docs
 GENDIR+=$(tester_aloe_DOCSDIR)
 tester_aloe_doxygen: | $(tester_aloe_DOCSDIR)

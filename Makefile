@@ -1051,6 +1051,44 @@ swupdate_%: | $(swupdate_BUILDDIR)/.config
 include builder/ncursesw.mk
 
 #------------------------------------
+#
+procps_DEPS+=ncursesw
+procps_DIR=$(PKGDIR2)/procps
+procps_BUILDDIR=$(BUILDDIR2)/procps-$(APP_BUILD)
+procps_MAKE=$(MAKE) -C $(procps_BUILDDIR)
+
+$(procps_DIR)/configure: | $(procps_DIR)/autogen.sh
+	cd $(procps_DIR) \
+	  && ./autogen.sh
+
+GENDIR+=$(procps_BUILDDIR)
+
+procps_defconfig $(procps_BUILDDIR)/Makefile: | $(procps_DIR)/configure $(procps_BUILDDIR)
+	cd $(procps_BUILDDIR) \
+	  && $(procps_DIR)/configure \
+	  --host=`$(CC) -dumpmachine` --prefix=
+
+procps_install: DESTDIR=$(BUILD_SYSROOT)
+procps_install: | $(procps_BUILDDIR)/Makefile
+	$(procps_MAKE) DESTDIR=$(DESTDIR) install
+
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,libprocps)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libprocps)
+endif
+	$(call CMD_RM_EMPTYDIR,--ignore-fail-on-non-empty $(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,procps))
+
+procps: | $(procps_BUILDDIR)/Makefile
+	$(procps_MAKE) $(PARALLEL_BUILD)
+
+procps_%: | $(procps_BUILDDIR)/Makefile
+	$(procps_MAKE) $(PARALLEL_BUILD) $(@:procps_%=%)
+
+#------------------------------------
 # WIP
 # dependency: ncurses
 # ftp://ftp.cwru.edu/pub/bash/readline-6.3.tar.gz
