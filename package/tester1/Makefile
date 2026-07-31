@@ -78,6 +78,21 @@ tester_aloe_SRCS+=$(wildcard \
   $(PROJDIR)/package/aloe/sys_linux/*.c)
 
 #------------------------------------
+#
+tester_aloe_DOCSDIR?=$(BUILDDIR)/aloe-docs
+GENDIR+=$(tester_aloe_DOCSDIR)
+tester_aloe_doxygen: | $(tester_aloe_DOCSDIR)
+	cd $(PROJDIR)/package/aloe \
+	  && { cat $(PROJDIR)/builder/doxyfile \
+	    && echo "PROJECT_NAME=aloe" \
+		&& echo "PROJECT_NUMBER=0.0.1" \
+		&& echo "INPUT=include" \
+		&& echo "OUTPUT_DIRECTORY=$(tester_aloe_DOCSDIR)" \
+		&& echo ""; } | doxygen - >$(BUILDDIR)/doxygen.log 2>&1
+
+ARTIFACT_DOXYGEN+=tester_aloe_doxygen
+
+#------------------------------------
 # $(eval $(call TESTER1_APP2,tester_ev3,$(tester_aloe_SRCS) ev3_main.cpp))
 #
 define TESTER1_APP2
@@ -111,21 +126,20 @@ endef
 
 #------------------------------------
 #
-tester_abc_ATTR+=
+tester_cli2_ATTR+=
 
-tester_abc_SRCS+=$(tester_aloe_SRCS)
-tester_abc_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+tester_cli2_SRCS+=$(tester_aloe_SRCS)
+tester_cli2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
-tester_abc_CPPFLAGS+=$(CPPFLAGS)
-tester_abc_CFLAGS+=$(CFLAGS)
-tester_abc_CXXFLAGS+=$(CXXFLAGS)
-tester_abc_LDFLAGS+=$(LDFLAGS)
+tester_cli2_CPPFLAGS+=$(CPPFLAGS)
+tester_cli2_CFLAGS+=$(CFLAGS)
+tester_cli2_CXXFLAGS+=$(CXXFLAGS)
+tester_cli2_LDFLAGS+=$(LDFLAGS)
 
-$(eval $(call TESTER1_APP2,tester_abc, \
-    tester_abc2.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp \
-    tester_neu2.cpp))
+$(eval $(call TESTER1_APP2,tester_cli2, \
+    tester_cli2.cpp mgmt.cpp cli.cpp ipc.cpp priv.cpp settings.cpp))
 
-ARTIFACT+=$(tester_abc_BIN)
+ARTIFACT+=$(tester_cli2_BIN)
 
 #------------------------------------
 #
@@ -316,53 +330,6 @@ $(eval $(call TESTER1_APP2,tester_rg10r2, \
 	))
 
 ARTIFACT+=$(tester_rg10r2_BIN)
-
-#------------------------------------
-#
-tester_aloe_DOCSDIR?=$(BUILDDIR)/aloe-docs
-GENDIR+=$(tester_aloe_DOCSDIR)
-tester_aloe_doxygen: | $(tester_aloe_DOCSDIR)
-	cd $(PROJDIR)/package/aloe \
-	  && { cat $(PROJDIR)/builder/doxyfile \
-	    && echo "PROJECT_NAME=aloe" \
-		&& echo "PROJECT_NUMBER=0.0.1" \
-		&& echo "INPUT=include" \
-		&& echo "OUTPUT_DIRECTORY=$(tester_aloe_DOCSDIR)" \
-		&& echo ""; } | doxygen - >$(BUILDDIR)/doxygen.log 2>&1
-
-#ARTIFACT_DOXYGEN+=tester_aloe_doxygen
-
-#------------------------------------
-#
-tester_fb2_SRCS+=$(abspath $(tester_aloe_SRCS))
-
-tester_fb2_CPPFLAGS+=$(CPPFLAGS)
-tester_fb2_CFLAGS+=$(CFLAGS)
-tester_fb2_CXXFLAGS+=$(CXXFLAGS)
-tester_fb2_LDFLAGS+=$(LDFLAGS)
-
-tester_fb2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
-
-$(eval $(call TESTER1_APP2,tester_fb2, \
-    tester_fb1.c))
-
-#ARTIFACT+=$(tester_fb2_BIN)
-
-#------------------------------------
-#
-tester_neu2_SRCS+=$(abspath $(tester_aloe_SRCS))
-
-tester_neu2_CPPFLAGS+=$(CPPFLAGS)
-tester_neu2_CFLAGS+=$(CFLAGS)
-tester_neu2_CXXFLAGS+=$(CXXFLAGS)
-tester_neu2_LDFLAGS+=$(LDFLAGS)
-
-tester_neu2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
-
-$(eval $(call TESTER1_APP2,tester_neu2, \
-    tester_neu2.cpp))
-
-ARTIFACT+=$(tester_neu2_BIN)
 
 #------------------------------------
 #
