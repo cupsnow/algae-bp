@@ -1,0 +1,440 @@
+/* Cap one drain call so a chatty/runaway child cannot starve the timeout
+ * loop (keep reading n>0 forever, never returning to check elapsed). */
+ #define DRAIN_PIPE_MAX_BYTES  (8 * 1024)
+ /* iw scan text in a dense RF environment easily exceeds 64K. */
+ #define WIFI_SCAN_CAPTURE_SZ  (256 * 1024)
+ 
+ /*
+  * Non-blocking drain into out.
+  *   0  — EOF (writer closed)
+  *   1  — EAGAIN / no data now, or yielded after DRAIN_PIPE_MAX_BYTES
+  *   2  — out buffer full (caller should stop child; partial capture is OK)
+  *  -1  — hard error
+  */
+ static int drain_pipe_nb(int rfd, char *out, size_t out_sz, size_t *total,
+              int *out_full_logged)
+ {
+     char buf[512];
+     size_t drained = 0;
+ 
+     for (;;) {
+         ssize_t n = read(rfd, buf, sizeof(buf));
+ 
+         if (n > 0) {
+             size_t copy = (size_t)n;
+ 
+             if (*total + copy >= out_sz) {
+                 if (out_full_logged && !*out_full_logged) {
+                     *out_full_logged = 1;
+                     log_d("capture buffer full (%zu), truncating",
+                           out_sz);
+                 }
+                 copy = (*total < out_sz - 1) ? (out_sz - 1 - *total) : 0;
+             }
+             if (copy > 0) {
+                 memcpy(out + *total, buf, copy);
+                 *total += copy;
+                 out[*total] = '\0';
+             }
+             /* Buffer full: stop capturing — enough for SSID parse. */
+             if (*total >= out_sz - 1)
+                 return 2;
+             drained += (size_t)n;
+             /* Yield so run_capture_timeout can advance elapsed / kill. */
+             if (drained >= DRAIN_PIPE_MAX_BYTES)
+                 return 1;
+             continue;
+         }
+         if (n == 0)
+             return 0; /* EOF */
+         if (errno == EINTR)
+             continue;
+         if (errno == EAGAIN || errno == EWOULDBLOCK)
+             return 1;
+         log_e("Failed to read from pipe: %s", strerror(errno));
+         return -1;
+     }
+ }
+ 
+ /* Run argv, capture stdout into out (NUL-terminated). Kill the process
+  * group if it exceeds timeout_sec. Returns 0 on success, -1 on error/timeout. */
+ static int run_capture_timeout(char *const argv[], int timeout_sec,
+                    char *out, size_t out_sz)
+ {
+     extern char **environ;
+     int pipefd[2];
+     pid_t pid;
+     size_t total = 0;
+     int status = 0;
+     int timed_out = 0;
+     int elapsed;
+     int out_full_logged = 0;
+     int pipe_eof = 0;
+     int child_done = 0;
+ 
+     if (!argv || !argv[0] || !out || out_sz == 0)
+         return -1;
+ 
+     out[0] = '\0';
+ 
+     if (pipe(pipefd) == -1)
+         return -1;
+ 
+     pid = fork();
+     if (pid < 0) {
+         close(pipefd[0]);
+         close(pipefd[1]);
+         return -1;
+     }
+ 
+     if (pid == 0) {
+         /* Own process group so parent can kill the whole tree. */
+         setpgid(0, 0);
+         close(pipefd[0]);
+         dup2(pipefd[1], STDOUT_FILENO);
+         dup2(pipefd[1], STDERR_FILENO);
+         close(pipefd[1]);
+         execve(argv[0], argv, environ);
+         _exit(127);
+     }
+ 
+     setpgid(pid, pid);
+     close(pipefd[1]);
+ 
+     /* Non-blocking drain + WNOHANG wait so we can enforce a timeout.
+      * `iw scan` under wpa_supplicant often sleeps forever — never block
+      * the FastCGI worker on waitpid(). */
+     {
+         int flags = fcntl(pipefd[0], F_GETFL, 0);
+         if (flags < 0 || fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK) < 0) {
+             log_e("fcntl O_NONBLOCK failed: %s", strerror(errno));
+             kill(-pid, SIGKILL);
+             waitpid(pid, &status, 0);
+             close(pipefd[0]);
+             return -1;
+         }
+     }
+ 
+     for (elapsed = 0; elapsed <= timeout_sec * 10; elapsed++) {
+         pid_t w;
+ 
+         if (!pipe_eof) {
+             int dr = drain_pipe_nb(pipefd[0], out, out_sz, &total,
+                           &out_full_logged);
+             if (dr == 0) {
+                 pipe_eof = 1;
+             } else if (dr == 2) {
+                 /* Buffer full — kill writer; partial text is enough. */
+                 pipe_eof = 1;
+                 if (!child_done) {
+                     kill(-pid, SIGKILL);
+                     waitpid(pid, &status, 0);
+                     child_done = 1;
+                 }
+                 break;
+             }
+             /* dr == -1: keep trying to reap child; do not hang */
+         }
+ 
+         if (!child_done) {
+             w = waitpid(pid, &status, WNOHANG);
+             if (w == pid)
+                 child_done = 1;
+         }
+ 
+         if (pipe_eof && child_done)
+             break;
+ 
+         if (elapsed >= timeout_sec * 10) {
+             log_e("run_capture_timeout timed out, child %d %s",
+                   pid, child_done ? "done" : "not done");
+             if (!child_done) {
+                 timed_out = 1;
+                 kill(-pid, SIGKILL);
+                 waitpid(pid, &status, 0);
+                 child_done = 1;
+             }
+             break;
+         }
+         usleep(100000); /* 100 ms */
+     }
+ 
+     /* Same non-block drain after exit / timeout (ignore "full"). */
+     if (!pipe_eof)
+         drain_pipe_nb(pipefd[0], out, out_sz, &total, &out_full_logged);
+     close(pipefd[0]);
+ 
+     /* Guaranteed C-string for callers using strlen/strstr. */
+     if (total >= out_sz)
+         total = out_sz - 1;
+     out[total] = '\0';
+     out[out_sz - 1] = '\0';
+ 
+     /* Timeout with captured text is still useful for iw scan parse. */
+     if (timed_out)
+         return total > 0 ? 0 : -1;
+     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+         return 0;
+     /* SIGKILL after buffer-full, or non-zero exit with text → OK */
+     return total > 0 ? 0 : -1;
+ }
+ 
+ /* Prefer wpa_cli: when wpa_supplicant owns wlan0, `iw scan` hangs (ps shows
+  * both iw + grep stuck in S) and getSSID.cgi never returns. */
+ static int scan_ssid_via_wpa_cli(char *out, size_t out_sz)
+ {
+     char discard[256];
+     char *const scan_argv[] = {
+         "/usr/sbin/wpa_cli", "-i", "wlan0", "scan", NULL
+     };
+     char *const results_argv[] = {
+         "/usr/sbin/wpa_cli", "-i", "wlan0", "scan_results", NULL
+     };
+     int i;
+     int got = 0;
+ 
+     if (!out || out_sz < 2)
+         return -1;
+     out[0] = '\0';
+     out[out_sz - 1] = '\0';
+ 
+     /* Trigger scan (returns quickly with OK/FAIL). */
+     if (run_capture_timeout(scan_argv, 3, discard, sizeof(discard)) < 0) {
+         log_e("Failed wpa_cli scan");
+         return -1;
+     }
+     /* Wait for results; poll a few times instead of one long sleep. */
+     for (i = 6; i > 0; i--) {
+         size_t outstr_len;
+         usleep(500000); /* 0.5 s */
+         /* Clear before capture so a failed/short poll never leaves stale text. */
+         out[0] = '\0';
+         out[out_sz - 1] = '\0';
+         if (run_capture_timeout(results_argv, 3, out, out_sz) < 0) {
+             log_e("Failed wpa_cli scan_result (%d tries left)", i - 1);
+             continue;
+         }
+         /* run_capture_timeout NUL-terminates; pin the last byte too. */
+         out[out_sz - 1] = '\0';
+         /* Header alone is ~40 bytes; real hits are longer. */
+         if ((outstr_len = strlen(out)) > 64) {
+             file_write("/tmp/wpa_cli_scan.log", out, outstr_len, 0);
+             got = 1;
+             break;
+         }
+     }
+     out[out_sz - 1] = '\0';
+     return got ? 0 : ((out[0] != '\0') ? 0 : -1);
+ }
+ 
+ /* Fallback: iw scan dump (cached, usually non-blocking) then timed iw scan. */
+ static int scan_ssid_via_iw(char *out, size_t out_sz)
+ {
+     int ret = -1;
+     char *const dump_argv[] = {
+         "/usr/sbin/iw", "dev", "wlan0", "scan", "dump", NULL
+     };
+     char *const scan_argv[] = {
+         "/usr/sbin/iw", "dev", "wlan0", "scan", NULL
+     };
+ 
+     if (!out || out_sz < 2)
+         return -1;
+     out[0] = '\0';
+     out[out_sz - 1] = '\0';
+ 
+     if (run_capture_timeout(dump_argv, 3, out, out_sz) == 0) {
+         out[out_sz - 1] = '\0';
+         if (strstr(out, "SSID:")) {
+             log_d("iw scan dump found SSID");
+             return 0;
+         }
+     }
+     
+     out[0] = '\0';
+     out[out_sz - 1] = '\0';
+ 
+     /* Hard-capped — never wait forever like the old pipe+waitpid path. */
+     ret = run_capture_timeout(scan_argv, 8, out, out_sz);
+     out[out_sz - 1] = '\0';
+     if (ret == 0) {
+         file_write("/tmp/iw_scan.log", out, strlen(out), 0);
+     }
+     if (ret != 0) {
+         log_e("Failed iw scan");
+         out[0] = '\0';
+         out[out_sz - 1] = '\0';
+     }
+     return ret;
+ }
+ 
+ /*
+  * Reject empty / hidden / binary SSIDs that iw prints as escapes, e.g.
+  *   SSID: \x00\x00\x00\x00...
+  * Those are not useful in the web dropdown.
+  */
+ static int wifi_ssid_usable(const char *ssid)
+ {
+     size_t i;
+ 
+     if (!ssid || ssid[0] == '\0')
+         return 0;
+ 
+     /* iw escape form for non-printable: \xNN\xNN... */
+     if (ssid[0] == '\\' && ssid[1] == 'x')
+         return 0;
+ 
+     for (i = 0; ssid[i]; i++) {
+         unsigned char c = (unsigned char)ssid[i];
+         /* Allow printable ASCII; drop control / DEL. UTF-8 high bytes OK. */
+         if (c < 0x20 || c == 0x7f)
+             return 0;
+     }
+     return 1;
+ }
+ 
+ /*
+  * wpa_cli scan_results:
+  *   bssid / frequency / signal level / flags / ssid
+  *   aa:bb:...\t2437\t-55\t[WPA2-PSK-CCMP][ESS]\tMy SSID
+  * SSID is field 5 (tab-separated; may contain spaces).
+  * Returns number of non-empty SSIDs written as "\tSSID: ...\n".
+  */
+ static int parse_wpa_cli_scan_results(const char *scan_text, FILE *out)
+ {
+     const char *p;
+     int n = 0;
+ 
+     if (!scan_text || !out)
+         return 0;
+ 
+     p = scan_text;
+     while (*p) {
+         const char *eol = strchr(p, '\n');
+         size_t linelen = eol ? (size_t)(eol - p) : strlen(p);
+         char line[512];
+         char *tab;
+         char *ssid;
+         int fields;
+ 
+         if (linelen >= sizeof(line))
+             linelen = sizeof(line) - 1;
+         memcpy(line, p, linelen);
+         line[linelen] = '\0';
+         p = eol ? eol + 1 : p + linelen;
+ 
+         if (line[0] == '\0' || strncmp(line, "bssid", 5) == 0 ||
+             strncmp(line, "Selected", 8) == 0)
+             continue;
+ 
+         /* Need 4 tabs → 5 fields; SSID starts after the 4th tab. */
+         ssid = line;
+         for (fields = 0; fields < 4; fields++) {
+             tab = strchr(ssid, '\t');
+             if (!tab)
+                 break;
+             ssid = tab + 1;
+         }
+         if (fields < 4)
+             continue;
+         while (*ssid == ' ' || *ssid == '\t')
+             ssid++;
+         if (!wifi_ssid_usable(ssid))
+             continue;
+         fprintf(out, "\tSSID: %s\n", ssid);
+         n++;
+     }
+     return n;
+ }
+ 
+ /*
+  * iw scan / scan dump:
+  *   BSS aa:bb:cc:dd:ee:ff(on wlan0)
+  *   	SSID: My SSID
+  *   	...
+  *   	HESSID: 00:00:00:00:00:00   ← must not match as SSID
+  * Returns number of SSID lines written.
+  */
+ static int parse_iw_scan_text(const char *scan_text, FILE *out)
+ {
+     const char *p;
+     int n = 0;
+ 
+     if (!scan_text || !out)
+         return 0;
+ 
+     p = scan_text;
+     while (*p) {
+         const char *eol = strchr(p, '\n');
+         size_t linelen = eol ? (size_t)(eol - p) : strlen(p);
+         char line[512];
+         char *tmp;
+         char *ssid;
+ 
+         if (linelen >= sizeof(line))
+             linelen = sizeof(line) - 1;
+         memcpy(line, p, linelen);
+         line[linelen] = '\0';
+         p = eol ? eol + 1 : p + linelen;
+ 
+         tmp = strstr(line, "SSID:");
+         if (!tmp)
+             continue;
+         /* Reject HESSID: (SSID: is a substring). */
+         if (tmp > line &&
+             (isalnum((unsigned char)tmp[-1]) || tmp[-1] == '_'))
+             continue;
+ 
+         ssid = tmp + 5;
+         while (*ssid == ' ' || *ssid == '\t')
+             ssid++;
+         if (!wifi_ssid_usable(ssid))
+             continue;
+         fprintf(out, "\tSSID: %s\n", ssid);
+         n++;
+     }
+     return n;
+ }
+ 
+ static void scanSSIDtoTargetFile(const char *target_file)
+ {
+     /* Large heap buffer — dense iw scan text >> 64K. */
+     char *buf = malloc(WIFI_SCAN_CAPTURE_SZ);
+     FILE *out;
+     int n = 0;
+ 
+     out = fopen(target_file, "w");
+     if (!out) {
+         free(buf);
+         return;
+     }
+     if (!buf) {
+         fclose(out);
+         return;
+     }
+     buf[0] = '\0';
+ 
+     /* Each source has its own text format — parse with the matching parser.
+      * If wpa_cli runs but yields 0 SSIDs, fall back to iw. */
+     if (scan_ssid_via_wpa_cli(buf, WIFI_SCAN_CAPTURE_SZ) == 0) {
+         n = parse_wpa_cli_scan_results(buf, out);
+         log_d("wpa_cli parsed %d SSID(s)", n);
+     }
+     if (n <= 0) {
+         buf[0] = '\0';
+         if (scan_ssid_via_iw(buf, WIFI_SCAN_CAPTURE_SZ) == 0) {
+             /* Rewind file so iw results replace empty wpa_cli output. */
+             if (ftruncate(fileno(out), 0) == 0)
+                 rewind(out);
+             n = parse_iw_scan_text(buf, out);
+             log_d("iw parsed %d SSID(s)", n);
+         }
+     }
+ 
+     if (n <= 0)
+         log_e("No SSIDs from wpa_cli or iw");
+ 
+     fclose(out);
+     free(buf);
+ }
+ 

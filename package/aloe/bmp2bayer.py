@@ -45,14 +45,17 @@ def rgb_to_rggb16(img):
     return bayer.astype(np.uint16)
 
 
-def main():
+def main(args=None):
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument("input")
     parser.add_argument("output")
 
-    args = parser.parse_args()
+    if args:
+        args = parser.parse_args(args)
+    else:
+        args = parser.parse_args()
 
     img = cv2.imread(args.input, cv2.IMREAD_COLOR)
 
@@ -79,4 +82,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # main("sample.bmp sample-rg10.raw".split())
     main()

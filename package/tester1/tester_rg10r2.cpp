@@ -7,13 +7,13 @@
 
 #include "priv.h"
 
-#define log_m(_lvl, _fmt, _args...) printf("[" _lvl "][%s][#%d] " _fmt, __func__, __LINE__, ##_args)
-#define log_d(_args...) log_m("Debug", _args)
-#define log_e(_args...) log_m("ERROR", _args)
+//#define log_m(_lvl, _fmt, _args...) printf("[" _lvl "][%s][#%d] " _fmt, __func__, __LINE__, ##_args)
+//#define log_d(_args...) log_m("Debug", _args)
+//#define log_e(_args...) log_m("ERROR", _args)
 
-#define dump_argv(_argc, _argv) for (int i = 0; i < (_argc); i++) { \
-	log_d("argv[%d/%d]: %s\n", i + 1, (_argc), (_argv)[i]); \
-}
+//#define dump_argv(_argc, _argv) for (int i = 0; i < (_argc); i++) { \
+//	log_d("argv[%d/%d]: %s\n", i + 1, (_argc), (_argv)[i]); \
+//}
 
 static int clamp_u8(int value) {
 	return value > 255 ? 255 : value < 0 ? 0 : value;
@@ -77,10 +77,12 @@ static void rg10_rgb_i420_v3(int width, int height, const void *rg10, void *rgb,
 		 *
 		 * Output RGB/I420 4 x 4 pixels block
 		 *
-		 * Y11(uv11) Y12(uv11)
-		 * Y21(uv11) Y22(uv11)
-		 * u11
-		 * v11
+		 * Y11(uv11) Y12(uv11) Y13(uv12) Y14(uv12)
+		 * Y21(uv11) Y22(uv11) Y23(uv12) Y24(uv12)
+		 * Y31(uv21) Y32(uv21) Y33(uv22) Y34(uv22)
+		 * Y41(uv21) Y42(uv21) Y43(uv22) Y44(uv22)
+		 * u11 u12 u21 u22
+		 * v11 v12 v21 v22
 
 		 * Y = (( 66 * R + 129 * G +  25 * B + 128) / 256) +  16;
 		 * U = ((-38 * R -  74 * G + 112 * B + 128) / 256) + 128;
@@ -114,101 +116,165 @@ static void rg10_rgb_i420_v3(int width, int height, const void *rg10, void *rgb,
 
 		for (x = 0, out_x = 0; x < width; x += 8, out_x += 4) {
 			uint16_t *rg10_pos = rg10_row + x;
+			struct {
+				int r, g, b;
+			} rgb_val[4][4] = {};
+#if 0
+#  define rg10_fetch(_y, _x) \
+			rgb_val[_y][_x].r = rg10_pos[((_y) * 2) * width + ((_x) * 2)]; \
+			rgb_val[_y][_x].g = (rg10_pos[((_y) * 2) * width + ((_x) * 2) + 1] \
+			  + rg10_pos[((_y) * 2) * width + ((_x) * 2) + width]) / 2; \
+			rgb_val[_y][_x].b = rg10_pos[((_y) * 2) * width + ((_x) * 2) + width + 1];
+#else
+#  define rg10_fetch(_y, _x) \
+			rgb_val[_y][_x].r = rg10_pos[((_y) * 2) * width + ((_x) * 2)]; \
+			rgb_val[_y][_x].g = rg10_pos[((_y) * 2) * width + ((_x) * 2) + 1]; \
+			rgb_val[_y][_x].b = rg10_pos[((_y) * 2) * width + ((_x) * 2) + width + 1];			
+#endif
 
-			int r11 = rg10_pos[0];
-			int g11 = rg10_pos[1];
-			int b11 = rg10_pos[width + 1];
-
-			int r12 = rg10_pos[4];
-			int g12 = rg10_pos[5];
-			int b12 = rg10_pos[width + 5];
-
-			int r21 = rg10_pos[width * 4];
-			int g21 = rg10_pos[width * 4 + 1];
-			int b21 = rg10_pos[width * 4 + width + 1];
-
-			int r22 = rg10_pos[width * 4 + 4];
-			int g22 = rg10_pos[width * 4 + 5];
-			int b22 = rg10_pos[width * 4 + width + 5];
+			rg10_fetch(0, 0); rg10_fetch(0, 1); rg10_fetch(0, 2); rg10_fetch(0, 3);
+			rg10_fetch(1, 0); rg10_fetch(1, 1); rg10_fetch(1, 2); rg10_fetch(1, 3);
+			rg10_fetch(2, 0); rg10_fetch(2, 1); rg10_fetch(2, 2); rg10_fetch(2, 3);
+			rg10_fetch(3, 0); rg10_fetch(3, 1); rg10_fetch(3, 2); rg10_fetch(3, 3);
 
 			if (rgb) {
-				uint8_t *rgb_pos = rgb_row + out_x * 3;
+				typedef struct __attribute__((packed)) {
+					uint8_t r, g, b;
+				} rgb_pos_t;
+				rgb_pos_t *rgb_pos = (rgb_pos_t*)rgb_row + out_x;
 
-				rgb_pos[0] = r11;
-				rgb_pos[1] = g11;
-				rgb_pos[2] = b11;
+#define rgb_put(_y, _x) \
+				rgb_pos[(_y) * out_w + (_x)].r = rgb_val[_y][_x].r / 4; \
+				rgb_pos[(_y) * out_w + (_x)].g = rgb_val[_y][_x].g / 4; \
+				rgb_pos[(_y) * out_w + (_x)].b = rgb_val[_y][_x].b / 4;
 
-				rgb_pos[3] = r12;
-				rgb_pos[4] = g12;
-				rgb_pos[5] = b12;
-
-				rgb_pos[out_w * 3] = r21;
-				rgb_pos[out_w * 3 + 1] = g21;
-				rgb_pos[out_w * 3 + 2] = b21;
-
-				rgb_pos[out_w * 3 + 3] = r22;
-				rgb_pos[out_w * 3 + 4] = g22;
-				rgb_pos[out_w * 3 + 5] = b22;
+				rgb_put(0, 0); rgb_put(0, 1); rgb_put(0, 2); rgb_put(0, 3);
+				rgb_put(1, 0); rgb_put(1, 1); rgb_put(1, 2); rgb_put(1, 3);
+				rgb_put(2, 0); rgb_put(2, 1); rgb_put(2, 2); rgb_put(2, 3);
+				rgb_put(3, 0); rgb_put(3, 1); rgb_put(3, 2); rgb_put(3, 3);
 			}
-
+#if 1
 			if (i420) {
 				uint8_t *y_pos = y_row + out_x;
 				uint8_t *u_pos = u_row + out_x / 2;
 				uint8_t *v_pos = u_pos + uv_size;
 
-				rgb_yuv(r11, g11, b11, y_pos,                 u_pos, v_pos);
-				rgb_yuv(r12, g12, b12, y_pos + 1,             NULL, NULL);
-				rgb_yuv(r21, g21, b21, y_pos + out_w * 3,     NULL, NULL);
-				rgb_yuv(r22, g22, b22, y_pos + out_w * 3 + 3, NULL, NULL);
+				rgb_yuv(rgb_val[0][0].r, rgb_val[0][0].g, rgb_val[0][0].b, 
+						y_pos + (0 * out_w + 0), u_pos, v_pos);
+				rgb_yuv(rgb_val[0][1].r, rgb_val[0][1].g, rgb_val[0][1].b, 
+						y_pos + (0 * out_w + 1), NULL, NULL);
+		
 			}
+#endif
 		}
 	}
 }
 
-int main(int argc, char **argv) {
+// 3280 2464 sample-rg10.raw test2.bmp
+static int tester_rg10bmp2(void*, int argc, char **argv) {
 	int fd = -1, ret = -1, r;
 	int width = 3280, height = 2464;
+	const char *input_file = NULL, *output_file = NULL;
+	void *mem = NULL;
 	aloe_buf_t buf = {}, fb_rgb = {}, fb_i420 = {};
 
 	// dump_argv(argc, argv);
 
-	if (argc < 3) {
-		log_e("usage: %s <input_file> <output_file>\n", argv[0]);
+	if (argc < 5) {
+		log_e("usage: %s <width> <height> <input_file> <output_file>\n", argv[0]);
+		goto finally;
+	}
+	width = strtol(argv[1], NULL, 10);
+	height = strtol(argv[2], NULL, 10);
+	input_file = argv[3];
+	output_file = argv[4];
+
+	if ((fd = open(input_file, O_RDONLY)) < 0) {
+		log_e("open %s failed\n", input_file);
 		goto finally;
 	}
 
-	if ((fd = open(argv[1], O_RDONLY)) < 0) {
-		log_e("open %s failed\n", argv[1]);
+	if ((mem = (void*)malloc(
+			width * height * 2
+			+ width * height * 3
+			+ width * height * 2)) == NULL) {
+		log_e("malloc failed\n");
 		goto finally;
 	}
 
-	if ((buf.data = (void*)malloc(buf.cap = width * height * 2 * 2)) == NULL) {
-		log_e("malloc failed\n");
-		goto finally;
-	}
-	if ((fb_rgb.data = (void*)malloc(fb_rgb.cap = width * height * 2 * 2)) == NULL) {
-		log_e("malloc failed\n");
-		goto finally;
-	}
-	if ((fb_i420.data = (void*)malloc(fb_i420.cap = width * height * 2 * 2)) == NULL) {
-		log_e("malloc failed\n");
-		goto finally;
-	}
+	buf.data = mem;
+	buf.cap = width * height * 2;
+
+	fb_rgb.data = (char*)buf.data + buf.cap;
+	fb_rgb.cap = width * height * 3;
+
+	fb_i420.data = (char*)fb_rgb.data + fb_rgb.cap;
+	fb_i420.cap = width * height * 2;
+
 	if ((r = aloe_bio_read(fd, buf.data, buf.cap)) != width * height * 2) {
 		log_e("read failed, %d != %d\n", r, width * height * 2);
 		goto finally;
 	}
 	close(fd);
 	fd = -1;
+	log_d("read %d x %d RG10 from %s\n", width, height, input_file);
+
 	log_d("convert RG10 to RGB888\n");
 	rg10_rgb_i420_v3(width, height, buf.data, fb_rgb.data, NULL);
-	log_d("save RGB888 to %s\n", argv[2]);
-	aloe_bmp_save(argv[2], width, height, (uint8_t*)fb_rgb.data);
+	log_d("save RGB888 to %s\n", output_file);
+	aloe_bmp_save(output_file, width / 2, height / 2, (uint8_t*)fb_rgb.data);
 	ret = 0;
 finally:
 	if (fd != -1) close(fd);
-	if (buf.data) free(buf.data);
-	if (fb_rgb.data) free(fb_rgb.data);
-	if (fb_i420.data) free(fb_i420.data);
+	if (mem) free(mem);
+	return ret;
+}
+
+// test.bmp
+static int tester_bmp2(void*, int argc, char **argv) {
+	int ret = -1;
+	int width = 3280, height = 2464;
+	void *mem = NULL;
+	aloe_buf_t fb_rgb = {};
+
+	if (argc < 2) {
+		log_e("usage: %s <output_file>\n", argv[0]);
+		goto finally;
+	}
+
+	if ((mem = (void*)malloc(
+			width * height * 3)) == NULL) {
+		log_e("malloc failed\n");
+		goto finally;
+	}
+
+	fb_rgb.data = mem;
+	fb_rgb.cap = width * height * 3;
+
+	// output colorbar
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+			uint8_t *rgb_pos = (uint8_t*)fb_rgb.data + y * width * 3 + x * 3;
+			rgb_pos[0] = x * 255 / (width - 1);
+			rgb_pos[1] = y * 255 / (height - 1);
+			rgb_pos[2] = 0;
+		}
+	}
+	aloe_bmp_save(argv[1], width, height, (uint8_t*)fb_rgb.data);
+	ret = 0;
+	
+finally:
+	if (mem) free(mem);
+	return ret;
+}
+
+int main(int argc, char **argv) {
+	int ret = -1, r;
+
+	// tester_bmp2(NULL, argc, argv);
+	tester_rg10bmp2(NULL, argc, argv);
+
+	ret = 0;
+finally:
 	return ret;
 }
