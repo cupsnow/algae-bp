@@ -95,7 +95,7 @@ int aloe_bmp_save(const char *filename, int width, int height, const uint8_t *rg
 
 	if (!fp) {
 		r = errno;
-		aloe_log_e("%s\n", strerror(r));
+		aloe_log_e("open %s; %s\n", filename, strerror(r));
 		return -1;
 	}
 

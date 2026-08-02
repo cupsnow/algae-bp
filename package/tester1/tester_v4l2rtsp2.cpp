@@ -258,7 +258,8 @@ private:
 		std::vector<uint8_t> annexB;
 		t1 = std::chrono::steady_clock::now();
 		int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, stride, annexB);
-		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t1);
+		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - t1);
 		log_d("x264 encode cost %llu milliseconds\n", (unsigned long long)td1.count());
 
 		gPipeline->capture.enqueueBuffer(bufIndex);

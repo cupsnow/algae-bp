@@ -264,7 +264,7 @@ $(foreach pkg,live555 openssl x264, \
   $(eval tester_v4l2rtsp2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
   $(eval tester_v4l2rtsp2_LDFLAGS+=$($(pkg)_LDFLAGS)))
 
-ifneq ($(filter bp,$(APP_PLATFORM)),)
+ifneq ($(filter bp qemuarm64,$(APP_PLATFORM)),)
 tester_v4l2rtsp2_CFLAGS+=-O3 -march=armv8-a+simd
 tester_v4l2rtsp2_CXXFLAGS+=-O3 -march=armv8-a+simd
 tester_v4l2rtsp2_LDFLAGS+=-O3 -march=armv8-a+simd
