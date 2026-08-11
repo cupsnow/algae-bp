@@ -30,14 +30,21 @@ ARTIFACT_DOXYGEN:=
 
 ifneq ($(filter sa7715,$(APP_PLATFORM)),)
 SA7715_SYSROOT=$(HOME)/02_dev/eveplay-ws/build/sysroot-sa7715
+# end of sa7715
 else ifneq ($(filter esh,$(APP_PLATFORM)),)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 ESH_SYSROOT=$(HOME)/02_exdev2/agt-ws/esghub/buildroot/output/staging
-CXXFLAGS+=-std=gnu++11 --sysroot=$(TOOLCHAIN_SYSROOT)
+CXXFLAGS+=-std=gnu++11
+  ifneq ($(TOOLCHAIN_SYSROOT),)
+CXXFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT)
 LDFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT)
+# end of TOOLCHAIN_SYSROOT
+  endif
+# end of esh
 else ifneq ($(filter iq9,$(APP_PLATFORM)),)
 CPPFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT) -I$(TOOLCHAIN_SYSROOT)/include -I$(TOOLCHAIN_SYSROOT)/usr/include
 LDFLAGS+=--sysroot=$(TOOLCHAIN_SYSROOT) -L$(TOOLCHAIN_SYSROOT)/lib -L$(TOOLCHAIN_SYSROOT)/usr/lib
+# end of iq9
 endif
 
 #------------------------------------

@@ -37,7 +37,9 @@ dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe/sys_linux/,*.cpp *.c
 # dummy1_SRCS+=$(wildcard $(addprefix $(PROJDIR)/package/aloe_ev/,*.cpp *.c))
 dummy1_OBJS=$(patsubst %,$(dummy1_BUILDDIR)/%.o,$(filter %.c %.cpp,$(dummy1_SRCS)))
 dummy1_DEPS=$(dummy1_OBJS:%=%.d)
-#dummy1_LDFLAGS+=
+dummy1_LDFLAGS+=-pthread
+dummy1_CFLAGS+=-std=gnu11
+dummy1_CXXFLAGS+=-std=gnu++11
 dummy1_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 
 GENDIR+=$(dummy1_BUILDDIR) $(dir $(dummy1_OBJS)) $(dir $(dummy1_BUILDDIR)/$(dummy1_BIN))
@@ -50,7 +52,7 @@ $(dummy1_BUILDDIR)/$(dummy1_BIN): $(dummy1_OBJS)
 	    -o $@ -Wl,--start-group \
 	    $(filter %.o %.a,$^ $(dummy1_SRCS)) \
 	    -Wl,--end-group \
-	    -pthread $(LDFLAGS) $(dummy1_LDFLAGS)
+	    $(LDFLAGS) $(dummy1_LDFLAGS)
 	$(OBJDUMP) -xdt $@ \
 	    >$(@).lst
 

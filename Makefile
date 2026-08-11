@@ -13,7 +13,6 @@ PARALLEL_BUILD?=$(or $(1),-j)20
 
 PKGDIR=$(PROJDIR)/package
 PKGDIR2=$(abspath $(PROJDIR)/..)
-
 BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
 APP_ATTR_ub20?=ub20
@@ -27,18 +26,21 @@ APP_ATTR_qemuarm64?=qemuarm64
 APP_PLATFORM?=bp
 
 # locale_posix2c coreutils systemd
-APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils # systemd
+APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils
 
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
-else ifneq ($(strip $(filter bbb xm sa7715 esh onvcam,$(APP_PLATFORM))),)
+else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
 APP_BUILD=arm
 else
 APP_BUILD=$(APP_PLATFORM)
 endif
 
+# AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
 # AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
-AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
+AARCH64_TOOLCHAIN_PATH?=$(firstword $(wildcard \
+    $(PROJDIR)/cross/aarch64-linux-gnu \
+	$(PROJDIR)/tool/gcc-aarch64))
 AARCH64_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
     $(AARCH64_TOOLCHAIN_PATH)/*-gcc \
 	$(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc)))
@@ -46,21 +48,24 @@ AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)
 PATH_PUSH+=$(AARCH64_TOOLCHAIN_BIN_PATH)
 
 ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-arm
-ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_PATH)/bin/*-gcc -dumpmachine)-
-PATH_PUSH+=$(ARM_TOOLCHAIN_PATH)/bin
+ARM_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
+    $(ARM_TOOLCHAIN_PATH)/*-gcc \
+	$(ARM_TOOLCHAIN_PATH)/bin/*-gcc)))
+ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)-
+PATH_PUSH+=$(ARM_TOOLCHAIN_BIN_PATH)
 
 LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
 PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
 
-ifneq ($(strip $(filter bp qemuarm64 iq9,$(APP_PLATFORM))),)
+ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
-TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
+TOOLCHAIN_SYSROOT?=$(abspath $(shell $(AARCH64_TOOLCHAIN_BIN_PATH)/$(CROSS_COMPILE)gcc -print-sysroot))
 $(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
-else ifneq ($(strip $(filter bbb xm sa7715 esh onvcam,$(APP_PLATFORM))),)
+else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
-TOOLCHAIN_SYSROOT?=$(abspath $(shell $(TOOLCHAIN_PATH)/bin/$(CROSS_COMPILE)gcc -print-sysroot))
+TOOLCHAIN_SYSROOT?=$(abspath $(shell $(ARM_TOOLCHAIN_BIN_PATH)/$(CROSS_COMPILE)gcc -print-sysroot))
 $(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
 else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
@@ -71,7 +76,11 @@ BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
 # 0 remove .pc and .la after build
 # 1 remove .la after build
 BUILD_PKGCFG_USAGE=2
-BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/usr/lib/pkgconfig:$(or $(1),$(BUILD_SYSROOT))/usr/share/pkgconfig" \
+BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig
+BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig
+BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib/pkgconfig
+BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/share/pkgconfig
+BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(call BUILD_PKGCFG_LIBDIR,$(1)) $(PKG_CONFIG_LIBDIR))" \
     PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
@@ -86,9 +95,8 @@ LDFLAGS+=
 GENDIR:=
 GENPYVENV:=
 
-# ref CLIARGS_VERBOSE for example
+# example: make V=1 -> $(call CLIARGS_VAL,V) -> 1
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
-
 CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
 
 RSYNC_VERBOSE+=--debug=FILTER
@@ -3387,7 +3395,8 @@ testsite2_install:
 define SIMPLE_APP1
 $(1)_DIR=$(or $(2),$(firstword $(wildcard $(PKGDIR)/$(1) $(PKGDIR2)/$(1))))
 $(1)_MAKE=$$(MAKE) $(foreach var, \
-    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR BUILD_SYSROOT, \
+    PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR BUILD_SYSROOT \
+	TOOLCHAIN_SYSROOT, \
     $(var)="$$($(var))") -C $$($(1)_DIR)
 
 $(1):

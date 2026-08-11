@@ -41,6 +41,17 @@ query_nic_model () {
 }
 
 start_uboot () {
+
+# memo to start kernel after uboot
+# ./builder/run_qemu.sh start_uboot -- -nographic
+# 
+# virtio scan
+# virtio part
+# fatls virtio 0 /
+# fatload virtio 0 ${kernel_addr_r} Image
+# setenv bootargs console=ttyAMA0 root=/dev/vda rw rootwait
+# booti ${kernel_addr_r} - ${fdtcontroladdr}
+
   _lo_cmd_qemu="${cmd_qemu_bootroot1}"
   _lo_dtb="${_pri_destdir}/boot/qemuarm64.dtb"
   _lo_ub="${_pri_destdir}/boot/u-boot.bin"
