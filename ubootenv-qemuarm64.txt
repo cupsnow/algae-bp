@@ -1,25 +1,42 @@
-bootargs_console=console=ttyS2,115200n8 earlycon=ns16550a,mmio32,0x02800000
-bootargs_root=root=/dev/mmcblk1p2 rootfstype=ext2 rootwait
-bootargs=${bootargs_root} ${bootargs_console} ${bootargs_extra}
-fdtaddr=0x88000000
-loadaddr=0x82000000
-kernel_comp_addr_r=0x85000000
-kernel_comp_size=0x2000000
-mmcdev=1:1
-bootdir=/boot
-envfile=uenv.txt
-envimport=fatload mmc ${mmcdev} ${loadaddr} ${envfile} && env import -t ${loadaddr} ${filesize}
-envexport=env export -t ${loadaddr} && fatwrite mmc ${mmcdev} ${loadaddr} ${envfile} ${filesize}
+# arch=arm
+# baudrate=115200
+# board=qemu-arm
+# board_name=qemu-arm
+# boot_targets=qfw usb scsi virtio nvme dhcp
+# bootcmd=bootflow scan -lb
+# bootdelay=2
+# cpu=armv8
+# ethaddr=52:54:00:12:34:56
+# fdt_addr=0x40000000
+# fdt_high=0xffffffff
+# fdtcontroladdr=5e58fd90
+# initrd_high=0xffffffff
+kernel_addr_r=0x40400000
+# loadaddr=0x40200000
+# preboot=usb start
+# pxefile_addr_r=0x40300000
+# ramdisk_addr_r=0x44000000
+# scriptaddr=0x40200000
+# stderr=serial,vidconsole
+# stdin=serial,usbkbd
+# stdout=serial,vidconsole
+# usb_ignorelist=0x1050:*,
+# vendor=emulation
 
+uenvpath=uenv.txt
+bootargs_console=console=ttyAMA0
+kernpath=Image
+
+initbootset=setenv bootsetdev virtio 1; setenv rootfsdev vda
+
+importenv=true
+
+loadbootargs=setenv bootargs root=/dev/${rootfsdev} rw rootwait rootfstype=ext4 ${bootargs_console} ${bootargs_extra}
+
+loadkern=fatload ${bootsetdev} ${kernel_addr_r} ${kernpath}
+loadfdt=true
+
+vdboot=run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs && booti ${kernel_addr_r} - ${fdtcontroladdr}
+
+bootcmd=run vdboot
 # bootset=
-loadimage=fatload mmc ${mmcdev} ${loadaddr} ${bootdir}/Image
-loadfdt=fatload mmc ${mmcdev} ${fdtaddr} ${bootdir}/dtb/k3-am625-beagleplay.dtb
-loadbootargs=setenv bootargs ${bootargs_root} ${bootargs_console} ${bootargs_extra}
-
-# bootset=2
-loadimage2=fatload mmc ${mmcdev} ${loadaddr} boot_def/firmware/Image
-loadfdt2=fatload mmc ${mmcdev} ${fdtaddr} boot_def/firmware/k3-am625-beagleplay.dtb
-loadbootargs2=${loadbootargs}
-
-sdboot=run loadimage${bootset} && run loadfdt${bootset} && run loadbootargs${bootset} && booti ${loadaddr} - ${fdtaddr}
-sdboot2=run setenv bootset 2 && run sdboot

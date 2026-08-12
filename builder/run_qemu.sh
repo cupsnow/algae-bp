@@ -3,23 +3,25 @@
 
 # qemu esc: ctrl-a x
 
-log_d () {
+log_d() {
   echo "[Debug] $*"
 }
 
-log_e () {
+log_e() {
   echo "[ERROR] $*"
 }
 
-cmd_run () {
+cmd_run() {
   log_d "Execute $*"
   "$@"
 }
 
 _pri_destdir="destdir/qemuarm64"
 
-_lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,media=disk"
-_lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
+# _lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,media=disk"
+# _lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,media=disk,if=none -device virtio-blk-device,drive=rootfs"
+_lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,if=none -device virtio-blk-device,drive=boot"
+_lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,if=none -device virtio-blk-device,drive=rootfs"
 
 _lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net -device virtio-net-device,netdev=my-shrd-net"
 
@@ -31,28 +33,28 @@ cmd_qemu_base1="${cmd_qemu_base1} -machine virt,virtualization=on,secure=off"
 cmd_qemu_bootroot1="${cmd_qemu_base1} ${_lo_qemuargs_bootdisk} ${_lo_qemuargs_rootdisk}"
 cmd_qemu_bootroot2="${cmd_qemu_bootroot1} ${_lo_qemuargs_nic1}"
 
-run_qemu () {
+run_qemu() {
   _lo_cmd_qemu="${cmd_qemu_base1}"
   cmd_run eval "${_lo_cmd_qemu}" "$@"
 }
 
-query_nic_model () {
+query_nic_model() {
   run_qemu -net nic,model=?  
 }
 
-start_uboot () {
+start_uboot() {
 
 # memo to start kernel after uboot
 # ./builder/run_qemu.sh start_uboot -- -nographic
 # 
 # virtio scan
 # virtio part
-# fatls virtio 0 /
-# fatload virtio 0 ${kernel_addr_r} Image
+# fatls virtio 1 /
+# fatload virtio 1 ${kernel_addr_r} Image
 # setenv bootargs console=ttyAMA0 root=/dev/vda rw rootwait
 # booti ${kernel_addr_r} - ${fdtcontroladdr}
 
-  _lo_cmd_qemu="${cmd_qemu_bootroot1}"
+  _lo_cmd_qemu="${cmd_qemu_bootroot2}"
   _lo_dtb="${_pri_destdir}/boot/qemuarm64.dtb"
   _lo_ub="${_pri_destdir}/boot/u-boot.bin"
 
@@ -68,7 +70,7 @@ start_uboot () {
     "$@"
 }
 
-start_kernel () {
+start_kernel() {
   # shellcheck disable=SC2086
   _lo_cmd_qemu="${cmd_qemu_bootroot2}"
 
@@ -87,8 +89,7 @@ start_kernel () {
     "$@"
 }
 
-show_help () {
-
+show_help() {
   _lo_cmd_qemu="${cmd_qemu_base1}"
 
   cat <<-EOHELP
@@ -99,14 +100,24 @@ OPTIONS
   --help   Show this help
 
 COMMAND
-  run_qemu
-    - Run: $_lo_cmd_qemu
-  start_uboot
-    - Start guest with uboot image
-  start_kernel
-    - Start guest with kernel image and rootfs
+  run_qemu      - Run qemu
+  start_uboot   - Start guest with uboot image (default)
+  start_kernel  - Start guest with kernel image and rootfs
   query_nic_model
-    - Query the guest support NIC model
+    - Query the support NIC model
+
+COMMAND_OPTIONS
+  Refer to qemu help, following is hint.
+
+  --nographic
+
+start_uboot
+
+  ${cmd_qemu_bootroot2} -bios ${_pri_destdir}/boot/u-boot.bin -nographic
+
+run_qemu
+
+  $_lo_cmd_qemu
 
 EOHELP
 }
@@ -132,13 +143,14 @@ log_d "Escape sequence: ctrl-a x"
 log_d "Run command: $*"
 
 if [ -z "$1" ]; then
-  start_kernel
+  shift
+  start_uboot "$@"
   exit
 fi
 
-if ! typeset -F | grep -q "declare -f $1"; then
-  show_help
-  exit 1
+if typeset -F | grep -q "declare -f $1"; then
+  "$@"
 fi
 
-"$@"
+show_help
+exit 1

@@ -96,27 +96,28 @@ TOUPPER=$(call MAPTO,$(LOWERCASECHARACTERS),$(UPPERCASECHARACTERS),$1)
 ENVPATH=$(subst $(SPACE),:,$(call UNIQ,$(subst :,$(SPACE),$(strip $1))))
 
 #------------------------------------
-# example: $(eval $(call GENDESTPKG,gmp))
+# example: $(eval $(call DEF_DESTDEP,gmp))
 # input 1 args
 # 1. name
 #
-define GENDESTPKG
+define DEF_DESTDEP
 $(1)_destpkg $$($(1)_BUILDDIR)-destpkg.tar.xz:
 	$$(RMTREE) $$($(1)_BUILDDIR)-destpkg
 	$$(MAKE) DESTDIR=$$($(1)_BUILDDIR)-destpkg $(1)_install
-	cd $$(dir $$($(1)_BUILDDIR)-destpkg) && \
-	  tar -Jcvf $$($(1)_BUILDDIR)-destpkg.tar.xz \
-	      $$(notdir $$($(1)_BUILDDIR)-destpkg)
+	tar -Jcvf $$($(1)_BUILDDIR)-destpkg.tar.xz \
+	    -C $$(dir $$($(1)_BUILDDIR)-destpkg) \
+	    $$(notdir $$($(1)_BUILDDIR)-destpkg)
 	$$(RMTREE) $$($(1)_BUILDDIR)-destpkg
 
-$(1)_destpkg_install: DESTDIR?=$$(SYSROOT)
+$(1)_destpkg_install: DESTDIR=$$(BUILD_SYSROOT)
 $(1)_destpkg_install: | $$($(1)_BUILDDIR)-destpkg.tar.xz
 	[ -d "$$(DESTDIR)" ] || $$(MKDIR) $$(DESTDIR)
-	tar -Jxvf $$($(1)_BUILDDIR)-destpkg.tar.xz -C $$(DESTDIR) \
-	    --strip-components=1
+	tar -Jxvf $$($(1)_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
+	    -C $$(DESTDIR)
 
 $(1)_destdep_install: $$(foreach iter,$$($(1)_DEP),$$(iter)_destdep_install)
 	$$(MAKE) $(1)_destpkg_install
+# end of DEF_DEPINSTALL for $(1)
 endef
 
 #------------------------------------

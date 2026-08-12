@@ -80,8 +80,21 @@ BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig
 BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig
 BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib/pkgconfig
 BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/share/pkgconfig
+ifneq ($(strip $(filter ub20,$(APP_PLATFORM))),)
+# use system pkg-config
+else ifeq ($(strip $(APP_PLATFORM)),)
+# use system pkg-config
+else
 BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(call BUILD_PKGCFG_LIBDIR,$(1)) $(PKG_CONFIG_LIBDIR))" \
     PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
+endif
+
+BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/include
+BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/include
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib64
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib64
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
@@ -107,28 +120,6 @@ CP_VERBOSE+=-v
 MV_VERBOSE+=-v
 ELFSTRIP_VERBOSE+=-v
 endif
-
-#------------------------------------
-#
-define DEF_DESTDEP
-$(1)_destpkg $$($(1)_BUILDDIR)-destpkg.tar.xz:
-	$$(RMTREE) $$($(1)_BUILDDIR)-destpkg
-	$$(MAKE) DESTDIR=$$($(1)_BUILDDIR)-destpkg $(1)_install
-	tar -Jcvf $$($(1)_BUILDDIR)-destpkg.tar.xz \
-	    -C $$(dir $$($(1)_BUILDDIR)-destpkg) \
-	    $$(notdir $$($(1)_BUILDDIR)-destpkg)
-	$$(RMTREE) $$($(1)_BUILDDIR)-destpkg
-
-$(1)_destpkg_install: DESTDIR=$$(BUILD_SYSROOT)
-$(1)_destpkg_install: | $$($(1)_BUILDDIR)-destpkg.tar.xz
-	[ -d "$$(DESTDIR)" ] || $$(MKDIR) $$(DESTDIR)
-	tar -Jxvf $$($(1)_BUILDDIR)-destpkg.tar.xz --strip-components=1 \
-	    -C $$(DESTDIR)
-
-$(1)_destdep_install: $$(foreach iter,$$($(1)_DEP),$$(iter)_destdep_install)
-	$$(MAKE) $(1)_destpkg_install
-# end of DEF_DEPINSTALL for $(1)
-endef
 
 #------------------------------------
 #
@@ -275,8 +266,6 @@ uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
     -C $(uboot_DIR)
-
-
 
 uboot_MAKEARGS-bp-r5+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)
@@ -694,20 +683,10 @@ acl_DIR=$(PKGDIR2)/acl
 acl_BUILDDIR=$(BUILDDIR2)/acl-$(APP_BUILD)
 acl_MAKE=$(MAKE) -C $(acl_BUILDDIR)
 
-acl_INCDIR=$(BUILD_SYSROOT)/include
-acl_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+acl_INCDIR+=$(BUILD_INCDIR)
+acl_LIBDIR+=$(BUILD_LIBDIR)
 
-ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
-acl_INCDIR+=$(TOOLCHAIN_SYSROOT)/include $(TOOLCHAIN_SYSROOT)/usr/include
-acl_LIBDIR+=$(TOOLCHAIN_SYSROOT)/lib $(TOOLCHAIN_SYSROOT)/usr/lib
-acl_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
-acl_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
-else
-acl_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
-acl_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
-endif
-acl_ACARGS_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
-acl_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+acl_INCDIR+=$(BUILD_SYSROOT)/include/ncursesw
 
 GENDIR+=$(acl_BUILDDIR)
 
@@ -789,8 +768,8 @@ coreutils_DIR=$(PKGDIR2)/coreutils
 coreutils_BUILDDIR=$(BUILDDIR2)/coreutils-$(APP_BUILD)
 coreutils_MAKE=$(MAKE) -C $(coreutils_BUILDDIR)
 
-coreutils_INCDIR+=$(BUILD_SYSROOT)/include
-coreutils_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+coreutils_INCDIR+=$(BUILD_INCDIR)
+coreutils_LIBDIR+=$(BUILD_LIBDIR)
 
 GENDIR+=$(coreutils_BUILDDIR)
 
@@ -827,8 +806,8 @@ e2fsprogs_DIR=$(PKGDIR2)/e2fsprogs
 e2fsprogs_BUILDDIR=$(BUILDDIR2)/e2fsprogs-$(APP_BUILD)
 e2fsprogs_MAKE=$(MAKE) -C $(e2fsprogs_BUILDDIR)
 
-e2fsprogs_INCDIR+=$(BUILD_SYSROOT)/include
-e2fsprogs_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+e2fsprogs_INCDIR+=$(BUILD_INCDIR)
+e2fsprogs_LIBDIR+=$(BUILD_LIBDIR)
 
 ifneq ($(strip $(filter utilinux,$(e2fsprogs_DEP))),)
 e2fsprogs_LIBS+=blkid
@@ -1030,6 +1009,44 @@ mtdutils: | $(mtdutils_BUILDDIR)/Makefile
 
 mtdutils_%: | $(mtdutils_BUILDDIR)/Makefile
 	$(mtdutils_MAKE) $(PARALLEL_BUILD) $(@:mtdutils_%=%)
+
+#------------------------------------
+# currently build for ub20
+#
+qemu_DEP=mtdutils glib
+qemu_DIR=$(PKGDIR2)/qemu
+qemu_BUILDDIR=$(BUILDDIR2)/qemu-$(APP_BUILD)
+qemu_MAKE=. $(PYVENVDIR)/bin/activate && $(MAKE) -C $(qemu_BUILDDIR)
+
+qemu_INCDIR=$(BUILD_INCDIR)
+qemu_LIBDIR=$(BUILD_LIBDIR)
+
+qemu_TARGET+=aarch64-softmmu arm-softmmu x86_64-softmmu
+qemu_TARGET+=aarch64-linux-user arm-linux-user x86_64-linux-user
+
+GENDIR+=$(qemu_BUILDDIR)
+
+qemu_defconfig $(qemu_BUILDDIR)/Makefile: | $(qemu_DIR)/configure $(qemu_BUILDDIR)
+	cd $(qemu_BUILDDIR) \
+	  && . $(PYVENVDIR)/bin/activate \
+	  && $(BUILD_PKGCFG_ENV) $(qemu_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix=/ \
+		  --target-list="$(qemu_TARGET)" \
+	      CFLAGS="$(addprefix -I,$(qemu_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(qemu_LIBDIR))" \
+
+qemu_install: DESTDIR=$(BUILD_SYSROOT)
+qemu_install: | $(qemu_BUILDDIR)/Makefile
+	$(qemu_MAKE) DESTDIR=$(DESTDIR) install
+
+$(eval $(call DEF_DESTDEP,qemu))
+
+qemu: | $(qemu_BUILDDIR)/Makefile
+	$(qemu_MAKE) $(PARALLEL_BUILD)
+
+qemu_%: | $(qemu_BUILDDIR)/Makefile
+	$(qemu_MAKE) $(PARALLEL_BUILD) $(@:qemu_%=%)
+
 
 
 #------------------------------------
