@@ -2363,7 +2363,7 @@ socat%:
 CLEAN += socat
 
 #------------------------------------
-# apt: gettext
+# apt: autoconf automake autopoint libtool gettext
 #
 utilinux_DEP=ncursesw
 utilinux_DIR=$(PKGDIR2)/util-linux
@@ -3838,9 +3838,9 @@ distclean:
 #------------------------------------
 #
 pyvenv $(PYVENVDIR):
-	python3 -m venv $@
+	python3 -m venv $(PYVENVDIR)
 	. $(PYVENVDIR)/bin/activate \
-	  && pip3 install $(sort $(GENPYVENV))
+	  && pip3 install $(sort $(GENPYVENV)) -r requirements.txt
 
 ENVSH_VAR+=PROJDIR BUILDDIR PKGDIR PKGDIR2 BUILDDIR2 APP_BUILD
 ENVSH_VAR+=TOOLCHAIN_PATH CROSS_COMPILE TOOLCHAIN_SYSROOT BUILD_SYSROOT

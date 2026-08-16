@@ -45,8 +45,8 @@ extern "C" {
 			"Debug", __func__, __LINE__, ##_args); \
 } while(0)
 
-#define dump_argv(_argc, _argv) for (int i = 0; i < _argc; i++) { \
-	log_d("argv[%d/%d]: %s\n", i + 1, _argc, _argv[i]); \
+#define dump_argv(_argc, _argv) for (int i = 0; i < (_argc); i++) { \
+	log_d("argv[%d/%d]: %s\n", i + 1, (_argc), (_argv)[i]); \
 }
 
 //   if <SECTION NAME> is a valid c variable name

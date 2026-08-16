@@ -17,6 +17,11 @@
 # cp /run/lavender5/02_exdev2/agt-ws/esghub/application_dexatek/dexatek/main_application/dexatek_main /usr/dexatek/dexatek_main
 # cp /run/lavender5/02_exdev2/agt-ws/esghub-lc/SA7586_OTA_v6.99.5.63.swu  /tmp/
 
+# /etc/exportfs
+# /home/joelai/Downloads 192.168.16.0/24(rw,sync,no_subtree_check,all_squash,anonu
+# /home/joelai/02_dev 192.168.16.0/24(ro,sync,no_subtree_check,all_squash,anonuid=
+
+
 # vi wpasup.conf
 # country=US
 # ctrl_interface=/var/run/wpa_supplicant

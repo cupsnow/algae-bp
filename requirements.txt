@@ -1,19 +1,18 @@
-python-magic
+jsonschema
+mako
+meson
+ninja
 pathspec
+python-magic
+pyyaml
 setuptools
-yamllint
 six
 sphinx
 sphinx_rtd_theme
 sphinx-prompt
-meson
-ninja
 tornado
-mako
-setuptools
-pyyaml
 yamllint
-jsonschema
+yamllint
 
 # python3.9
 importlib_resources

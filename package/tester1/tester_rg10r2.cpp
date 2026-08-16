@@ -8,10 +8,10 @@
 // #include <arm_neon.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <aloe/util_img.h>
 
 #include "priv.h"
-
 
 //#define log_m(_lvl, _fmt, _args...) printf("[" _lvl "][%s][#%d] " _fmt, __func__, __LINE__, ##_args)
 //#define log_d(_args...) log_m("Debug", _args)
@@ -58,17 +58,17 @@ finally:
 	return ret;
 }
 
-static int clamp_u8(int value) {
+static inline int clamp_u8(int value) {
 	return value > 255 ? 255 : value < 0 ? 0 : value;
 }
 
-static void clamp3_u8(int *r, int *g, int *b) {
+static inline void clamp3_u8(int *r, int *g, int *b) {
 	*r = clamp_u8(*r);
 	*g = clamp_u8(*g);
 	*b = clamp_u8(*b);
 }
 
-static void rgb_yuv(int r, int g, int b, uint8_t *y, uint8_t *u, uint8_t *v) {
+static inline void rgb_yuv(int r, int g, int b, uint8_t *y, uint8_t *u, uint8_t *v) {
 	int out_y, out_u, out_v;
 	out_y = clamp_u8((( 66 * r + 129 * g +  25 * b + 128) / 256) +  16);
 	out_u = clamp_u8(((-38 * r -  74 * g + 112 * b + 128) / 256) + 128);
@@ -143,15 +143,14 @@ static void rgb_yuv(int r, int g, int b, uint8_t *y, uint8_t *u, uint8_t *v) {
  * v21   v22
  *
  */
-static void rg10_rgb_i420_v3(int width, int height, const void *rg10, void *rgb,
-		void *i420) {
-	uint8_t *y_plane, *u_plane;
-	int out_w = width / 2;
-	int out_h = height / 2;
+static void rg10_rgb_i420_v4(int width, int height, int stride,
+		const void *rg10, void *rgb, void *i420) {
+	uint8_t *y_plane, *u_plane, *v_plane;
+	int out_w = width / 2, out_h = height / 2;
 	int uv_size = (out_h / 2) * (out_w / 2);
 	int y, out_y;
 
-	if ((width & 8) || (height & 8)) {
+	if (width < 8 || height < 8 || width % 8 || height % 8) {
 		log_e("invalid arguments\n");
 		return;
 	}
@@ -159,20 +158,20 @@ static void rg10_rgb_i420_v3(int width, int height, const void *rg10, void *rgb,
 	if (i420) {
 		y_plane = (uint8_t *)i420;
 		u_plane = y_plane + out_w * out_h;
+		v_plane = u_plane + uv_size;
 	}
 
-	for (y = 0, out_y = 0; y < height; y += 8, out_y += 4) {
-		//
-		int x, out_x;
-		uint16_t *rg10_row = (uint16_t *)rg10 + width * y;
-		uint8_t *y_row, *u_row, *v_row, *rgb_row;
+#define rg10_stride_row(_p, _y) ((uint16_t*)((uint8_t*)(_p) + (_y) * stride))
 
-//		log_d("row %d/%d\n", y, height - 1);
+	for (y = 0, out_y = 0; y < height; y += 8, out_y += 4) {
+		int x, out_x;
+		uint16_t *rg10_row = rg10_stride_row(rg10, y);
+		uint8_t *y_row, *u_row, *v_row, *rgb_row;
 
 		if (i420) {
 			y_row = y_plane + out_w * out_y;
 			u_row = u_plane + (out_w / 2) * (out_y / 2);
-			v_row = u_row + uv_size;
+			v_row = v_plane + (out_w / 2) * (out_y / 2);
 		}
 
 		if (rgb) {
@@ -186,10 +185,18 @@ static void rg10_rgb_i420_v3(int width, int height, const void *rg10, void *rgb,
 			} rgb_t;
 			rgb_t rgb_val[4][4] = {};
 
+#if 1
+#  define rg10_fetch_g(_y, _x) ( \
+		rg10_stride_row(rg10_pos, (_y) * 2)[(_x) * 2 + 1] \
+		+ rg10_stride_row(rg10_pos, (_y) * 2 + 1)[(_x) * 2]) / 2 / 4
+#else
+#  define rg10_fetch_g(_y, _x) rg10_stride_row(rg10_pos, (_y) * 2)[(_x) * 2 + 1] / 4
+#endif
+
 #define rg10_fetch(_y, _x) \
-		rgb_val[_y][_x].r = rg10_pos[((_y) * 2) * width + ((_x) * 2)            ]; \
-		rgb_val[_y][_x].g = rg10_pos[((_y) * 2) * width + ((_x) * 2)         + 1]; \
-		rgb_val[_y][_x].b = rg10_pos[((_y) * 2) * width + ((_x) * 2) + width + 1];
+		rgb_val[_y][_x].r = rg10_stride_row(rg10_pos, (_y) * 2)[(_x) * 2] / 4; \
+		rgb_val[_y][_x].g = rg10_fetch_g(_y, _x); \
+		rgb_val[_y][_x].b = rg10_stride_row(rg10_pos, (_y) * 2 + 1)[(_x) * 2 + 1] / 4;
 
 			rg10_fetch(0, 0); rg10_fetch(0, 1); rg10_fetch(0, 2); rg10_fetch(0, 3);
 			rg10_fetch(1, 0); rg10_fetch(1, 1); rg10_fetch(1, 2); rg10_fetch(1, 3);
@@ -203,37 +210,58 @@ static void rg10_rgb_i420_v3(int width, int height, const void *rg10, void *rgb,
 				rgb24_t *rgb_pos = (rgb24_t*)rgb_row + out_x;
 
 #define rgb_put(_y, _x) \
-		rgb_pos[(_y) * out_w + (_x)].r = rgb_val[_y][_x].r / 4; \
-		rgb_pos[(_y) * out_w + (_x)].g = rgb_val[_y][_x].g / 4; \
-		rgb_pos[(_y) * out_w + (_x)].b = rgb_val[_y][_x].b / 4;
+		rgb_pos[(_y) * out_w + (_x)].r = rgb_val[_y][_x].r; \
+		rgb_pos[(_y) * out_w + (_x)].g = rgb_val[_y][_x].g; \
+		rgb_pos[(_y) * out_w + (_x)].b = rgb_val[_y][_x].b;
 
 				rgb_put(0, 0); rgb_put(0, 1); rgb_put(0, 2); rgb_put(0, 3);
 				rgb_put(1, 0); rgb_put(1, 1); rgb_put(1, 2); rgb_put(1, 3);
 				rgb_put(2, 0); rgb_put(2, 1); rgb_put(2, 2); rgb_put(2, 3);
 				rgb_put(3, 0); rgb_put(3, 1); rgb_put(3, 2); rgb_put(3, 3);
 			}
-#if 1
+#if 1 // convert i420
 			if (i420) {
 				uint8_t *y_pos = y_row + out_x;
 				uint8_t *u_pos = u_row + out_x / 2;
-				uint8_t *v_pos = u_pos + uv_size;
+				uint8_t *v_pos = v_row + out_x / 2;
 
-#if 1
-#  define rgb_y(_r, _g, _b) clamp_u8(( 0.257 * (_r) + 0.504 * (_g) + 0.098 * (_b)) +  16);
-#  define rgb_u(_r, _g, _b) clamp_u8((-0.148 * (_r) - 0.291 * (_g) + 0.439 * (_b)) + 128);
-#  define rgb_v(_r, _g, _b) clamp_u8(( 0.439 * (_r) - 0.368 * (_g) - 0.071 * (_b)) + 128);
-#else
-#  define rgb_y(_r, _g, _b) clamp_u8((( 66 * (_r) + 129 * (_g) +  25 * (_b) + 128) / 256) +  16);
-#  define rgb_u(_r, _g, _b) clamp_u8(((-38 * (_r) -  74 * (_g) + 112 * (_b) + 128) / 256) + 128);
-#  define rgb_v(_r, _g, _b) clamp_u8(((112 * (_r) -  94 * (_g) -  18 * (_b) + 128) / 256) + 128);
-#endif
+#  if 0
+#    define rgb_y(_r, _g, _b) clamp_u8(( 0.257 * (_r) + 0.504 * (_g) + 0.098 * (_b)) +  16);
+#    define rgb_u(_r, _g, _b) clamp_u8((-0.148 * (_r) - 0.291 * (_g) + 0.439 * (_b)) + 128);
+#    define rgb_v(_r, _g, _b) clamp_u8(( 0.439 * (_r) - 0.368 * (_g) - 0.071 * (_b)) + 128);
+#  else
+#    define rgb_y(_r, _g, _b) clamp_u8((( 66 * (_r) + 129 * (_g) +  25 * (_b) + 128) / 256) +  16);
+#    define rgb_u(_r, _g, _b) clamp_u8(((-38 * (_r) -  74 * (_g) + 112 * (_b) + 128) / 256) + 128);
+#    define rgb_v(_r, _g, _b) clamp_u8(((112 * (_r) -  94 * (_g) -  18 * (_b) + 128) / 256) + 128);
+#  endif
 
-#define yuv_put_y(_y, _x) y_pos[(_y) * out_w + (_x)] = \
+#  define yuv_put_y(_y, _x) y_pos[(_y) * out_w + (_x)] = \
 	rgb_y(rgb_val[_y][_x].r, rgb_val[_y][_x].g, rgb_val[_y][_x].b);
-#define yuv_put_u(_y, _x) u_pos[(_y) * out_w / 2 + (_x) / 2] = \
-	rgb_u(rgb_val[_y][_x].r, rgb_val[_y][_x].g, rgb_val[_y][_x].b);
-#define yuv_put_v(_y, _x) v_pos[(_y) * out_w / 2 + (_x) / 2] = \
-	rgb_u(rgb_val[_y][_x].r, rgb_val[_y][_x].g, rgb_val[_y][_x].b);
+
+#  if 1
+#    define rgb_r(_y, _x) (rgb_val[_y + 0][_x + 0].r \
+		+ rgb_val[_y + 0][_x + 1].r \
+		+ rgb_val[_y + 1][_x + 0].r \
+		+ rgb_val[_y + 1][_x + 1].r) >> 2
+#    define rgb_g(_y, _x) (rgb_val[_y + 0][_x + 0].g \
+		+ rgb_val[_y + 0][_x + 1].g \
+		+ rgb_val[_y + 1][_x + 0].g \
+		+ rgb_val[_y + 1][_x + 1].g) >> 2
+#    define rgb_b(_y, _x) (rgb_val[_y + 0][_x + 0].b \
+		+ rgb_val[_y + 0][_x + 1].b \
+		+ rgb_val[_y + 1][_x + 0].b \
+		+ rgb_val[_y + 1][_x + 1].b) >> 2
+#  else
+#    define rgb_r(_y, _x) rgb_val[_y][_x].r
+#    define rgb_g(_y, _x) rgb_val[_y][_x].g
+#    define rgb_b(_y, _x) rgb_val[_y][_x].b
+#  endif
+
+#  define yuv_put_u(_y, _x) u_pos[(_y) * out_w / 2 + (_x) / 2] = \
+	rgb_u(rgb_r(_y,_x), rgb_g(_y,_x), rgb_b(_y,_x));
+
+#  define yuv_put_v(_y, _x) v_pos[(_y) * out_w / 2 + (_x) / 2] = \
+	rgb_v(rgb_r(_y,_x), rgb_g(_y,_x), rgb_b(_y,_x));
 
 				yuv_put_y(0, 0); yuv_put_y(0, 1); yuv_put_y(0, 2); yuv_put_y(0, 3);
 				yuv_put_y(1, 0); yuv_put_y(1, 1); yuv_put_y(1, 2); yuv_put_y(1, 3);
@@ -277,7 +305,18 @@ static void i420_rgb(int width, int height, const void *i420, void *rgb) {
 	int uv_size = (height / 2) * (width / 2);
 	uint8_t *y_plane = (uint8_t*)i420;
 	uint8_t *u_plane = y_plane + width * height;
+	uint8_t *v_plane = u_plane + uv_size;
 
+	if (width < 2 || height < 2 || width % 2 || height % 2) {
+		log_e("invalid arguments\n");
+		return;
+	}
+
+#if 0
+	memset(y_plane, 0x80, width * height);
+	memset(u_plane, 0x80, uv_size);
+	memset(v_plane, 0x80, uv_size);
+#endif
 	for (y = 0; y < height; y+=2) {
 		typedef struct {
 			uint8_t r, g, b;
@@ -286,7 +325,7 @@ static void i420_rgb(int width, int height, const void *i420, void *rgb) {
 		rgb24_t *rgb_row = (rgb24_t*)rgb + y * width;
 		uint8_t *y_row = y_plane + width * y;
 		uint8_t *u_row = u_plane + (width / 2) * (y / 2);
-		uint8_t *v_row = u_row + uv_size;
+		uint8_t *v_row = v_plane + (width / 2) * (y / 2);
 
 //		log_d("row %d/%d\n", y, height - 1);
 
@@ -306,9 +345,9 @@ static void i420_rgb(int width, int height, const void *i420, void *rgb) {
 			v = v_row[x / 2];
 			
 #define rgb_put(_y, _x) \
-		rgb_row[(_y) * width + (_x)].r = yuv_r(cy[_y][_x], u, v); \
-		rgb_row[(_y) * width + (_x)].g = yuv_g(cy[_y][_x], u, v); \
-		rgb_row[(_y) * width + (_x)].b = yuv_b(cy[_y][_x], u, v);
+		rgb_pos[(_y) * width + (_x)].r = yuv_r(cy[_y][_x], u, v); \
+		rgb_pos[(_y) * width + (_x)].g = yuv_g(cy[_y][_x], u, v); \
+		rgb_pos[(_y) * width + (_x)].b = yuv_b(cy[_y][_x], u, v);
 
 			rgb_put(0, 0); rgb_put(0, 1);
 			rgb_put(1, 0); rgb_put(1, 1);
@@ -316,37 +355,69 @@ static void i420_rgb(int width, int height, const void *i420, void *rgb) {
 	}
 }
 
+enum {
+	opt_key_reflags = 0x201,
+	opt_key_max
+};
+
+static const char opt_short[] = "h";
+static struct option opt_long[] = {
+	{"help", no_argument, NULL, 'h'},
+	{0},
+};
+
 // 3280 2464 sample-rg10.raw test2.bmp
 static int tester_rg10bmp2(void*, int argc, char **argv) {
-	int fd = -1, ret = -1, r;
-	int width = 3280, height = 2464;
-	const char *input_file = NULL, *output_file = NULL, *output2_file = NULL;
+	int ret = -1, r, i, opt_op, opt_idx;
+	int fd = -1, width = 3280, height = 2464, output_prefix_len = 0;
+	int rgb_width, rgb_height;
+	const char *input_file = NULL, *output_prefix = NULL;
 	void *mem = NULL;
-	aloe_buf_t buf = {}, fb_rgb = {}, fb_i420 = {};
+	aloe_buf_t buf = {}, fb_rgb = {}, fb_i420 = {}, fb_outpath = {};
 	std::chrono::steady_clock::time_point t1;
 	std::chrono::milliseconds td1;
 
 	// dump_argv(argc, argv);
 
-	if (argc < 5) {
-		log_e("usage: %s <width> <height> <input_file> <output_file> [output2_file]\n", argv[0]);
+	optind = 0;
+	while ((opt_op = getopt_long(argc, (char* const*)argv, opt_short, opt_long,
+			&opt_idx)) != -1) {
+		if (opt_op == 'h') {
+			log_d("usage: %s <width> <height> <input_file> <output_file> [output2_file]\n", argv[0]);
+			goto finally;
+		}
+	}
+
+//	dump_argv(argc - optind, &argv[optind]);
+//	for (i = optind; i < argc; i++) {
+//		log_d("non-option argv[%d]: %s\n", i, argv[i]);
+//	}
+
+	if (argc - optind < 3) {
+		log_e("usage: %s <width> <height> <input_file> [output prefix]\n", argv[0]);
 		goto finally;
 	}
-	width = strtol(argv[1], NULL, 10);
-	height = strtol(argv[2], NULL, 10);
-	input_file = argv[3];
-	output_file = argv[4];
-	output2_file = argc >= 6 ? argv[5] : NULL;
+
+	width = strtol(argv[optind], NULL, 10);
+	height = strtol(argv[optind + 1], NULL, 10);
+	input_file = argv[optind + 2];
+	if (argc - optind >= 4 && (output_prefix = argv[optind + 3])) {
+		output_prefix_len = strlen(output_prefix);
+	}
+
+	rgb_width = width / 2;
+	rgb_height = height / 2;
 
 	if ((fd = open(input_file, O_RDONLY)) < 0) {
 		log_e("open %s failed\n", input_file);
 		goto finally;
 	}
 
-	if ((mem = (void*)malloc(
-			width * height * 2
-			+ width * height * 3
-			+ width * height * 2)) == NULL) {
+	if ((mem = (void*)calloc(1,
+			width * height * 2 /* rg10 */
+			+ rgb_width * rgb_height * 3 /* rgb, 3 */
+			+ rgb_width * rgb_height * 2 /* i420, 2 */
+			+ output_prefix_len + 32)) == NULL) {
 		log_e("malloc failed\n");
 		goto finally;
 	}
@@ -355,10 +426,15 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 	buf.cap = width * height * 2;
 
 	fb_rgb.data = (char*)buf.data + buf.cap;
-	fb_rgb.cap = width * height * 3;
+	fb_rgb.cap = rgb_width * rgb_height * 3;
 
 	fb_i420.data = (char*)fb_rgb.data + fb_rgb.cap;
-	fb_i420.cap = width * height * 2;
+	fb_i420.cap = rgb_width * rgb_height * 2;
+
+	if (output_prefix_len > 0) {
+		fb_outpath.data = (char*)fb_i420.data + fb_i420.cap;
+		fb_outpath.cap = output_prefix_len + 32;
+	}
 
 	if ((r = aloe_bio_read(fd, buf.data, buf.cap)) != width * height * 2) {
 		log_e("read failed, %d != %d\n", r, width * height * 2);
@@ -370,23 +446,54 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 
 	log_d("convert RG10 to RGB888 and I420\n");
 	t1 = std::chrono::steady_clock::now();
-	rg10_rgb_i420_v3(width, height, buf.data, fb_rgb.data, fb_i420.data);
+	rg10_rgb_i420_v4(width, height, width * 2, buf.data, fb_rgb.data, fb_i420.data);
 	td1 = std::chrono::duration_cast<std::chrono::milliseconds>(
 			std::chrono::steady_clock::now() - t1);
-	log_d("save RGB888 to %s, cost %llu ms\n", output_file,
+	log_d("convert RG10 to RGB888 and I420, cost %llu ms\n",
 			(unsigned long long) td1.count());
-	aloe_bmp_save(output_file, width / 2, height / 2, (uint8_t*)fb_rgb.data);
 
-	if (output2_file) {
+	if (output_prefix_len > 0) {
+		log_d("save RGB888 to %s.bmp\n", output_prefix);
+		if (((r = snprintf((char*)fb_outpath.data, fb_outpath.cap, "%s.bmp",
+				output_prefix)) <= 0) || (r >= fb_outpath.cap)) {
+			log_e("insufficient buffer for output path\n");
+			goto finally;
+		}
+		aloe_bmp_save((char*)fb_outpath.data, rgb_width, rgb_height,
+				(uint8_t*)fb_rgb.data);
+
+		log_d("save i420 to %s.i420\n", output_prefix);
+		if (((r = snprintf((char*)fb_outpath.data, fb_outpath.cap, "%s.i420",
+				output_prefix)) <= 0) || (r >= fb_outpath.cap)) {
+			log_e("insufficient buffer for output path\n");
+			goto finally;
+		}
+		i = rgb_width * rgb_height
+				+ rgb_width * rgb_height / 4
+				+ rgb_width * rgb_height / 4;
+		if ((aloe_bio_write_fn((char*)fb_outpath.data, fb_i420.data, i, 0)) != i) {
+			log_e("failed save to %s\n", (char*)fb_outpath.data);
+			goto finally;
+		}
+	}
+
+	if (output_prefix_len > 0) {
 		log_d("convert I420 to RGB888\n");
 		t1 = std::chrono::steady_clock::now();
-		i420_rgb(width / 2, height / 2, fb_i420.data, fb_rgb.data);
+		i420_rgb(rgb_width, rgb_height, fb_i420.data, fb_rgb.data);
 		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(
 				std::chrono::steady_clock::now() - t1);
-
-		log_d("save RGB888 to %s, cost %llu ms\n", output2_file,
+		log_d("convert I420 to RGB888, cost %llu ms\n",
 				(unsigned long long) td1.count());
-		aloe_bmp_save(output2_file, width / 2, height / 2, (uint8_t*)fb_rgb.data);
+
+		log_d("save RGB888 to %s.i420.bmp\n", output_prefix);
+		if (((r = snprintf((char*)fb_outpath.data, fb_outpath.cap, "%s.i420.bmp",
+				output_prefix)) <= 0) || (r >= fb_outpath.cap)) {
+			log_e("insufficient buffer for output path\n");
+			goto finally;
+		}
+		aloe_bmp_save((char*)fb_outpath.data, rgb_width, rgb_height,
+				(uint8_t*)fb_rgb.data);
 	}
 	ret = 0;
 finally:

@@ -10,6 +10,13 @@ QEMU aarch64 / qemuarm64
 
 Arduino Nano 33 BLE rev2: [nano33ble-devlog.md](docs/nano33ble-devlog.md)
 
+Prerequisite for HOST
+----
+
+Ubuntu 26.04
+
+    apt install python3-venv libssl-dev device-tree-compiler swig libgnutls28-dev flex bison cmake autoconf automake autopoint libtool mtools
+
 Build
 ----
 
