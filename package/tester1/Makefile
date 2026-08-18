@@ -14,10 +14,17 @@ PROJDIR?=$(PWD)
 include $(PROJDIR)/builder/proj.mk
 -include $(PROJDIR)/site.mk
 
-CPPFLAGS+=
+BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/include
+BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/include
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib64
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib64
+BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib
+
+CPPFLAGS+=$(BUILD_INCDIR:%=-I%)
 CFLAGS+=-g
 CXXFLAGS+=-g
-LDFLAGS+=
+LDFLAGS+=$(BUILD_LIBDIR:%=-L%)
 
 GENDIR:=
 

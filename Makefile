@@ -1979,16 +1979,17 @@ x264_%: | $(x264_BUILDDIR)/Makefile
 #------------------------------------
 # dependent: openssl
 #
+live555_DEP+=openssl
 live555_DIR=$(PKGDIR2)/live555
 live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
 
-live555_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
-live555_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
+live555_INCDIR+=$(BUILD_INCDIR)
+live555_LIBDIR+=$(BUILD_LIBDIR)
 
 live555_MAKE=$(MAKE) C_COMPILER=$(CC) CPLUSPLUS_COMPILER=$(C++) LINK="$(C++) -o " \
     LIBRARY_LINK="$(AR) rcs " \
-	CPPFLAGS="-I$(BUILD_SYSROOT)/include $(live555_CPPFLAGS_$(APP_PLATFORM))" \
-	LDFLAGS="-L$(BUILD_SYSROOT)/lib $(live555_LDFLAGS_$(APP_PLATFORM))" \
+	CPPFLAGS="$(live555_INCDIR:%=-I%)" \
+	LDFLAGS="$(live555_LIBDIR:%=-L%)" \
 	-C $(live555_BUILDDIR)
 
 GENDIR+=$(live555_BUILDDIR)
@@ -3498,7 +3499,10 @@ $(1)_host:
 endef
 
 $(eval $(call SIMPLE_APP2,dummy1))
+
+tester1_DEP+=live555 x264 wpasup
 $(eval $(call SIMPLE_APP2,tester1))
+
 $(eval $(call SIMPLE_APP2,cltest2))
 
 #------------------------------------
