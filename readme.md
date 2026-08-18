@@ -82,15 +82,15 @@ example to setup NFS
 
 4. client **busybox**
 
-        mkdir -p /media/lavender/02_dev
-        mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
+      mkdir -p /media/lavender/02_dev
+      mount -o nolock 192.168.31.16:/home/joelai/02_dev /media/lavender/02_dev
 
 Check the ELF interpreter (dynamic linker, ie. ld-linux.so)
 ----
 
 ELF interpreter (dynamic linker, ie. ld-linux.so)
 
-`readelf -l /sbin/init | grep interpreter`
+    readelf -l /sbin/init | grep interpreter
 
 
 wifi manager
@@ -101,11 +101,12 @@ Tools
 ----
 
 yq - yaml / json process
-wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+
+    wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O yq
 
 jq - for json process
 
-Garage
+Garage (tl;dr)
 ----
 
 - u-boot comand collection

@@ -49,6 +49,17 @@ DEPFLAGS=-MMD -MT $(or $(1),$@) -MF $(call DEP,$(or $(1),$@)) -MP
 
 #------------------------------------
 #
+ANSI_SGR=\033[$(1)m
+ANSI_RED=$(call ANSI_SGR,31)
+ANSI_GREEN=$(call ANSI_SGR,32)
+ANSI_BLUE=$(call ANSI_SGR,34)
+ANSI_CYAN=$(call ANSI_SGR,36)
+ANSI_YELLOW=$(call ANSI_SGR,33)
+ANSI_MAGENTA=$(call ANSI_SGR,35)
+ANSI_NORMAL=$(ANSI_SGR)
+
+#------------------------------------
+#
 CMD_OBJTYPE=$(OBJDUMP) -f $(1) | head -n2 | sed -n "s/^.*file format\s*\(.*\)\s*.*/\1/p"
 CMD_OBJARCH=$(OBJDUMP) -f $(1) | head -n3 | sed -n "s/^architecture:\s*\(.*\),.*/\1/p"
 

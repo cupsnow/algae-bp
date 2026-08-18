@@ -9,6 +9,8 @@ ifeq ("$(MAKELEVEL)","20")
 $(error Maybe endless loop, MAKELEVEL: $(MAKELEVEL))
 endif
 
+.DEFAULT_GOAL=help
+
 PARALLEL_BUILD?=$(or $(1),-j)20
 
 PKGDIR=$(PROJDIR)/package
@@ -123,14 +125,19 @@ endif
 
 #------------------------------------
 #
-.DEFAULT_GOAL=help
-help: help1
+help: help_ansicolor
+help_ansicolor:
+	@echo "Ansi color: $(strip $(foreach i,RED GREEN BLUE CYAN YELLOW MAGENTA, \
+    $(ANSI_$(i))$(i))$(ANSI_NORMAL))"
 
-help1:
-	@echo "APP_ATTR: $(APP_ATTR)"
-	@echo "AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
-	@echo "ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
-	@echo "TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
+help: help_buildattr2
+help_buildattr2:
+	@echo ""
+	@echo "Build attributes"
+	@echo "  APP_ATTR: $(APP_ATTR)"
+	@echo "  AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
+	@echo "  ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
+	@echo "  TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
 
 meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: NEEDS_EXE_WRAPPER=true
 # meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: LLVM_CONFIG=llvm-config
@@ -160,9 +167,12 @@ CMD_DEPSHOW=$(if $($(1)_DEP), \
 
 DEPDOT_ID=$(firstword $(1))$(if $(word 2,$(1)),_$(words $(1))more)
 
+GENDIR+=$(BUILDDIR)
+
 depgraph: DEPDOT_PKGS+=glib tmux mmcutils mtdutils wpasup mosquitto
 depgraph: DEPDOT_PKGS+=coreutils
 depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(DEPDOT_PKGS))
+depgraph: | $(BUILDDIR)
 depgraph:
 	@{ \
 	  echo "digraph $(DEPDOT_ID2) {" \
@@ -174,6 +184,12 @@ depgraph:
 
 depgraph_%:
 	$(MAKE) DEPDOT_PKGS="$(@:depgraph_%=%)" depgraph
+
+help: help_depgraph
+help_depgraph:
+	@echo ""
+	@echo "Command exmaple to generate depencency diagram"
+	@echo "  make depgraph_wpasup"
 
 #------------------------------------
 #
@@ -1883,11 +1899,11 @@ libnl_DIR?=$(PKGDIR2)/libnl
 libnl_BUILDDIR?=$(BUILDDIR2)/libnl-$(APP_BUILD)
 libnl_MAKE=$(MAKE) -C $(libnl_BUILDDIR)
 
-$(libnl_DIR)/configure: $(libnl_DIR)/autogen.sh
-	cd $(libnl_DIR) \
-	  && ./autogen.sh
-
 GENDIR+=$(libnl_BUILDDIR)
+
+$(libnl_DIR)/configure: $(wildcard $(libnl_DIR)/autogen.sh)
+	cd $(libnl_DIR) \
+	  && ./autogen.sh \
 
 libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUILDDIR)
 	cd $(libnl_BUILDDIR) \
@@ -1895,7 +1911,7 @@ libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUI
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
 		  --disable-mbedtls --with-pic --verbose \
 	      $(libnl_ACARGS_$(APP_PLATFORM))
-	rsync -a $(RSYNC_VERBOSE) $(libnl_DIR)/*.sym $(libnl_BUILDDIR)/
+# 	rsync -a $(RSYNC_VERBOSE) $(libnl_DIR)/*.sym $(libnl_BUILDDIR)/
 
 libnl_install: DESTDIR=$(BUILD_SYSROOT)
 libnl_install: | $(libnl_BUILDDIR)/Makefile
@@ -2901,11 +2917,6 @@ wpasup_BUILDDIR?=$(BUILDDIR2)/wpasup-$(APP_BUILD)
 wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC -I$(BUILD_SYSROOT)/include
 wpasup_MAKEPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib -L$(BUILD_SYSROOT)/lib64 -lm
 
-wpasup_MAKEPARAM_CFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
-wpasup_MAKEPARAM_CFLAGS_iq9+=-I$(TOOLCHAIN_SYSROOT)/include -I$(TOOLCHAIN_SYSROOT)/usr/include
-wpasup_MAKEPARAM_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
-wpasup_MAKEPARAM_LDFLAGS_iq9+=-L$(TOOLCHAIN_SYSROOT)/lib -L$(TOOLCHAIN_SYSROOT)/usr/lib
-
 ifneq ($(strip $(filter release1,$(APP_ATTR))),)
 wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-O3
 else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
@@ -2913,8 +2924,6 @@ wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-g
 endif
 
 wpasup_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM)+=-lm
-
-wpasup_MAKEPARAM_NLINC_iq9?=$(TOOLCHAIN_SYSROOT)/usr/include/libnl3
 
 wpasup_MAKEPARAM_$(APP_PLATFORM)+= \
     EXTRA_CFLAGS="$(wpasup_MAKEPARAM_CFLAGS_$(APP_PLATFORM))" \
@@ -2926,13 +2935,14 @@ wpasup_MAKE=$(MAKE) CC=$(CC) \
     LIBDIR=/lib BINDIR=/sbin INCDIR=/include CONFIG_BUILD_WPA_CLIENT_SO=y \
     $(wpasup_MAKEPARAM_$(APP_PLATFORM)) -C $(wpasup_BUILDDIR)/wpa_supplicant
 
-GENDIR+=$(wpasup_BUILDDIR)
+# GENDIR+=$(wpasup_BUILDDIR)
+
+$(wpasup_BUILDDIR):
+# 	if [ -d "$(wpasup_BUILDDIR)" ] || mkdir -p $(wpasup_BUILDDIR)
+# 	rsync -a $(RSYNC_VERBOSE) $(hostap_DIR)/* $(wpasup_BUILDDIR)/
+	git clone $(hostap_DIR) $(wpasup_BUILDDIR)
 
 wpasup_defconfig $(wpasup_BUILDDIR)/wpa_supplicant/.config: | $(wpasup_BUILDDIR)
-	# [ -d $(wpasup_BUILDDIR) ] || $(MKDIR) $(wpasup_BUILDDIR)
-	# rsync -a $(RSYNC_VERBOSE) $(hostap_DIR)/* $(wpasup_BUILDDIR)/
-	rm -rf $(wpasup_BUILDDIR)
-	git clone $(hostap_DIR) $(wpasup_BUILDDIR)
 	rsync -aL $(RSYNC_VERBOSE) wpa_supplicant.config \
 	    $(wpasup_BUILDDIR)/wpa_supplicant/.config
 	cd $(wpasup_BUILDDIR) \
@@ -2952,6 +2962,61 @@ wpasup: $(wpasup_BUILDDIR)/wpa_supplicant/.config
 
 wpasup_%: $(wpasup_BUILDDIR)/wpa_supplicant/.config
 	$(wpasup_MAKE) $(PARALLEL_BUILD) $(@:wpasup_%=%)
+
+#------------------------------------
+#
+hostapd_DEP=openssl libnl
+hostapd_BUILDDIR?=$(BUILDDIR2)/hostapd-$(APP_BUILD)
+
+hostapd_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-fPIC -I$(BUILD_SYSROOT)/include
+hostapd_MAKEPARAM_LDFLAGS_$(APP_PLATFORM)+=-L$(BUILD_SYSROOT)/lib -L$(BUILD_SYSROOT)/lib64 -lm
+
+ifneq ($(strip $(filter release1,$(APP_ATTR))),)
+hostapd_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-O3
+else ifneq ($(strip $(filter debug1,$(APP_ATTR))),)
+hostapd_MAKEPARAM_CFLAGS_$(APP_PLATFORM)+=-g
+endif
+
+hostapd_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM)+=-lm
+
+hostapd_MAKEPARAM_$(APP_PLATFORM)+= \
+    EXTRA_CFLAGS="$(hostapd_MAKEPARAM_CFLAGS_$(APP_PLATFORM))" \
+    EXTRALIBS="$(hostapd_MAKEPARAM_EXTRALIBS_$(APP_PLATFORM))" \
+    LDFLAGS="$(hostapd_MAKEPARAM_LDFLAGS_$(APP_PLATFORM))"
+
+hostapd_MAKE=$(MAKE) CC=$(CC) \
+    LIBNL_INC="$(or $(hostapd_MAKEPARAM_NLINC_$(APP_PLATFORM)),$(BUILD_SYSROOT)/include/libnl3)" \
+    LIBDIR=/lib BINDIR=/sbin INCDIR=/include CONFIG_BUILD_WPA_CLIENT_SO=y \
+    $(hostapd_MAKEPARAM_$(APP_PLATFORM)) -C $(hostapd_BUILDDIR)/hostapd
+
+# GENDIR+=$(hostapd_BUILDDIR)
+
+$(hostapd_BUILDDIR):
+# 	if [ -d "$(hostapd_BUILDDIR)" ] || mkdir -p $(hostapd_BUILDDIR)
+# 	rsync -a $(RSYNC_VERBOSE) $(hostap_DIR)/* $(hostapd_BUILDDIR)/
+	git clone $(hostap_DIR) $(hostapd_BUILDDIR)
+
+hostapd_defconfig $(hostapd_BUILDDIR)/hostapd/.config: | $(hostapd_BUILDDIR)
+	rsync -aL $(RSYNC_VERBOSE) hostapd.config \
+	    $(hostapd_BUILDDIR)/hostapd/.config
+	cd $(hostapd_BUILDDIR) \
+	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/hostapd-*.patch))); do \
+	    patch -p1 --verbose <$${i}; \
+	  done; \
+
+hostapd_install: DESTDIR=$(BUILD_SYSROOT)
+hostapd_install: hostapd_all
+	$(hostapd_MAKE) DESTDIR=$(DESTDIR) $(PARALLEL_BUILD) install
+	cp $(hostapd_BUILDDIR)/hostapd/libwpa_client.a $(DESTDIR)/lib/
+
+$(eval $(call DEF_DESTDEP,hostapd))
+
+hostapd: $(hostapd_BUILDDIR)/hostapd/.config
+	$(hostapd_MAKE) $(PARALLEL_BUILD)
+
+hostapd_%: $(hostapd_BUILDDIR)/hostapd/.config
+	$(hostapd_MAKE) $(PARALLEL_BUILD) $(@:hostapd_%=%)
+
 
 #------------------------------------
 # WIP
