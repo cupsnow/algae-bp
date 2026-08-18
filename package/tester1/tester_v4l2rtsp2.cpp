@@ -36,6 +36,8 @@
 #define VERBOSE_LEVEL_DEBUG 3
 #define VERBOSE_LEVEL_VERBOSE 4
 
+#define RG10_RGB_DOWNSCALE 2
+
 static const char *vcap_device = "/dev/video0";
 static int vcap_width = 1920;
 static int vcap_height = 1080;
@@ -109,15 +111,22 @@ struct V4l2RtspPipeline {
 
   ~V4l2RtspPipeline() { delete encoder; }
 
-  bool init() {
+  bool init(double venc_scale = 0.0) {
     if (!capture.init()) {
 		log_e("Failed init capture\n");
 		return false;
 	}
 
-    uint32_t w = m_venc_w > 0 ? m_venc_w : capture.width();
-    uint32_t h = m_venc_h > 0 ? m_venc_h : capture.height();
-    encoder = new X264Encoder(w, h, fps, bitrateKbps);
+    if (venc_scale != 0.0) {
+        this->m_venc_w = (int)(venc_scale * capture.width());
+        this->m_venc_h = (int)(venc_scale * capture.height());
+    } else {
+        this->m_venc_w = capture.width();
+        this->m_venc_h = capture.height();
+    }
+    log_d("venc %ux%u (venc_scale %f)\n", this->m_venc_w, this->m_venc_h, venc_scale);
+
+    encoder = new X264Encoder(this->m_venc_w, this->m_venc_h, fps, bitrateKbps);
     if (!encoder->init()) {
 		log_e("Failed init encoder\n");
       delete encoder;
@@ -125,7 +134,7 @@ struct V4l2RtspPipeline {
       return false;
     }
     if (!capture.startStreaming()) {
-		log_e("Failed start capture\n");
+		log_e("Failed start capture: %s\n", strerror(errno));
 		return false;
 	}
     streaming = true;
@@ -198,13 +207,19 @@ private:
     const V4L2Buffer& buf = buffers[bufIndex];
     const uint8_t* data = static_cast<const uint8_t*>(buf.start);
 
-    uint32_t width = gPipeline->m_venc_w ? gPipeline->m_venc_w : gPipeline->capture.width();
-    uint32_t height = gPipeline->m_venc_h ? gPipeline->m_venc_h : gPipeline->capture.height();
+    uint32_t width = gPipeline->capture.width();
+    uint32_t height =gPipeline->capture.height();
     uint32_t stride = width;
 
-	log_d("get data %d\n", (int)buf.length);
+    uint32_t encWidth = gPipeline->m_venc_w;
+    uint32_t encHeight = gPipeline->m_venc_h;
+    uint32_t encStride = encWidth;
+	size_t i420_sz = encWidth * encHeight * 3 / 2;
 
-	static int cnt = 10;
+	log_d("get data %d, %ux%u -> %ux%u\n",
+			(int)buf.length, width, height, encWidth, encHeight);
+
+	static int cnt = 1;
 	do {
 		const char *filepath = "/media/dw/imx219.raw";
 		int len;
@@ -223,25 +238,28 @@ private:
 
 	std::chrono::steady_clock::time_point t1;
 	std::chrono::milliseconds td1;
-#if 0
-    if (gPipeline->capture.m_pixelformat == V4L2_PIX_FMT_SRGGB10) {
+
+#if 1
+    if (gPipeline->capture.m_pixelformat == V4L2_PIX_FMT_SRGGB10
+    		&& encWidth == width / 2
+			&& encHeight == height / 2) {
     	size_t srcsz = width * height * 2;
     	if (buf.length < srcsz) {
     		log_e("unexpect size\n");
     	    gPipeline->capture.enqueueBuffer(bufIndex);
     	    return;
     	}
-    	size_t i420_sz = width * height + (width / 2) * (height / 2) * 2;
     	std::vector<uint8_t> &i420_buf = source->i420_buf;
     	if (i420_buf.size() < i420_sz) {
     		i420_buf.resize(i420_sz);
     	}
-
+#  if 1
     	const uint16_t *rg10 = static_cast<const uint16_t*>(buf.start);
 		t1 = std::chrono::steady_clock::now();
-    	aloe_rggb10_to_rgb888_i420_simd_v2(width, height, rg10, i420_buf.data(), NULL);
+		aloe_rg10_rgb8_i420_v4(width, height, stride, rg10, NULL, i420_buf.data());
 		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t1);
 		log_d("rggb10 to i420 cost %llu milliseconds\n", (unsigned long long)td1.count());
+#  endif
     	data = i420_buf.data();
     }
 #endif
@@ -252,12 +270,12 @@ private:
 
 	if (do_encode) {
 		const uint8_t* yPlane = data;
-		const uint8_t* uPlane = data + stride * height;
-		const uint8_t* vPlane = uPlane + (stride / 2) * (height / 2);
+		const uint8_t* uPlane = data + encStride * encHeight;
+		const uint8_t* vPlane = uPlane + (encStride / 2) * (encHeight / 2);
 
 		std::vector<uint8_t> annexB;
 		t1 = std::chrono::steady_clock::now();
-		int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, stride, annexB);
+		int encSize = gPipeline->encoder->encode(yPlane, uPlane, vPlane, encStride, annexB);
 		td1 = std::chrono::duration_cast<std::chrono::milliseconds>(
 				std::chrono::steady_clock::now() - t1);
 		log_d("x264 encode cost %llu milliseconds\n", (unsigned long long)td1.count());
@@ -559,10 +577,17 @@ static int live555_main(int argc, char** argv) {
   printf("Resolution: %ux%u @ %d fps, %d kbps\n", width, height, fps, bitrateKbps);
   printf("Pixel format: %s\n", aloe_fourcc_str(pixelformat_str[0],
 		  sizeof(pixelformat_str[0]), pixelformat));
+#if defined(RG10_RGB_DOWNSCALE)
+  printf("RG10_RGB_DOWNSCALE: %d\n", RG10_RGB_DOWNSCALE);
+#endif
   printf("RTSP port: %u\n", rtspPort);
 
   V4l2RtspPipeline pipeline(device, width, height, fps, bitrateKbps, pixelformat);
-  if (!pipeline.init()) {
+  if (!pipeline.init(
+#if defined(RG10_RGB_DOWNSCALE) && RG10_RGB_DOWNSCALE != 0
+		  1.0 / RG10_RGB_DOWNSCALE
+#endif
+		  )) {
     fprintf(stderr, "Failed to initialize V4L2/x264 pipeline\n");
     return 1;
   }
@@ -571,6 +596,12 @@ static int live555_main(int argc, char** argv) {
   uint32_t actualHeight = pipeline.capture.height();
   if (actualWidth != width || actualHeight != height) {
     printf("Device adjusted resolution to %ux%u\n", actualWidth, actualHeight);
+  }
+
+  actualWidth = pipeline.m_venc_w;
+  actualHeight = pipeline.m_venc_h;
+  if (actualWidth != width || actualHeight != height) {
+    printf("Encoder input resolution is %ux%u\n", actualWidth, actualHeight);
   }
 
   gPipeline = &pipeline;

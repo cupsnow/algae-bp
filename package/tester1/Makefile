@@ -307,26 +307,6 @@ ARTIFACT+=$(tester_v4l2rtsp2_BIN)
 
 #------------------------------------
 #
-tester_srggb10_SRCS+=$(abspath $(tester_aloe_SRCS))
-tester_srggb10_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
-
-#$(foreach pkg,live555 openssl x264, \
-#  $(eval tester_srggb10_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
-#  $(eval tester_srggb10_LDFLAGS+=$($(pkg)_LDFLAGS)))
-
-tester_srggb10_CPPFLAGS+=$(CPPFLAGS)
-tester_srggb10_CFLAGS+=$(CFLAGS)
-tester_srggb10_CXXFLAGS+=$(CXXFLAGS)
-tester_srggb10_LDFLAGS+=$(LDFLAGS)
-
-$(eval $(call TESTER1_APP2,tester_srggb10, \
-    tester_srggb10.cpp \
-	))
-
-ARTIFACT+=$(tester_srggb10_BIN)
-
-#------------------------------------
-#
 tester_rg10r2_SRCS+=$(abspath $(tester_aloe_SRCS))
 tester_rg10r2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 

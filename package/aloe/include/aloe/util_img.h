@@ -15,6 +15,9 @@
 #ifndef UTIL_IMG_H_
 #define UTIL_IMG_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,6 +38,10 @@ void aloe_rggb10_to_rgb888_i420_simd_v2( int width, int height, const uint16_t *
 		uint8_t *i420, uint8_t *rgb);
 
 int aloe_bmp_save(const char *filename, int width, int height, const uint8_t *rgb);
+
+void aloe_rg10_rgb8_i420_v4(int width, int height, int stride, const void *rg10,
+		void *rgb, void *i420);
+void aloe_i420_rgb8(int width, int height, const void *i420, void *rgb);
 
 #ifdef __cplusplus
 } /* extern "C" */
