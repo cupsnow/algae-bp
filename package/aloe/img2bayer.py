@@ -47,17 +47,35 @@ def rgb_to_rggb16(img):
     return bayer.astype(np.uint16)
 
 
+def bgr_to_i420(img):
+    """
+    Convert a BGR8 image to planar I420.
+
+    OpenCV loads images as BGR.
+    Output is uint8 I420: Y (h x w) + U (h/2 x w/2) + V (h/2 x w/2).
+    OpenCV COLOR_BGR2YUV_I420 matches COLOR_YUV2BGR_I420 in i420_bmp.py.
+    """
+
+    return cv2.cvtColor(img, cv2.COLOR_BGR2YUV_I420)
+
+
+MODE_BMP_I420 = "bmp_i420"
+MODE_BMP_RGGB16 = "bmp_rggb16"
+
 def main(args=None):
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument("input")
     parser.add_argument("output")
+    parser.add_argument("--mode", choices=[MODE_BMP_I420, MODE_BMP_RGGB16], default=MODE_BMP_RGGB16)
 
     if args:
         args = parser.parse_args(args)
     else:
         args = parser.parse_args()
+
+    mode = args.mode
 
     img = cv2.imread(args.input, cv2.IMREAD_COLOR)
 
@@ -69,18 +87,20 @@ def main(args=None):
     if (w & 1) or (h & 1):
         raise RuntimeError("Image width and height must be even.")
 
-    bayer = rgb_to_rggb16(img)
+    if mode == MODE_BMP_RGGB16:
+        data = rgb_to_rggb16(img)
+        fmt = "BMP -> RGGB RAW10 stored as uint16"
+    elif mode == MODE_BMP_I420:
+        data = bgr_to_i420(img)
+        fmt = "BMP -> I420"
 
-    #
-    # Write RAW16
-    #
-    bayer.tofile(args.output)
+    data.tofile(args.output)
 
     print("Input :", args.input)
     print("Output:", args.output)
     print("Size  :", w, "x", h)
-    print("Format: RGGB RAW10 stored as uint16")
-    print("Bytes :", bayer.nbytes)
+    print("Format:", fmt)
+    print("Bytes :", data.nbytes)
 
 
 if __name__ == "__main__":

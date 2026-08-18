@@ -257,10 +257,10 @@ static void rg10_rgb_i420_v4(int width, int height, int stride,
 #    define rgb_b(_y, _x) rgb_val[_y][_x].b
 #  endif
 
-#  define yuv_put_u(_y, _x) u_pos[(_y) * out_w / 2 + (_x) / 2] = \
+#  define yuv_put_u(_y, _x) u_pos[((_y) / 2) * (out_w / 2) + ((_x) / 2)] = \
 	rgb_u(rgb_r(_y,_x), rgb_g(_y,_x), rgb_b(_y,_x));
 
-#  define yuv_put_v(_y, _x) v_pos[(_y) * out_w / 2 + (_x) / 2] = \
+#  define yuv_put_v(_y, _x) v_pos[((_y) / 2) * (out_w / 2) + ((_x) / 2)] = \
 	rgb_v(rgb_r(_y,_x), rgb_g(_y,_x), rgb_b(_y,_x));
 
 				yuv_put_y(0, 0); yuv_put_y(0, 1); yuv_put_y(0, 2); yuv_put_y(0, 3);
@@ -366,6 +366,13 @@ static struct option opt_long[] = {
 	{0},
 };
 
+static void show_usage(const char *argv0) {
+	printf(
+"Usage:\n"
+"  %s <width> <height> <input RG10> <output prefix>"
+"\n", argv0 ? argv0 : "program");
+}
+
 // 3280 2464 sample-rg10.raw test2.bmp
 static int tester_rg10bmp2(void*, int argc, char **argv) {
 	int ret = -1, r, i, opt_op, opt_idx;
@@ -383,7 +390,7 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 	while ((opt_op = getopt_long(argc, (char* const*)argv, opt_short, opt_long,
 			&opt_idx)) != -1) {
 		if (opt_op == 'h') {
-			log_d("usage: %s <width> <height> <input_file> <output_file> [output2_file]\n", argv[0]);
+			show_usage(argv[0]);
 			goto finally;
 		}
 	}
@@ -394,7 +401,7 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 //	}
 
 	if (argc - optind < 3) {
-		log_e("usage: %s <width> <height> <input_file> [output prefix]\n", argv[0]);
+		show_usage(argv[0]);
 		goto finally;
 	}
 
