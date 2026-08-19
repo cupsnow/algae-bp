@@ -209,7 +209,7 @@ private:
 
     uint32_t width = gPipeline->capture.width();
     uint32_t height =gPipeline->capture.height();
-    uint32_t stride = width;
+    uint32_t stride = width * 2;
 
     uint32_t encWidth = gPipeline->m_venc_w;
     uint32_t encHeight = gPipeline->m_venc_h;
@@ -251,6 +251,7 @@ private:
     	}
     	std::vector<uint8_t> &i420_buf = source->i420_buf;
     	if (i420_buf.size() < i420_sz) {
+			log_d("resize i420_buf %zu -> %zu\n", i420_buf.size(), i420_sz);
     		i420_buf.resize(i420_sz);
     	}
 #  if 1

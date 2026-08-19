@@ -203,16 +203,16 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 				rgb_put(2, 0); rgb_put(2, 1); rgb_put(2, 2); rgb_put(2, 3);
 				rgb_put(3, 0); rgb_put(3, 1); rgb_put(3, 2); rgb_put(3, 3);
 			}
-#if 1 // convert i420
+#if 0 // i420
 			if (i420) {
 				uint8_t *y_pos = y_row + out_x;
 				uint8_t *u_pos = u_row + out_x / 2;
 				uint8_t *v_pos = v_row + out_x / 2;
-#if 1
+
+#  if 1 // use vector
 #    define rgb_y(_r, _g, _b) rgb_y_vec((_r), (_g), (_b))
 #    define rgb_u(_r, _g, _b) rgb_u_vec((_r), (_g), (_b))
 #    define rgb_v(_r, _g, _b) rgb_v_vec((_r), (_g), (_b))
-
 #  elif 1
 #    define rgb_y(_r, _g, _b) clamp_u8((( 66 * (_r) + 129 * (_g) +  25 * (_b) + 128) / 256) +  16);
 #    define rgb_u(_r, _g, _b) clamp_u8(((-38 * (_r) -  74 * (_g) + 112 * (_b) + 128) / 256) + 128);
@@ -223,12 +223,10 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 #    define rgb_v(_r, _g, _b) clamp_u8(( 0.439 * (_r) - 0.368 * (_g) - 0.071 * (_b)) + 128);
 #  endif
 
-
-
 #  define yuv_put_y(_y, _x) y_pos[(_y) * out_w + (_x)] = \
 	rgb_y(rgb_val[_y][_x].r, rgb_val[_y][_x].g, rgb_val[_y][_x].b);
 
-#  if 1
+#  if 0
 #    define rgb_r(_y, _x) (rgb_val[_y + 0][_x + 0].r \
 		+ rgb_val[_y + 0][_x + 1].r \
 		+ rgb_val[_y + 1][_x + 0].r \
@@ -263,8 +261,8 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 
 				yuv_put_v(0, 0); yuv_put_v(0, 2);
 				yuv_put_v(2, 0); yuv_put_v(2, 2);
-			}
-#endif
+			} // i420
+#endif // i420
 		}
 	}
 #undef rg10_fetch
