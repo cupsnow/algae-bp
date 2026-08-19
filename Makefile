@@ -91,12 +91,20 @@ BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(call BUILD_PKGCFG_LIBDIR,$
     PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
 endif
 
-BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/include
-BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/include
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib64
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib64
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib
+define BUILD_INCDIR_BASE
+$(if $(strip $(1)),,$(error "BUILD_INCDIR_BASE invalid argument"))
+BUILD_INCDIR+=$(1:%=%/usr/include) $(1:%=%/include)
+endef
+
+define BUILD_LIBDIR_BASE
+$(if $(strip $(1)),,$(error "BUILD_LIBDIR_BASE invalid argument"))
+BUILD_LIBDIR+=$(1:%=%/usr/lib64) $(1:%=%/usr/lib) $(1:%=%/lib64) $(1:%=%/lib)
+endef
+
+ifneq ($(strip $(BUILD_SYSROOT)),)
+$(eval $(call BUILD_INCDIR_BASE,$(BUILD_SYSROOT)))
+$(eval $(call BUILD_LIBDIR_BASE,$(BUILD_SYSROOT)))
+endif
 
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
@@ -134,10 +142,12 @@ help: help_buildattr2
 help_buildattr2:
 	@echo ""
 	@echo "Build attributes"
-	@echo "  APP_ATTR: $(APP_ATTR)"
+	$(foreach i,APP_ATTR CROSS_COMPILE, \
+	  @echo "  $(i): $($(i))"$(NEWLINE))
 	@echo "  AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "  ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
-	@echo "  TOOLCHAIN_SYSROOT: $(TOOLCHAIN_SYSROOT)"
+	$(foreach i,TOOLCHAIN_SYSROOT BUILD_SYSROOT, \
+	  @echo "  $(i): $($(i))"$(NEWLINE))
 
 meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: NEEDS_EXE_WRAPPER=true
 # meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: LLVM_CONFIG=llvm-config

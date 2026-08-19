@@ -340,7 +340,6 @@ finally:
 	}
 	return ctrl;
 }
-#endif // USE_WPASUPCLIENT
 
 static int wpasup_start(wifi2_t *wifi2, int en) {
 	char wpasup_cfg[] = "/var/run/wpa_supplicant.conf";
@@ -356,12 +355,8 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 
 		if (wifi2->wpasup_cmd) {
 			log_d("Close wpasup_cmd\n");
-#if defined(USE_WPASUPCLIENT)
 			wpasup_ctrl_close(wifi2->wpasup_cmd);
 			wifi2->wpasup_cmd = NULL;
-#else
-			log_e("Sanity check, wpasup_cmd lost\n");
-#endif
 		}
 
 		if (wifi2->evconn_wpasup_mon.ev) {
@@ -372,13 +367,8 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 
 		if (wifi2->wpasup_mon) {
 			log_d("Close wpasup_mon\n");
-
-#if defined(USE_WPASUPCLIENT)
 			wpasup_ctrl_close(wifi2->wpasup_mon);
 			wifi2->wpasup_mon = NULL;
-#else
-			log_e("Sanity check, wpasup_mon lost\n");
-#endif
 		}
 
 		if ((r = kill(wifi2->wpasup_pid, SIGTERM)) != 0) {
@@ -476,8 +466,6 @@ static int wpasup_start(wifi2_t *wifi2, int en) {
 finally:
 	return ret;
 }
-
-#if defined(USE_WPASUPCLIENT)
 
 static void wifi2_wpasup_mon_cb(int fd, unsigned ev, void *cbarg) {
 	wifi2_t *wifi2 = (wifi2_t*)cbarg;
@@ -773,8 +761,6 @@ finally:
 //	}
 //}
 
-#endif // USE_WPASUPCLIENT
-
 static void run_sm(wifi2_t *wifi2, int stin, void *args) {
 	int sm_continue = 1;
 	char cmd_buf[100];
@@ -915,6 +901,8 @@ static void run_sm(wifi2_t *wifi2, int stin, void *args) {
 #undef SM_GOTO
 }
 
+#endif // USE_WPASUPCLIENT
+
 static void handle_rtnl(wifi2_t *wifi2) {
 	char nlmsg_buf[4096], buf_str[128];
 	int len, nlmsg_idx = 0;
@@ -1018,12 +1006,12 @@ static void handle_rtnl(wifi2_t *wifi2) {
 					continue;
 				}
 			}
-
+#if defined(USE_WPASUPCLIENT)
 			if (stin_ipadd.ipv4_uniaddr ||
 					stin_ipadd.ipv4_linkaddr) {
 				run_sm(wifi2, STIN_IPADD, (void*)(unsigned long)stin_ipadd.ui);
 			}
-
+#endif
 			continue;
 		}
 
@@ -1077,26 +1065,29 @@ static void handle_rtnl(wifi2_t *wifi2) {
 #endif
 			if ((ifi->ifi_flags ^ wifi2->ifflag) & IFF_UP) {
 				log_d("IFF_UP -> %u\n", ifi->ifi_flags & IFF_UP);
-
+#if defined(USE_WPASUPCLIENT)
 				if (ifi->ifi_flags & IFF_UP) {
 					run_sm(wifi2, STIN_IFFUP, NULL);
 				}
+#endif
 			}
 
 			if ((ifi->ifi_flags ^ wifi2->ifflag) & IFF_RUNNING) {
 				log_d("IFF_RUNNING -> %u\n", ifi->ifi_flags & IFF_RUNNING);
-
+#if defined(USE_WPASUPCLIENT)
 				if (ifi->ifi_flags & IFF_RUNNING) {
 					run_sm(wifi2, STIN_IFFRUNNING, NULL);
 				}
+#endif
 			}
 
 			if ((ifi->ifi_flags ^ wifi2->ifflag) & IFF_LOWER_UP) {
 				log_d("IFF_LOWER_UP -> %u\n", ifi->ifi_flags & IFF_LOWER_UP);
-
+#if defined(USE_WPASUPCLIENT)
 				if (!(ifi->ifi_flags & IFF_LOWER_UP)) {
 					run_sm(wifi2, STIN_IFFLOWDOWN, NULL);
 				}
+#endif
 			}
 
 			ifflag_update.ifflag = ifi->ifi_flags;
@@ -1149,7 +1140,9 @@ static void wifi2_epoll_cb(int fd, unsigned ev, void *cbarg) {
 				int st_old = wifi2->state;
 
 				read(wifi2->timer_fd, &exp, sizeof(exp));
+#if defined(USE_WPASUPCLIENT)
 				run_sm(wifi2, STIN_TIMEOUT, NULL);
+#endif
 			}
 		}
 		goto finally;
@@ -1232,6 +1225,7 @@ finally:
 	return wifi2;
 }
 
+#if defined(USE_WPASUPCLIENT)
 int wifi2_cli_wpacmd(void *_wifi2, int argc, const char **argv) {
 	wifi2_t *wifi2 = (wifi2_t*)_wifi2;
 
@@ -1291,6 +1285,7 @@ int wifi2_cli_wpacmd(void *_wifi2, int argc, const char **argv) {
 	}
 	return r;
 }
+#endif
 
 int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 	wifi2_t *wifi2 = (wifi2_t*)_wifi2;
@@ -1324,25 +1319,6 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		return 1;
 	}
 
-	// wifi state reset
-	if (argc >= 2 && strcasecmp(argv[1], "state") == 0) {
-		if (argc >= 3) {
-			unsigned st  = st_val(argv[2], -1u), st_old = wifi2->state;
-
-			if (st == -1u) {
-				log_e("unknown state %s\n", argv[2]);
-				return 1;
-			}
-			wifi2->state = (state_t)st;
-			run_sm(wifi2, STIN_ENTER, NULL);
-			log_d("%s + %s -> %s\n", st_str(st_old, ""),
-					stin_str(STIN_ENTER, ""), st_str(wifi2->state, ""));
-			return 0;
-		}
-		log_d("%s\n", st_str(wifi2->state, ""));
-		return 0;
-	}
-
 	// wifi timer 1000
 	if (argc >= 2 && strcasecmp(argv[1], "timer") == 0) {
 		unsigned long dur = argc >= 3 ? strtol(argv[2], NULL, 0) : 0;
@@ -1374,12 +1350,31 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 
 		return zcip_start(wifi2, en);
 	}
-
+#if defined(USE_WPASUPCLIENT)
 	// wifi wpasup 3
 	if (argc >= 2 && strcasecmp(argv[1], "wpasup") == 0) {
 		int en = argc >= 3 ? strtol(argv[2], NULL, 0) : 1;
 
 		return wpasup_start(wifi2, en);
+	}
+
+	// wifi state reset
+	if (argc >= 2 && strcasecmp(argv[1], "state") == 0) {
+		if (argc >= 3) {
+			unsigned st  = st_val(argv[2], -1u), st_old = wifi2->state;
+
+			if (st == -1u) {
+				log_e("unknown state %s\n", argv[2]);
+				return 1;
+			}
+			wifi2->state = (state_t)st;
+			run_sm(wifi2, STIN_ENTER, NULL);
+			log_d("%s + %s -> %s\n", st_str(st_old, ""),
+					stin_str(STIN_ENTER, ""), st_str(wifi2->state, ""));
+			return 0;
+		}
+		log_d("%s\n", st_str(wifi2->state, ""));
+		return 0;
 	}
 
 	//	wifi wpacmd ...
@@ -1433,6 +1428,6 @@ int wifi2_cli(void *_wifi2, int argc, const char **argv) {
 		run_sm(wifi2, STIN_ENTER, NULL);
 		return 0;
 	}
-
+#endif // USE_WPASUPCLIENT
 	return 1;
 }

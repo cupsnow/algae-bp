@@ -14,12 +14,10 @@ PROJDIR?=$(PWD)
 include $(PROJDIR)/builder/proj.mk
 -include $(PROJDIR)/site.mk
 
-BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/include
-BUILD_INCDIR+=$(or $(1),$(BUILD_SYSROOT))/include
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib64
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib64
-BUILD_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib
+ifneq ($(strip $(BUILD_SYSROOT)),)
+BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
+BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 lib64 usr/lib lib)
+endif
 
 CPPFLAGS+=$(BUILD_INCDIR:%=-I%)
 CFLAGS+=-g
@@ -62,24 +60,11 @@ mesa3d_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/usr/include/d
 openssl_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lssl -lcrypto
 openssl_CPPFLAGS+=-I$(BUILD_SYSROOT)/include
 
-ifneq ($(filter sa7715,$(APP_PLATFORM)),)
-libnl_LDFLAGS+=-L$(SA7715_SYSROOT)/usr/lib64 -L$(SA7715_SYSROOT)/lib64 -L$(SA7715_SYSROOT)/usr/lib -L$(SA7715_SYSROOT)/lib -lnl-3 -lnl-genl-3
-libnl_CPPFLAGS+=-I$(SA7715_SYSROOT)/usr/include/libnl3 -I$(SA7715_SYSROOT)/usr/include -I$(SA7715_SYSROOT)/include/libnl3 -I$(SA7715_SYSROOT)/include
-else ifneq ($(filter esh,$(APP_PLATFORM)),)
-libnl_LDFLAGS+=-L$(ESH_SYSROOT)/usr/lib64 -L$(ESH_SYSROOT)/lib64 -L$(ESH_SYSROOT)/usr/lib -L$(ESH_SYSROOT)/lib -lnl-3 -lnl-genl-3
-libnl_CPPFLAGS+=-I$(ESH_SYSROOT)/usr/include/libnl3 -I$(ESH_SYSROOT)/usr/include -I$(ESH_SYSROOT)/include/libnl3 -I$(ESH_SYSROOT)/include
-else ifneq ($(filter iq9,$(APP_PLATFORM)),)
-libnl_LDFLAGS+=-L$(TOOLCHAIN_SYSROOT)/usr/lib64 -L$(TOOLCHAIN_SYSROOT)/lib64 -L$(TOOLCHAIN_SYSROOT)/usr/lib -L$(TOOLCHAIN_SYSROOT)/lib -lnl-3 -lnl-genl-3
-libnl_CPPFLAGS+=-I$(TOOLCHAIN_SYSROOT)/usr/include/libnl3 -I$(TOOLCHAIN_SYSROOT)/usr/include -I$(TOOLCHAIN_SYSROOT)/include/libnl3 -I$(TOOLCHAIN_SYSROOT)/include
-else
-libnl_LDFLAGS+=-L$(BUILD_SYSROOT)/usr/lib64 -L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/usr/lib -L$(BUILD_SYSROOT)/lib -lnl-3 -lnl-genl-3
-libnl_CPPFLAGS+=-I$(BUILD_SYSROOT)/usr/include/libnl3 -I$(BUILD_SYSROOT)/usr/include -I$(BUILD_SYSROOT)/include/libnl3 -I$(BUILD_SYSROOT)/include
-endif
+libnl_CPPFLAGS+=$(BUILD_INCDIR:%=-I%/libnl3)
 
 live555_ELEM=liveMedia groupsock BasicUsageEnvironment UsageEnvironment
-live555_CPPFLAGS+=$(addprefix -I$(BUILD_SYSROOT)/include/,$(live555_ELEM))
-#live555_LDFLAGS+=-L$(BUILD_SYSROOT)/lib $(addprefix -l,$(live555_ELEM))
-live555_LDFLAGS+=$(addsuffix .a,$(addprefix $(BUILD_SYSROOT)/lib/lib,$(live555_ELEM)))
+live555_CPPFLAGS+=$(live555_ELEM:%=-I$(BUILD_SYSROOT)/include/%)
+live555_LDFLAGS+=$(live555_ELEM:%=$(BUILD_SYSROOT)/lib/lib%.a)
 
 x264_CPPFLAGS=-I$(BUILD_SYSROOT)/include
 x264_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lx264
@@ -157,7 +142,10 @@ ARTIFACT+=$(tester_cli2_BIN)
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR USE_WPASUPCLIENT USE_V4L2 USE_X264
+tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264
+ifneq ($(strip $(wildcard $(BUILD_SYSROOT)/lib/libwpa_client.a)),)
+tester_ev3_ATTR+=USE_WPASUPCLIENT
+endif
 
 tester_ev3_SRCS+=$(tester_aloe_SRCS)
 tester_ev3_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
@@ -282,14 +270,18 @@ ifneq ($(filter bp qemuarm64,$(APP_PLATFORM)),)
 tester_v4l2rtsp2_CFLAGS+=-O3 -march=armv8-a+simd
 tester_v4l2rtsp2_CXXFLAGS+=-O3 -march=armv8-a+simd
 tester_v4l2rtsp2_LDFLAGS+=-O3 -march=armv8-a+simd
-else ifneq ($(filter bb,$(APP_PLATFORM)),)
+else ifneq ($(filter bb 192,$(APP_PLATFORM)),)
 tester_v4l2rtsp2_CFLAGS+=-O3 -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
 tester_v4l2rtsp2_CXXFLAGS+=-O3 -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
 tester_v4l2rtsp2_LDFLAGS+=-O3 -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
-else
+else ifneq ($(filter ub20,$(APP_PLATFORM)),)
 tester_v4l2rtsp2_CFLAGS+=-O3 -mavx2
 tester_v4l2rtsp2_CXXFLAGS+=-O3 -mavx2
 tester_v4l2rtsp2_LDFLAGS+=-O3 -mavx2
+else
+tester_v4l2rtsp2_CFLAGS+=-O3
+tester_v4l2rtsp2_CXXFLAGS+=-O3
+tester_v4l2rtsp2_LDFLAGS+=-O3
 endif
 
 tester_v4l2rtsp2_CPPFLAGS+=$(CPPFLAGS)
@@ -307,7 +299,7 @@ ARTIFACT+=$(tester_v4l2rtsp2_BIN)
 
 #------------------------------------
 #
-tester_rg10r2_SRCS+=$(abspath $(tester_aloe_SRCS))
+tester_rg10r2_SRCS+=$(tester_aloe_SRCS)
 tester_rg10r2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
 
 #$(foreach pkg,live555 openssl x264, \
@@ -323,6 +315,11 @@ $(eval $(call TESTER1_APP2,tester_rg10r2, \
     tester_rg10r2.cpp \
 	))
 
+$(tester_rg10r2_BIN): tester_rg10r2_dism
+tester_rg10r2_dism: $(tester_rg10r2_BUILDDIR)/$(tester_rg10r2_BIN)
+	$(OBJDUMP) -d $(tester_rg10r2_BUILDDIR)/$(tester_rg10r2_BIN) \
+	  >$(tester_rg10r2_BUILDDIR)/objs/$(tester_rg10r2_BIN).dism
+
 ARTIFACT+=$(tester_rg10r2_BIN)
 
 #------------------------------------
@@ -336,6 +333,9 @@ artifact: $(ARTIFACT) $(ARTIFACT_DOXYGEN)
 #
 $(sort $(GENDIR)):
 	$(MKDIR) $@
+
+print_%:
+	@echo "$*=$($*)"
 
 #------------------------------------
 #------------------------------------

@@ -38,6 +38,29 @@ static inline void rgb_yuv(int r, int g, int b, uint8_t *y, uint8_t *u, uint8_t 
 	if (v) *v = out_v;
 }
 
+typedef int v4si __attribute__ ((vector_size (16)));
+
+static inline uint8_t rgb_y_vec(int r, int g, int b) {
+	v4si v_rgb = {r, g, b, 0};
+	v4si v_coeff = {66, 129, 25, 0};
+	v4si v_prod = v_rgb * v_coeff;
+	return clamp_u8(((v_prod[0] + v_prod[1] + v_prod[2] + 128) / 256) + 16);
+}
+
+static inline uint8_t rgb_u_vec(int r, int g, int b) {
+	v4si v_rgb = {r, g, b, 0};
+	v4si v_coeff = {-38, -74, 112, 0};
+	v4si v_prod = v_rgb * v_coeff;
+	return clamp_u8(((v_prod[0] + v_prod[1] + v_prod[2] + 128) / 256) + 128);
+}
+
+static inline uint8_t rgb_v_vec(int r, int g, int b) {
+	v4si v_rgb = {r, g, b, 0};
+	v4si v_coeff = {112, -94, -18, 0};
+	v4si v_prod = v_rgb * v_coeff;
+	return clamp_u8(((v_prod[0] + v_prod[1] + v_prod[2] + 128) / 256) + 128);
+}
+
 /*
  * I420
  *
@@ -185,16 +208,22 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 				uint8_t *y_pos = y_row + out_x;
 				uint8_t *u_pos = u_row + out_x / 2;
 				uint8_t *v_pos = v_row + out_x / 2;
+#if 1
+#    define rgb_y(_r, _g, _b) rgb_y_vec((_r), (_g), (_b))
+#    define rgb_u(_r, _g, _b) rgb_u_vec((_r), (_g), (_b))
+#    define rgb_v(_r, _g, _b) rgb_v_vec((_r), (_g), (_b))
 
-#  if 0
-#    define rgb_y(_r, _g, _b) clamp_u8(( 0.257 * (_r) + 0.504 * (_g) + 0.098 * (_b)) +  16);
-#    define rgb_u(_r, _g, _b) clamp_u8((-0.148 * (_r) - 0.291 * (_g) + 0.439 * (_b)) + 128);
-#    define rgb_v(_r, _g, _b) clamp_u8(( 0.439 * (_r) - 0.368 * (_g) - 0.071 * (_b)) + 128);
-#  else
+#  elif 1
 #    define rgb_y(_r, _g, _b) clamp_u8((( 66 * (_r) + 129 * (_g) +  25 * (_b) + 128) / 256) +  16);
 #    define rgb_u(_r, _g, _b) clamp_u8(((-38 * (_r) -  74 * (_g) + 112 * (_b) + 128) / 256) + 128);
 #    define rgb_v(_r, _g, _b) clamp_u8(((112 * (_r) -  94 * (_g) -  18 * (_b) + 128) / 256) + 128);
+#  elif 1
+#    define rgb_y(_r, _g, _b) clamp_u8(( 0.257 * (_r) + 0.504 * (_g) + 0.098 * (_b)) +  16);
+#    define rgb_u(_r, _g, _b) clamp_u8((-0.148 * (_r) - 0.291 * (_g) + 0.439 * (_b)) + 128);
+#    define rgb_v(_r, _g, _b) clamp_u8(( 0.439 * (_r) - 0.368 * (_g) - 0.071 * (_b)) + 128);
 #  endif
+
+
 
 #  define yuv_put_y(_y, _x) y_pos[(_y) * out_w + (_x)] = \
 	rgb_y(rgb_val[_y][_x].r, rgb_val[_y][_x].g, rgb_val[_y][_x].b);
