@@ -156,7 +156,7 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 
 	log_d("convert RG10 to RGB888 and I420\n");
 	t1 = std::chrono::steady_clock::now();
-	aloe_rg10_rgb8_i420_v4(width, height, width * 2, buf.data, fb_rgb.data, fb_i420.data);
+	aloe_rg10_rgb8_i420_v5(width, height, width * 2, buf.data, fb_rgb.data, fb_i420.data);
 	td1 = std::chrono::duration_cast<std::chrono::milliseconds>(
 			std::chrono::steady_clock::now() - t1);
 	log_d("convert RG10 to RGB888 and I420, cost %llu ms\n",

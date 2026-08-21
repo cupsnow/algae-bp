@@ -1,11 +1,5 @@
 /* $Id$
  *
- * Copyright 2026, Dexatek Technology Ltd.
- * This is proprietary information of Dexatek Technology Ltd.
- * All Rights Reserved. Reproduction of this documentation or the
- * accompanying programs in any manner whatsoever without the written
- * permission of Dexatek Technology Ltd. is strictly forbidden.
- *
  * @author joelai
  *
  * @file /algae-bp/package/aloe/rg10_rgb8_i420_v2.cpp
@@ -40,24 +34,25 @@ static inline void rgb_yuv(int r, int g, int b, uint8_t *y, uint8_t *u, uint8_t 
 
 typedef int v4si __attribute__ ((vector_size (16)));
 
+static v4si rgb_y_v4si_coeff = {66, 129, 25, 0};
+static v4si rgb_u_v4si_coeff = {-38, -74, 112, 0};
+static v4si rgb_v_v4si_coeff = {112, -94, -18, 0};
+
 static inline uint8_t rgb_y_vec(int r, int g, int b) {
 	v4si v_rgb = {r, g, b, 0};
-	v4si v_coeff = {66, 129, 25, 0};
-	v4si v_prod = v_rgb * v_coeff;
+	v4si v_prod = v_rgb * rgb_y_v4si_coeff;
 	return clamp_u8(((v_prod[0] + v_prod[1] + v_prod[2] + 128) / 256) + 16);
 }
 
 static inline uint8_t rgb_u_vec(int r, int g, int b) {
 	v4si v_rgb = {r, g, b, 0};
-	v4si v_coeff = {-38, -74, 112, 0};
-	v4si v_prod = v_rgb * v_coeff;
+	v4si v_prod = v_rgb * rgb_u_v4si_coeff;
 	return clamp_u8(((v_prod[0] + v_prod[1] + v_prod[2] + 128) / 256) + 128);
 }
 
 static inline uint8_t rgb_v_vec(int r, int g, int b) {
 	v4si v_rgb = {r, g, b, 0};
-	v4si v_coeff = {112, -94, -18, 0};
-	v4si v_prod = v_rgb * v_coeff;
+	v4si v_prod = v_rgb * rgb_v_v4si_coeff;
 	return clamp_u8(((v_prod[0] + v_prod[1] + v_prod[2] + 128) / 256) + 128);
 }
 
@@ -203,7 +198,7 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 				rgb_put(2, 0); rgb_put(2, 1); rgb_put(2, 2); rgb_put(2, 3);
 				rgb_put(3, 0); rgb_put(3, 1); rgb_put(3, 2); rgb_put(3, 3);
 			}
-#if 0 // i420
+#if 1 // i420
 			if (i420) {
 				uint8_t *y_pos = y_row + out_x;
 				uint8_t *u_pos = u_row + out_x / 2;
@@ -223,9 +218,6 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 #    define rgb_v(_r, _g, _b) clamp_u8(( 0.439 * (_r) - 0.368 * (_g) - 0.071 * (_b)) + 128);
 #  endif
 
-#  define yuv_put_y(_y, _x) y_pos[(_y) * out_w + (_x)] = \
-	rgb_y(rgb_val[_y][_x].r, rgb_val[_y][_x].g, rgb_val[_y][_x].b);
-
 #  if 0
 #    define rgb_r(_y, _x) (rgb_val[_y + 0][_x + 0].r \
 		+ rgb_val[_y + 0][_x + 1].r \
@@ -244,6 +236,9 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 #    define rgb_g(_y, _x) rgb_val[_y][_x].g
 #    define rgb_b(_y, _x) rgb_val[_y][_x].b
 #  endif
+
+#  define yuv_put_y(_y, _x) y_pos[(_y) * out_w + (_x)] = \
+	rgb_y(rgb_r(_y,_x), rgb_g(_y,_x), rgb_b(_y,_x));
 
 #  define yuv_put_u(_y, _x) u_pos[((_y) / 2) * (out_w / 2) + ((_x) / 2)] = \
 	rgb_u(rgb_r(_y,_x), rgb_g(_y,_x), rgb_b(_y,_x));
@@ -273,6 +268,143 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 #undef yuv_put_y
 #undef yuv_put_u
 #undef yuv_put_v
+}
+
+/** Convert RG10 to RGB888 and I420.
+ * 
+ * Input RG10 process 8 x 8 pixels block
+ *
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ * ----+-----+-----+----
+ * R G | R G | R G | R G
+ * G B | G B | G B | G B
+ *
+ * Output RGB/I420 2 x 2 pixels block
+ *
+ * Y11(uv11)   Y12(uv11)
+ * Y21(uv11)   Y22(uv11)
+ * u11
+ * v11
+ *
+ * Y = ( 66 * R + 129 * G +  25 * B + 128) / 256 +  16;
+ * U = (-38 * R -  74 * G + 112 * B + 128) / 256 + 128;
+ * V = (112 * R -  94 * G -  18 * B + 128) / 256 + 128;
+ *
+ */
+extern "C"
+void aloe_rg10_rgb8_i420_v5(int width, int height, int stride,
+		const void *rg10, void *rgb, void *i420) {
+#define RG10_ROWS 8
+#define RGB_ROWS 2
+#define SCALE_FACTOR (RG10_ROWS / RGB_ROWS)
+
+	uint8_t *y_plane, *u_plane, *v_plane;
+	int out_w = width / SCALE_FACTOR, out_h = height / SCALE_FACTOR;
+	int uv_size = out_h * out_w / 4;
+	int y, out_y;
+	uint16_t *rg10_row[RG10_ROWS];
+	uint8_t *y_row[RGB_ROWS], *u_row, *v_row, *rgb_row[RGB_ROWS];
+
+	if (width < RG10_ROWS || height < RG10_ROWS || width % RG10_ROWS 
+			|| height % RG10_ROWS) {
+		aloe_log_e("invalid arguments\n");
+		return;
+	}
+
+	rg10_row[0] = (uint16_t*)rg10;
+	for (y = 1; y < RG10_ROWS; y++) {
+		rg10_row[y] = (uint16_t*)((uint8_t*)rg10_row[y - 1] + stride);
+	}
+
+	if (i420) {
+		y_plane = (uint8_t*)i420;
+		u_plane = y_plane + out_w * out_h;
+		v_plane = u_plane + uv_size;
+
+		y_row[0] = y_plane;
+		for (y = 1; y < RGB_ROWS; y++) {
+			y_row[y] = y_row[y - 1] + out_w;
+		}
+	}
+
+	if (rgb) {
+		int out_stride = out_w * 3;
+
+		rgb_row[0] = (uint8_t*)rgb;
+		for (y = 1; y < RGB_ROWS; y++) {
+			rgb_row[y] = rgb_row[y - 1] + out_stride;
+		}
+	}
+
+	for (y = out_y = 0; y < height; y += RG10_ROWS, out_y += RGB_ROWS) {
+		typedef int16_t v4int16_t __attribute__ ((vector_size (8)));
+		static v4int16_t rgb_y_v4int16_coeff = {  66,  129,  25,   0};
+		static v4int16_t rgb_u_v4int16_coeff = { -38,  -74, 112,   0};
+		static v4int16_t rgb_v_v4int16_coeff = { 112,  -94, -18,   0};
+		int x, out_x;
+		
+		for (x = out_x = 0; x < width; x += RG10_ROWS, out_x += RGB_ROWS) {
+			uint8_t r, g, b, y, u, v;
+			v4int16_t vrgb, vyuv;
+
+#define rgb_blk(_by, _bx) \
+			r = clamp_u8(rg10_row[(_by) * SCALE_FACTOR][x + (_bx) * SCALE_FACTOR]); \
+			if (out_y >= 500) r = 0; \
+			g = clamp_u8(rg10_row[(_by) * SCALE_FACTOR][x + (_bx) * SCALE_FACTOR + 1]); \
+			b = clamp_u8(rg10_row[(_by) * SCALE_FACTOR + 1][x + (_bx) * SCALE_FACTOR + 1]); \
+			if (rgb) { \
+				rgb_row[(_by)][out_x + (_bx)] = r; \
+				rgb_row[(_by)][out_x + (_bx) + 1] = g; \
+				rgb_row[(_by)][out_x + (_bx) + 2] = b; \
+			}
+#define rgb_y_blk(_by, _bx) \
+			rgb_blk(_by, _bx); \
+			if (i420) { \
+				vrgb = (v4int16_t){r, g, b, 0}; \
+				vyuv = vrgb * rgb_y_v4int16_coeff; \
+				y_row[(_by)][out_x + (_bx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
+			}
+
+#define rgb_yuv_blk(_by, _bx) \
+			rgb_blk(_by, _bx); \
+			if (i420) { \
+				vrgb = (v4int16_t){r, g, b, 0}; \
+				vyuv = vrgb * rgb_y_v4int16_coeff; \
+				y_row[(_by)][out_x + (_bx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
+				vyuv = vrgb * rgb_u_v4int16_coeff; \
+				u_row[((_by) / 2) * (out_w / 2) + ((_bx) / 2)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
+				vyuv = vrgb * rgb_v_v4int16_coeff; \
+				v_row[((_by) / 2) * (out_w / 2) + ((_bx) / 2)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
+			}
+
+			rgb_y_blk(0, 0);
+			rgb_y_blk(0, 1);
+			rgb_y_blk(1, 0);
+			rgb_yuv_blk(1, 1);
+		}
+		if (rgb) {
+			int out_stride = out_w * 3;
+
+			for (int i = 0; i < RGB_ROWS; i++) {
+				rgb_row[i] += out_stride;
+			}
+		}
+		if (i420) {
+			for (int i = 0; i < RGB_ROWS; i++) {
+				y_row[i] += out_w;
+			}
+			u_row += out_w / 2;
+			v_row += out_w / 2;
+		}
+	}
 }
 
 /** Convert I420 to RGB888.

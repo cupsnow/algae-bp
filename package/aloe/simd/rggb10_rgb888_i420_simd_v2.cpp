@@ -1,7 +1,5 @@
 /* $Id$
  *
- * SPDX-License-Identifier: MIT
- *
  * @author joelai
  *
  * @file /algae-bp/package/aloe/rggb10_rgb888_i420.c

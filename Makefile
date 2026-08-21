@@ -17,19 +17,30 @@ PKGDIR=$(PROJDIR)/package
 PKGDIR2=$(abspath $(PROJDIR)/..)
 BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
+# The target attribute
+# ====
+
+# ubuntu/host
+# - ub20
 APP_ATTR_ub20?=ub20
 
-# bp wl18xx powervr ti_linux bb_linux powervr gdbserver
+# beagleplay
+# - bp wl18xx powervr ti_linux bb_linux powervr gdbserver
 APP_ATTR_bp?=bp wl18xx powervr gdbserver
 
+# qemu arm64
+# - qemuarm64
 APP_ATTR_qemuarm64?=qemuarm64
 
-# bp qemuarm64 ub20
+# Set the target to build
+# ====
 APP_PLATFORM?=bp
 
+# Set the target attribute to build
 # locale_posix2c coreutils systemd
 APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils
 
+# Set the namespace for build
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
 else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
@@ -38,27 +49,32 @@ else
 APP_BUILD=$(APP_PLATFORM)
 endif
 
+# The aarch64 toolchain
+# ====
 # AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
 # AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
 AARCH64_TOOLCHAIN_PATH?=$(firstword $(wildcard \
-    $(PROJDIR)/cross/aarch64-linux-gnu \
-	$(PROJDIR)/tool/gcc-aarch64))
+    $(PROJDIR)/cross/aarch64-linux-gnu $(PROJDIR)/tool/gcc-aarch64))
 AARCH64_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
-    $(AARCH64_TOOLCHAIN_PATH)/*-gcc \
-	$(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc)))
+    $(AARCH64_TOOLCHAIN_PATH)/*-gcc $(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc)))
 AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)-
 PATH_PUSH+=$(AARCH64_TOOLCHAIN_BIN_PATH)
 
+# The arm toolchain
+# ====
 ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-arm
 ARM_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
-    $(ARM_TOOLCHAIN_PATH)/*-gcc \
-	$(ARM_TOOLCHAIN_PATH)/bin/*-gcc)))
+    $(ARM_TOOLCHAIN_PATH)/*-gcc $(ARM_TOOLCHAIN_PATH)/bin/*-gcc)))
 ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)-
 PATH_PUSH+=$(ARM_TOOLCHAIN_BIN_PATH)
 
+# The llvm toolchain
+# ====
 LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
 PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
 
+# Set cross compilation toolchain and bundled sysroot
+# ====
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
@@ -73,47 +89,40 @@ else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
+# Setup target sysroot
+# ====
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
 
+# Setup for use of pkg-config in cross compilation
+# ====
 # 0 remove .pc and .la after build
 # 1 remove .la after build
 BUILD_PKGCFG_USAGE=2
-BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/lib/pkgconfig
-BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/share/pkgconfig
-BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/lib/pkgconfig
-BUILD_PKGCFG_LIBDIR+=$(or $(1),$(BUILD_SYSROOT))/usr/share/pkgconfig
 ifneq ($(strip $(filter ub20,$(APP_PLATFORM))),)
 # use system pkg-config
 else ifeq ($(strip $(APP_PLATFORM)),)
 # use system pkg-config
-else
-BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(call BUILD_PKGCFG_LIBDIR,$(1)) $(PKG_CONFIG_LIBDIR))" \
-    PKG_CONFIG_SYSROOT_DIR="$(or $(1),$(BUILD_SYSROOT))"
+else ifneq ($(strip $(BUILD_SYSROOT)),)
+BUILD_PKGCFG_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/, \
+  usr/lib/pkgconfig usr/share/pkgconfig lib/pkgconfig share/pkgconfig)
+BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR) $(PKG_CONFIG_LIBDIR))" \
+    PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)"
 endif
 
-define BUILD_INCDIR_BASE
-$(if $(strip $(1)),,$(error "BUILD_INCDIR_BASE invalid argument"))
-BUILD_INCDIR+=$(1:%=%/usr/include) $(1:%=%/include)
-endef
+# Setup c/c++ header/library directory
+# ====
 
-define BUILD_LIBDIR_BASE
-$(if $(strip $(1)),,$(error "BUILD_LIBDIR_BASE invalid argument"))
-BUILD_LIBDIR+=$(1:%=%/usr/lib64) $(1:%=%/usr/lib) $(1:%=%/lib64) $(1:%=%/lib)
-endef
-
+# Add sysroot to c/c++ header/library directory
 ifneq ($(strip $(BUILD_SYSROOT)),)
-$(eval $(call BUILD_INCDIR_BASE,$(BUILD_SYSROOT)))
-$(eval $(call BUILD_LIBDIR_BASE,$(BUILD_SYSROOT)))
+BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
+BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 usr/lib lib64 lib)
 endif
 
+# Push host executable search path
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
+# The python virtual environment directory
 PYVENVDIR=$(PROJDIR)/.venv
-
-CPPFLAGS+=
-CFLAGS+=
-CXXFLAGS+=
-LDFLAGS+=
 
 GENDIR:=
 GENPYVENV:=

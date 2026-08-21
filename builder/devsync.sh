@@ -18,8 +18,8 @@
 # cp /run/lavender5/02_exdev2/agt-ws/esghub-lc/SA7586_OTA_v6.99.5.63.swu  /tmp/
 
 # /etc/exportfs
-# /home/joelai/Downloads 192.168.16.0/24(rw,sync,no_subtree_check,all_squash,anonu
-# /home/joelai/02_dev 192.168.16.0/24(ro,sync,no_subtree_check,all_squash,anonuid=
+# /home/joelai/Downloads 192.168.16.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
+# /home/joelai/02_dev 192.168.16.0/24(ro,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
 
 
 # vi wpasup.conf

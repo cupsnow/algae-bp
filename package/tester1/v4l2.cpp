@@ -1,9 +1,6 @@
 /* $Id$
  *
- * Copyright (c) 2025, joelai
- * All Rights Reserved
- *
- * SPDX-License-Identifier: MIT
+ * @author joelai
  *
  * @file noname
  * @brief noname
