@@ -55,9 +55,9 @@ endif
 #------------------------------------
 #
 ifneq ($(filter bp qemuarm64,$(APP_PLATFORM)),)
-ARCH_CFLAGS+=-march=armv8-a+simd
-ARCH_CXXFLAGS+=-march=armv8-a+simd
-ARCH_LDFLAGS+=-march=armv8-a+simd
+ARCH_CFLAGS+=-march=armv8-a+simd -O3
+ARCH_CXXFLAGS+=-march=armv8-a+simd -O3
+ARCH_LDFLAGS+=-march=armv8-a+simd -O3
 else ifneq ($(filter bb 192,$(APP_PLATFORM)),)
 ARCH_CFLAGS+=-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
 ARCH_CXXFLAGS+=-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
@@ -293,9 +293,7 @@ tester_v4l2rtsp2_CXXFLAGS+=$(CXXFLAGS)
 tester_v4l2rtsp2_LDFLAGS+=$(LDFLAGS)
 
 $(eval $(call TESTER1_APP2,tester_v4l2rtsp2, \
-    tester_v4l2rtsp2.cpp \
-	v4l2_capture.cpp \
-	x264_encoder.cpp \
+    tester_v4l2rtsp2.cpp v4l2_capture.cpp x264_encoder.cpp \
 	))
 
 $(tester_v4l2rtsp2_BIN): tester_v4l2rtsp2_dism
