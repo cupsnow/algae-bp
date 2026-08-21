@@ -12,6 +12,10 @@
 #include <aloe/util_img.h>
 #include <aloe/sys.h>
 
+static inline uint8_t rg10_u8(unsigned value) {
+	return (value >> 2) & 0xff;
+}
+
 static inline int clamp_u8(int value) {
 	return value > 255 ? 255 : value < 0 ? 0 : value;
 }
@@ -308,7 +312,7 @@ void aloe_rg10_rgb8_i420_v5(int width, int height, int stride,
 
 	uint8_t *y_plane, *u_plane, *v_plane;
 	int out_w = width / SCALE_FACTOR, out_h = height / SCALE_FACTOR;
-	int uv_size = out_h * out_w / 4;
+	int uv_size = out_h * out_w / 4, rgb_stride = out_w * 3;
 	int y, out_y;
 	uint16_t *rg10_row[RG10_ROWS];
 	uint8_t *y_row[RGB_ROWS], *u_row, *v_row, *rgb_row[RGB_ROWS];
@@ -333,56 +337,57 @@ void aloe_rg10_rgb8_i420_v5(int width, int height, int stride,
 		for (y = 1; y < RGB_ROWS; y++) {
 			y_row[y] = y_row[y - 1] + out_w;
 		}
+		u_row = u_plane;
+		v_row = v_plane;
 	}
 
 	if (rgb) {
-		int out_stride = out_w * 3;
-
 		rgb_row[0] = (uint8_t*)rgb;
 		for (y = 1; y < RGB_ROWS; y++) {
-			rgb_row[y] = rgb_row[y - 1] + out_stride;
+			rgb_row[y] = rgb_row[y - 1] + rgb_stride;
 		}
 	}
 
 	for (y = out_y = 0; y < height; y += RG10_ROWS, out_y += RGB_ROWS) {
 		typedef int16_t v4int16_t __attribute__ ((vector_size (8)));
-		static v4int16_t rgb_y_v4int16_coeff = {  66,  129,  25,   0};
-		static v4int16_t rgb_u_v4int16_coeff = { -38,  -74, 112,   0};
-		static v4int16_t rgb_v_v4int16_coeff = { 112,  -94, -18,   0};
+		typedef int v4int32_t __attribute__ ((vector_size (16)));
+		typedef v4int32_t v4color_t;
+		static v4color_t rgb_y_v4color_coeff = {  66,  129,  25,   0};
+		static v4color_t rgb_u_v4color_coeff = { -38,  -74, 112,   0};
+		static v4color_t rgb_v_v4color_coeff = { 112,  -94, -18,   0};
 		int x, out_x;
 		
 		for (x = out_x = 0; x < width; x += RG10_ROWS, out_x += RGB_ROWS) {
-			uint8_t r, g, b, y, u, v;
-			v4int16_t vrgb, vyuv;
+			int16_t r, g, b, y, u, v;
+			v4color_t vrgb, vyuv;
 
-#define rgb_blk(_by, _bx) \
-			r = clamp_u8(rg10_row[(_by) * SCALE_FACTOR][x + (_bx) * SCALE_FACTOR]); \
-			if (out_y >= 500) r = 0; \
-			g = clamp_u8(rg10_row[(_by) * SCALE_FACTOR][x + (_bx) * SCALE_FACTOR + 1]); \
-			b = clamp_u8(rg10_row[(_by) * SCALE_FACTOR + 1][x + (_bx) * SCALE_FACTOR + 1]); \
+#define rgb_blk(_dy, _dx) \
+			r = rg10_u8(rg10_row[(_dy) * SCALE_FACTOR][x + (_dx) * SCALE_FACTOR]); \
+			g = rg10_u8(rg10_row[(_dy) * SCALE_FACTOR][x + (_dx) * SCALE_FACTOR + 1]); \
+			b = rg10_u8(rg10_row[(_dy) * SCALE_FACTOR + 1][x + (_dx) * SCALE_FACTOR + 1]); \
 			if (rgb) { \
-				rgb_row[(_by)][out_x + (_bx)] = r; \
-				rgb_row[(_by)][out_x + (_bx) + 1] = g; \
-				rgb_row[(_by)][out_x + (_bx) + 2] = b; \
+				rgb_row[(_dy)][(out_x + (_dx)) * 3] = r; \
+				rgb_row[(_dy)][(out_x + (_dx)) * 3 + 1] = g; \
+				rgb_row[(_dy)][(out_x + (_dx)) * 3 + 2] = b; \
 			}
-#define rgb_y_blk(_by, _bx) \
-			rgb_blk(_by, _bx); \
+#define rgb_y_blk(_dy, _dx) \
+			rgb_blk(_dy, _dx); \
 			if (i420) { \
-				vrgb = (v4int16_t){r, g, b, 0}; \
-				vyuv = vrgb * rgb_y_v4int16_coeff; \
-				y_row[(_by)][out_x + (_bx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
+				vrgb = (v4color_t){r, g, b, 0}; \
+				vyuv = vrgb * rgb_y_v4color_coeff; \
+				y_row[(_dy)][out_x + (_dx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
 			}
 
-#define rgb_yuv_blk(_by, _bx) \
-			rgb_blk(_by, _bx); \
+#define rgb_yuv_blk(_dy, _dx) \
+			rgb_blk(_dy, _dx); \
 			if (i420) { \
-				vrgb = (v4int16_t){r, g, b, 0}; \
-				vyuv = vrgb * rgb_y_v4int16_coeff; \
-				y_row[(_by)][out_x + (_bx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
-				vyuv = vrgb * rgb_u_v4int16_coeff; \
-				u_row[((_by) / 2) * (out_w / 2) + ((_bx) / 2)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
-				vyuv = vrgb * rgb_v_v4int16_coeff; \
-				v_row[((_by) / 2) * (out_w / 2) + ((_bx) / 2)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
+				vrgb = (v4color_t){r, g, b, 0}; \
+				vyuv = vrgb * rgb_y_v4color_coeff; \
+				y_row[(_dy)][out_x + (_dx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
+				vyuv = vrgb * rgb_u_v4color_coeff; \
+				u_row[(out_x + (_dx)) / 2] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
+				vyuv = vrgb * rgb_v_v4color_coeff; \
+				v_row[(out_x + (_dx)) / 2] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
 			}
 
 			rgb_y_blk(0, 0);
@@ -391,18 +396,22 @@ void aloe_rg10_rgb8_i420_v5(int width, int height, int stride,
 			rgb_yuv_blk(1, 1);
 		}
 		if (rgb) {
-			int out_stride = out_w * 3;
-
-			for (int i = 0; i < RGB_ROWS; i++) {
-				rgb_row[i] += out_stride;
+			rgb_row[0] = (uint8_t*)rgb_row[RGB_ROWS - 1] + rgb_stride;
+			for (int i = 1; i < RGB_ROWS; i++) {
+				rgb_row[i] = rgb_row[i - 1] + rgb_stride;
 			}
 		}
 		if (i420) {
-			for (int i = 0; i < RGB_ROWS; i++) {
-				y_row[i] += out_w;
+			y_row[0] = (uint8_t*)y_row[RGB_ROWS - 1] + out_w;
+			for (int i = 1; i < RGB_ROWS; i++) {
+				y_row[i] = y_row[i - 1] + out_w;
 			}
 			u_row += out_w / 2;
 			v_row += out_w / 2;
+		}
+		rg10_row[0] = (uint16_t*)((uint8_t*)rg10_row[RG10_ROWS - 1] + stride);
+		for (int i = 1; i < RG10_ROWS; i++) {
+			rg10_row[i] = (uint16_t*)((uint8_t*)rg10_row[i - 1] + stride);
 		}
 	}
 }

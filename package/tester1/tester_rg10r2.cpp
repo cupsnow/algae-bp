@@ -80,12 +80,13 @@ static void show_usage(const char *argv0) {
 static int tester_rg10bmp2(void*, int argc, char **argv) {
 	int ret = -1, r, i, opt_op, opt_idx;
 	int fd = -1, width = 3280, height = 2464, output_prefix_len = 0;
-	int rgb_width, rgb_height;
+	int rgb_width, rgb_height, rgb_wh;
 	const char *input_file = NULL, *output_prefix = NULL;
 	void *mem = NULL;
 	aloe_buf_t buf = {}, fb_rgb = {}, fb_i420 = {}, fb_outpath = {};
 	std::chrono::steady_clock::time_point t1;
 	std::chrono::milliseconds td1;
+#define SCALE_FACTOR 4
 
 	// dump_argv(argc, argv);
 
@@ -115,8 +116,9 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 		output_prefix_len = strlen(output_prefix);
 	}
 
-	rgb_width = width / 2;
-	rgb_height = height / 2;
+	rgb_width = width / SCALE_FACTOR;
+	rgb_height = height / SCALE_FACTOR;
+	rgb_wh = rgb_width * rgb_height;
 
 	if ((fd = open(input_file, O_RDONLY)) < 0) {
 		log_e("open %s failed\n", input_file);
@@ -125,8 +127,8 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 
 	if ((mem = (void*)calloc(1,
 			width * height * 2 /* rg10 */
-			+ rgb_width * rgb_height * 3 /* rgb, 3 */
-			+ rgb_width * rgb_height * 2 /* i420, 2 */
+			+ rgb_wh * 3 /* rgb888 */
+			+ rgb_wh * 2 /* i420 */
 			+ output_prefix_len + 32)) == NULL) {
 		log_e("malloc failed\n");
 		goto finally;
@@ -136,10 +138,10 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 	buf.cap = width * height * 2;
 
 	fb_rgb.data = (char*)buf.data + buf.cap;
-	fb_rgb.cap = rgb_width * rgb_height * 3;
+	fb_rgb.cap = rgb_wh * 3;
 
 	fb_i420.data = (char*)fb_rgb.data + fb_rgb.cap;
-	fb_i420.cap = rgb_width * rgb_height * 2;
+	fb_i420.cap = rgb_wh * 3 / 2;
 
 	if (output_prefix_len > 0) {
 		fb_outpath.data = (char*)fb_i420.data + fb_i420.cap;
@@ -178,9 +180,7 @@ static int tester_rg10bmp2(void*, int argc, char **argv) {
 			log_e("insufficient buffer for output path\n");
 			goto finally;
 		}
-		i = rgb_width * rgb_height
-				+ rgb_width * rgb_height / 4
-				+ rgb_width * rgb_height / 4;
+		i = (rgb_wh) * 3 / 2;
 		if ((aloe_bio_write_fn((char*)fb_outpath.data, fb_i420.data, i, 0)) != i) {
 			log_e("failed save to %s\n", (char*)fb_outpath.data);
 			goto finally;
