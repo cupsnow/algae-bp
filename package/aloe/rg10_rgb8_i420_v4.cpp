@@ -8,6 +8,16 @@
 
 #include <stdlib.h>
 
+#if defined(__aarch64__) || defined(__ARM_NEON) || defined(__ARM_NEON__)
+#define ALOE_HAVE_NEON 1
+#include <arm_neon.h>
+#endif
+
+#if defined(__SSE2__)
+#define ALOE_HAVE_SSE2 1
+#include <emmintrin.h>
+#endif
+
 #include "log.h"
 #include <aloe/util_img.h>
 #include <aloe/sys.h>
@@ -19,6 +29,33 @@ static inline uint8_t rg10_u8(unsigned value) {
 static inline int clamp_u8(int value) {
 	return value > 255 ? 255 : value < 0 ? 0 : value;
 }
+
+/* Convert eight RGB triples to their BT.601 limited-range luma values. */
+#if defined(ALOE_HAVE_NEON)
+static inline void rgb_y_neon_8(uint8_t *dst, const uint8_t *r,
+		const uint8_t *g, const uint8_t *b) {
+	const uint16x8_t bias = vdupq_n_u16(128);
+	const uint16x8_t offset = vdupq_n_u16(16);
+	const uint8x8_t y_r = vdup_n_u8(66), y_g = vdup_n_u8(129), y_b = vdup_n_u8(25);
+	uint16x8_t sum = vmlal_u8(vmull_u8(vld1_u8(r), y_r), vld1_u8(g), y_g);
+	sum = vmlal_u8(sum, vld1_u8(b), y_b);
+	vst1_u8(dst, vmovn_u16(vaddq_u16(vshrq_n_u16(vaddq_u16(sum, bias), 8), offset)));
+}
+#elif defined(ALOE_HAVE_SSE2)
+static inline void rgb_y_sse2_8(uint8_t *dst, const uint8_t *r,
+		const uint8_t *g, const uint8_t *b) {
+	const __m128i zero = _mm_setzero_si128();
+	const __m128i y_r = _mm_set1_epi16(66), y_g = _mm_set1_epi16(129), y_b = _mm_set1_epi16(25);
+	const __m128i vr = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)(const void *)r), zero);
+	const __m128i vg = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)(const void *)g), zero);
+	const __m128i vb = _mm_unpacklo_epi8(_mm_loadl_epi64((const __m128i *)(const void *)b), zero);
+	__m128i sum = _mm_add_epi16(_mm_mullo_epi16(vr, y_r), _mm_mullo_epi16(vg, y_g));
+	sum = _mm_add_epi16(sum, _mm_mullo_epi16(vb, y_b));
+	sum = _mm_add_epi16(sum, _mm_set1_epi16(128));
+	sum = _mm_add_epi16(_mm_srli_epi16(sum, 8), _mm_set1_epi16(16));
+	_mm_storel_epi64((__m128i *)(void *)dst, _mm_packus_epi16(sum, zero));
+}
+#endif
 
 static inline void clamp3_u8(int *r, int *g, int *b) {
 	*r = clamp_u8(*r);
@@ -306,112 +343,79 @@ void aloe_rg10_rgb8_i420_v4(int width, int height, int stride,
 extern "C"
 void aloe_rg10_rgb8_i420_v5(int width, int height, int stride,
 		const void *rg10, void *rgb, void *i420) {
-#define RG10_ROWS 8
-#define RGB_ROWS 2
-#define SCALE_FACTOR (RG10_ROWS / RGB_ROWS)
+	const int scale_factor = 4;
+	const int out_w = width / scale_factor;
+	const int out_h = height / scale_factor;
+	const int rgb_stride = out_w * 3;
+	const uint8_t *const src = (const uint8_t *)rg10;
+	uint8_t *const rgb_base = (uint8_t *)rgb;
+	uint8_t *const y_plane = (uint8_t *)i420;
+	uint8_t *const u_plane = i420 ? y_plane + out_w * out_h : NULL;
+	uint8_t *const v_plane = i420 ? u_plane + out_w * out_h / 4 : NULL;
 
-	uint8_t *y_plane, *u_plane, *v_plane;
-	int out_w = width / SCALE_FACTOR, out_h = height / SCALE_FACTOR;
-	int uv_size = out_h * out_w / 4, rgb_stride = out_w * 3;
-	int y, out_y;
-	uint16_t *rg10_row[RG10_ROWS];
-	uint8_t *y_row[RGB_ROWS], *u_row, *v_row, *rgb_row[RGB_ROWS];
-
-	if (width < RG10_ROWS || height < RG10_ROWS || width % RG10_ROWS 
-			|| height % RG10_ROWS) {
+	if (width < 8 || height < 8 || width % 8 || height % 8) {
 		aloe_log_e("invalid arguments\n");
 		return;
 	}
 
-	rg10_row[0] = (uint16_t*)rg10;
-	for (y = 1; y < RG10_ROWS; y++) {
-		rg10_row[y] = (uint16_t*)((uint8_t*)rg10_row[y - 1] + stride);
-	}
+	for (int out_y = 0; out_y < out_h; out_y += 2) {
+		const uint16_t *const row0 = (const uint16_t *)(src + (out_y * 4) * stride);
+		const uint16_t *const row1 = (const uint16_t *)(src + (out_y * 4 + 1) * stride);
+		const uint16_t *const row4 = (const uint16_t *)(src + (out_y * 4 + 4) * stride);
+		const uint16_t *const row5 = (const uint16_t *)(src + (out_y * 4 + 5) * stride);
+		uint8_t *const rgb0 = rgb ? rgb_base + out_y * rgb_stride : NULL;
+		uint8_t *const rgb1 = rgb ? rgb0 + rgb_stride : NULL;
+		uint8_t *const y0 = i420 ? y_plane + out_y * out_w : NULL;
+		uint8_t *const y1 = i420 ? y0 + out_w : NULL;
+		uint8_t *const u = i420 ? u_plane + (out_y / 2) * (out_w / 2) : NULL;
+		uint8_t *const v = i420 ? v_plane + (out_y / 2) * (out_w / 2) : NULL;
+		int out_x = 0;
 
-	if (i420) {
-		y_plane = (uint8_t*)i420;
-		u_plane = y_plane + out_w * out_h;
-		v_plane = u_plane + uv_size;
-
-		y_row[0] = y_plane;
-		for (y = 1; y < RGB_ROWS; y++) {
-			y_row[y] = y_row[y - 1] + out_w;
-		}
-		u_row = u_plane;
-		v_row = v_plane;
-	}
-
-	if (rgb) {
-		rgb_row[0] = (uint8_t*)rgb;
-		for (y = 1; y < RGB_ROWS; y++) {
-			rgb_row[y] = rgb_row[y - 1] + rgb_stride;
-		}
-	}
-
-	for (y = out_y = 0; y < height; y += RG10_ROWS, out_y += RGB_ROWS) {
-		typedef int16_t v4int16_t __attribute__ ((vector_size (8)));
-		typedef int v4int32_t __attribute__ ((vector_size (16)));
-		typedef v4int32_t v4color_t;
-		static v4color_t rgb_y_v4color_coeff = {  66,  129,  25,   0};
-		static v4color_t rgb_u_v4color_coeff = { -38,  -74, 112,   0};
-		static v4color_t rgb_v_v4color_coeff = { 112,  -94, -18,   0};
-		int x, out_x;
-		
-		for (x = out_x = 0; x < width; x += RG10_ROWS, out_x += RGB_ROWS) {
-			int16_t r, g, b, y, u, v;
-			v4color_t vrgb, vyuv;
-
-#define rgb_blk(_dy, _dx) \
-			r = rg10_u8(rg10_row[(_dy) * SCALE_FACTOR][x + (_dx) * SCALE_FACTOR]); \
-			g = rg10_u8(rg10_row[(_dy) * SCALE_FACTOR][x + (_dx) * SCALE_FACTOR + 1]); \
-			b = rg10_u8(rg10_row[(_dy) * SCALE_FACTOR + 1][x + (_dx) * SCALE_FACTOR + 1]); \
-			if (rgb) { \
-				rgb_row[(_dy)][(out_x + (_dx)) * 3] = r; \
-				rgb_row[(_dy)][(out_x + (_dx)) * 3 + 1] = g; \
-				rgb_row[(_dy)][(out_x + (_dx)) * 3 + 2] = b; \
+#if defined(ALOE_HAVE_NEON) || defined(ALOE_HAVE_SSE2)
+		/* Eight RGB pixels consume a 32-pixel source span. */
+		for (; out_x + 8 <= out_w; out_x += 8) {
+			uint8_t r0[8], g0[8], b0[8], r1[8], g1[8], b1[8];
+			const int x = out_x * scale_factor;
+			for (int i = 0; i < 8; ++i) {
+				const int sx = x + i * scale_factor;
+				r0[i] = rg10_u8(row0[sx]);     g0[i] = rg10_u8(row0[sx + 1]); b0[i] = rg10_u8(row1[sx + 1]);
+				r1[i] = rg10_u8(row4[sx]);     g1[i] = rg10_u8(row4[sx + 1]); b1[i] = rg10_u8(row5[sx + 1]);
 			}
-#define rgb_y_blk(_dy, _dx) \
-			rgb_blk(_dy, _dx); \
-			if (i420) { \
-				vrgb = (v4color_t){r, g, b, 0}; \
-				vyuv = vrgb * rgb_y_v4color_coeff; \
-				y_row[(_dy)][out_x + (_dx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
+			if (rgb) for (int i = 0; i < 8; ++i) {
+				rgb0[(out_x + i) * 3] = r0[i]; rgb0[(out_x + i) * 3 + 1] = g0[i]; rgb0[(out_x + i) * 3 + 2] = b0[i];
+				rgb1[(out_x + i) * 3] = r1[i]; rgb1[(out_x + i) * 3 + 1] = g1[i]; rgb1[(out_x + i) * 3 + 2] = b1[i];
 			}
-
-#define rgb_yuv_blk(_dy, _dx) \
-			rgb_blk(_dy, _dx); \
-			if (i420) { \
-				vrgb = (v4color_t){r, g, b, 0}; \
-				vyuv = vrgb * rgb_y_v4color_coeff; \
-				y_row[(_dy)][out_x + (_dx)] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 16); \
-				vyuv = vrgb * rgb_u_v4color_coeff; \
-				u_row[(out_x + (_dx)) / 2] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
-				vyuv = vrgb * rgb_v_v4color_coeff; \
-				v_row[(out_x + (_dx)) / 2] = clamp_u8((vyuv[0] + vyuv[1] + vyuv[2] + 128) / 256 + 128); \
-			}
-
-			rgb_y_blk(0, 0);
-			rgb_y_blk(0, 1);
-			rgb_y_blk(1, 0);
-			rgb_yuv_blk(1, 1);
-		}
-		if (rgb) {
-			rgb_row[0] = (uint8_t*)rgb_row[RGB_ROWS - 1] + rgb_stride;
-			for (int i = 1; i < RGB_ROWS; i++) {
-				rgb_row[i] = rgb_row[i - 1] + rgb_stride;
+			if (i420) {
+#if defined(ALOE_HAVE_NEON)
+				rgb_y_neon_8(y0 + out_x, r0, g0, b0);
+				rgb_y_neon_8(y1 + out_x, r1, g1, b1);
+#else
+				rgb_y_sse2_8(y0 + out_x, r0, g0, b0);
+				rgb_y_sse2_8(y1 + out_x, r1, g1, b1);
+#endif
+				for (int i = 1; i < 8; i += 2) {
+					u[(out_x + i) / 2] = clamp_u8((-38 * r1[i] - 74 * g1[i] + 112 * b1[i] + 128) / 256 + 128);
+					v[(out_x + i) / 2] = clamp_u8((112 * r1[i] - 94 * g1[i] - 18 * b1[i] + 128) / 256 + 128);
+				}
 			}
 		}
-		if (i420) {
-			y_row[0] = (uint8_t*)y_row[RGB_ROWS - 1] + out_w;
-			for (int i = 1; i < RGB_ROWS; i++) {
-				y_row[i] = y_row[i - 1] + out_w;
+#endif
+		for (; out_x < out_w; ++out_x) {
+			const int x = out_x * scale_factor;
+			const uint8_t r0 = rg10_u8(row0[x]), g0 = rg10_u8(row0[x + 1]), b0 = rg10_u8(row1[x + 1]);
+			const uint8_t r1 = rg10_u8(row4[x]), g1 = rg10_u8(row4[x + 1]), b1 = rg10_u8(row5[x + 1]);
+			if (rgb) {
+				rgb0[out_x * 3] = r0; rgb0[out_x * 3 + 1] = g0; rgb0[out_x * 3 + 2] = b0;
+				rgb1[out_x * 3] = r1; rgb1[out_x * 3 + 1] = g1; rgb1[out_x * 3 + 2] = b1;
 			}
-			u_row += out_w / 2;
-			v_row += out_w / 2;
-		}
-		rg10_row[0] = (uint16_t*)((uint8_t*)rg10_row[RG10_ROWS - 1] + stride);
-		for (int i = 1; i < RG10_ROWS; i++) {
-			rg10_row[i] = (uint16_t*)((uint8_t*)rg10_row[i - 1] + stride);
+			if (i420) {
+				y0[out_x] = (66 * r0 + 129 * g0 + 25 * b0 + 128) / 256 + 16;
+				y1[out_x] = (66 * r1 + 129 * g1 + 25 * b1 + 128) / 256 + 16;
+				if (out_x & 1) {
+					u[out_x / 2] = clamp_u8((-38 * r1 - 74 * g1 + 112 * b1 + 128) / 256 + 128);
+					v[out_x / 2] = clamp_u8((112 * r1 - 94 * g1 - 18 * b1 + 128) / 256 + 128);
+				}
+			}
 		}
 	}
 }
@@ -484,4 +488,3 @@ void aloe_i420_rgb8(int width, int height, const void *i420, void *rgb) {
 		}
 	}
 }
-

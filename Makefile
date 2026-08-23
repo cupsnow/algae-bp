@@ -3462,7 +3462,7 @@ br2_BUILDDIR=$(BUILDDIR2)/br2-$(APP_BUILD)
 
 br2_MAKE=$(MAKE) -C $(br2_DIR) \
 	$(br2_EXTDIR:%=BR2_EXTERNAL=%) \
-    BR2_DL_DIR=$(br2_DLDIR) \
+    BR2_DL_DIR=$(br2_DLDIR) $(CLIARGS_VERBOSE:%=V=%) \
     O=$(br2_BUILDDIR)
 
 br2_defconfig-bp=beagleplay_defconfig
