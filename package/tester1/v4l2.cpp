@@ -151,7 +151,7 @@ int v4l2_streamcap_enq(int fd, int index) {
 }
 
 static int v4l2_map_devbuf(int fd, unsigned count, v4l2_mem_t *vmem) {
-	int ret = -1, r, vmidx;
+	int ret = -1, vmidx;
 
 	for (vmidx = 0; vmidx < count; vmidx++) {
 		struct v4l2_buffer qbuf = {};
@@ -169,15 +169,6 @@ static int v4l2_map_devbuf(int fd, unsigned count, v4l2_mem_t *vmem) {
 			vmem[vmidx].start = NULL;
 			goto finally;
 		}
-#if 1
-		if (v4l2_streamcap_enq(fd, vmidx) != 0) {
-			goto finally;
-		}
-#else
-		if (ioctl(fd, VIDIOC_QBUF, &qbuf) < 0) {
-			goto finally;
-		}
-#endif
 	}
 	ret = 0;
 finally:
@@ -197,59 +188,142 @@ static int v4l2_streamcap_stop(int fd) {
 }
 
 static void v4l2_streamcap_cb(int fd, unsigned ev, void *cbarg) {
-	int r, qbuf_idx;
-	v4l2_t *v4l2= (v4l2_t*)cbarg;
+	int qbuf_idx, r;
+	v4l2_t *v4l2 = (v4l2_t*)cbarg;
 
-	v4l2->evconn.ev = NULL;
-	if (v4l2_streamcap_deq(v4l2->evconn.fd, &qbuf_idx) != 0) {
-		goto finally;
+	if (v4l2->evconn.fd != fd) {
+		log_e("sanity check mismatch fd\n");
+		return;
 	}
-//	log_d("deq %d\n", qbuf_idx);
+	if (!(ev & ALOE_EVB2_FLAG_READ)) return;
+
+	for (;;) {
+		if (v4l2_streamcap_deq(v4l2->evconn.fd, &qbuf_idx) != 0) {
+			r = errno;
+			if (r == EAGAIN
+#ifdef EWOULDBLOCK
+					|| r == EWOULDBLOCK
+#endif
+					|| r == EINTR) {
+				return;
+			}
+			log_e("Failed VIDIOC_DQBUF: %s\n", strerror(r));
+			return;
+		}
+//		log_d("deq %d\n", qbuf_idx);
 
 #ifdef USE_X264
-	{
-	const uint8_t *data = (uint8_t*)v4l2->v4l2_mem[qbuf_idx].start;
+		if (v4l2->encoder && v4l2->x264_fp) {
+			const uint8_t *data = (uint8_t*)v4l2->v4l2_mem[qbuf_idx].start;
 
-	 // YUV420 planar: Y plane, then U plane, then V plane
-	uint32_t stride = v4l2->v4l2_fmt.width;
-	const uint8_t *yPlane = data;
-	const uint8_t *uPlane = data + stride * v4l2->v4l2_fmt.height;
-	const uint8_t *vPlane = uPlane + (stride / 2) * (v4l2->v4l2_fmt.height / 2);
+			 // YUV420 planar: Y plane, then U plane, then V plane
+			uint32_t stride = v4l2->v4l2_fmt.width;
+			const uint8_t *yPlane = data;
+			const uint8_t *uPlane = data + stride * v4l2->v4l2_fmt.height;
+			const uint8_t *vPlane = uPlane + (stride / 2) * (v4l2->v4l2_fmt.height / 2);
 
-	 // Encode the frame
-	std::vector<uint8_t> encodedData;
-	int encSize = v4l2->encoder->encode(yPlane, uPlane, vPlane, stride,
-		encodedData);
+			std::vector<uint8_t> encodedData;
+			int encSize = v4l2->encoder->encode(yPlane, uPlane, vPlane, stride,
+				encodedData);
 
-	if (encSize > 0) {
-		if (fwrite(encodedData.data(), 1, encodedData.size(),
-				v4l2->x264_fp) != encodedData.size()) {
-			log_e("failed x264\n");
+			if (encSize > 0) {
+				if (fwrite(encodedData.data(), 1, encodedData.size(),
+						v4l2->x264_fp) != encodedData.size()) {
+					log_e("failed x264\n");
+				}
+			}
 		}
-	}
-
-	} //USE_X264
 #endif
 
-	v4l2_streamcap_enq(v4l2->evconn.fd, qbuf_idx);
-finally:
-	// keep listen
-	if ((v4l2->evconn.ev = aloe_ev_put(v4l2->evconn.ev_ctx,
-			v4l2->evconn.fd, &v4l2_streamcap_cb, v4l2, aloe_ev_flag_read,
-			ALOE_EV_INFINITE, 0)) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+		if (v4l2_streamcap_enq(v4l2->evconn.fd, qbuf_idx) != 0) {
+			r = errno;
+			log_e("Failed VIDIOC_QBUF: %s\n", strerror(r));
+			return;
+		}
 	}
 }
 
-int v4l2_close(v4l2_t *v4l2) {
+static int v4l2_queue_all(v4l2_t *v4l2) {
+	unsigned i;
 
+	for (i = 0; i < v4l2->v4l2_mem_cnt; i++) {
+		if (v4l2_streamcap_enq(v4l2->evconn.fd, (int)i) != 0) {
+			int r = errno;
+			log_e("Failed VIDIOC_QBUF[%u]: %s\n", i, strerror(r));
+			return -1;
+		}
+	}
+	return 0;
 }
 
-int v4l2_open(v4l2_t *v4l2, const char *path, unsigned width,
+static int v4l2_stop(v4l2_t *v4l2) {
+	if (!v4l2) return -1;
+	if (v4l2->state != V4L2_STATE_START) return 0;
+
+	evconn_cancel(&v4l2->evconn);
+	if (v4l2->evconn.fd >= 0) {
+		if (v4l2_streamcap_stop(v4l2->evconn.fd) != 0) {
+			int r = errno;
+			log_e("Failed VIDIOC_STREAMOFF: %s\n", strerror(r));
+		}
+	}
+	v4l2->state = V4L2_STATE_OPEN;
+	log_d("v4l2 stopped\n");
+	return 0;
+}
+
+static int v4l2_close(v4l2_t *v4l2) {
+	unsigned i;
+
+	if (!v4l2) return -1;
+
+	v4l2_stop(v4l2);
+
+#ifdef USE_X264
+	if (v4l2->encoder) {
+		delete v4l2->encoder;
+		v4l2->encoder = NULL;
+	}
+	if (v4l2->x264_fp) {
+		fclose(v4l2->x264_fp);
+		v4l2->x264_fp = NULL;
+	}
+#endif
+
+	if (v4l2->v4l2_mem) {
+		for (i = 0; i < v4l2->v4l2_mem_cnt; i++) {
+			if (v4l2->v4l2_mem[i].start && v4l2->v4l2_mem[i].start != MAP_FAILED) {
+				munmap(v4l2->v4l2_mem[i].start, v4l2->v4l2_mem[i].length);
+			}
+		}
+		aloe_free(v4l2->v4l2_mem);
+		v4l2->v4l2_mem = NULL;
+		v4l2->v4l2_mem_cnt = 0;
+	}
+
+	if (v4l2->evconn.fd >= 0) {
+		unsigned zcnt = 0;
+		v4l2_request_devbuf(v4l2->evconn.fd, &zcnt);
+		close(v4l2->evconn.fd);
+		v4l2->evconn.fd = -1;
+	}
+	v4l2->state = V4L2_STATE_RESET;
+	return 0;
+}
+
+static int v4l2_open(v4l2_t *v4l2, const char *path, unsigned width,
 		unsigned height) {
-	int fd = -1, r, ret = -1;
+	int fd = -1, ret = -1;
 	unsigned vmem_cnt = 5, pixfmt = V4L2_PIX_FMT_YUV420;
 	v4l2_mem_t *vmem = NULL;
+
+	if (!v4l2 || !path) {
+		log_e("Invalid argument\n");
+		return -1;
+	}
+	if (v4l2->state != V4L2_STATE_RESET) {
+		v4l2_close(v4l2);
+	}
 
 	if ((fd = v4l2_open_streamcap(path)) == -1) {
 		goto finally;
@@ -281,7 +355,7 @@ int v4l2_open(v4l2_t *v4l2, const char *path, unsigned width,
 	ret = 0;
 finally:
 	if (vmem) {
-		for (int i = 0; i < vmem_cnt; i++) {
+		for (int i = 0; i < (int)vmem_cnt; i++) {
 			if (vmem[i].start && vmem[i].start != MAP_FAILED) {
 				munmap(vmem[i].start, vmem[i].length);
 			}
@@ -292,6 +366,7 @@ finally:
 	return ret;
 }
 
+#ifdef USE_X264
 static bool writeHeaders(FILE* fp, const X264Encoder& enc) {
   size_t spsSize = 0, ppsSize = 0;
   enc.getSPS(spsSize, ppsSize);
@@ -310,13 +385,24 @@ static bool writeHeaders(FILE* fp, const X264Encoder& enc) {
 
   return true;
 }
+#endif
 
-int v4l2_start(v4l2_t *v4l2) {
-	int ret = -1;
+static int v4l2_start(v4l2_t *v4l2) {
+	int ret = -1, r;
 	int fps = 30, kbps = 2000;
 
-	if (v4l2->state == V4L2_STATE_OPEN) {
+	if (!v4l2 || v4l2->evconn.fd < 0) {
+		log_e("v4l2 not open\n");
+		return -1;
+	}
+	if (v4l2->state == V4L2_STATE_START) return 0;
+	if (v4l2->state != V4L2_STATE_OPEN) {
+		log_e("v4l2 unexpected state %d\n", v4l2->state);
+		return -1;
+	}
+
 #ifdef USE_X264
+	if (!v4l2->encoder) {
 		if ((v4l2->encoder = new X264Encoder(v4l2->v4l2_fmt.width,
 				v4l2->v4l2_fmt.height, fps, kbps)) == NULL) {
 			log_e("failed x264\n");
@@ -326,6 +412,8 @@ int v4l2_start(v4l2_t *v4l2) {
 			log_e("failed x264\n");
 			goto finally;
 		}
+	}
+	if (!v4l2->x264_fp) {
 		if ((v4l2->x264_fp = fopen("xxxxx.x264", "wb")) == NULL) {
 			log_e("failed x264\n");
 			goto finally;
@@ -334,62 +422,62 @@ int v4l2_start(v4l2_t *v4l2) {
 			log_e("failed x264\n");
 			goto finally;
 		}
+	}
 #endif
-		if (v4l2_streamcap_start(v4l2->evconn.fd) != 0) {
-			goto finally;
-		}
-		v4l2->state = V4L2_STATE_START;
-
-		if ((v4l2->evconn.ev = aloe_ev_put(v4l2->evconn.ev_ctx,
-				v4l2->evconn.fd, &v4l2_streamcap_cb, v4l2, aloe_ev_flag_read,
-				ALOE_EV_INFINITE, 0)) == NULL) {
-			log_e("Failure aloe_ev_put\n");
-			goto finally;
-		}
+	if (v4l2_queue_all(v4l2) != 0) {
+		goto finally;
 	}
-	if (v4l2->state == V4L2_STATE_START) {
-		ret = 0;
+	if (v4l2_streamcap_start(v4l2->evconn.fd) != 0) {
+		r = errno;
+		log_e("Failed VIDIOC_STREAMON: %s\n", strerror(r));
+		goto finally;
 	}
+	if (evconn_add_read(&v4l2->evconn, &v4l2_streamcap_cb, v4l2) == NULL) {
+		log_e("Failure aloe_evb2_add_fd\n");
+		v4l2_streamcap_stop(v4l2->evconn.fd);
+		goto finally;
+	}
+	v4l2->state = V4L2_STATE_START;
+	log_d("v4l2 started\n");
+	ret = 0;
 finally:
-	if (ret != 0) {
-		if (v4l2->evconn.ev) {
-			aloe_ev_cancel(v4l2->evconn.ev_ctx, v4l2->evconn.ev);
-			v4l2->evconn.ev = NULL;
-		}
-		if (v4l2->state == V4L2_STATE_START) {
-			v4l2_streamcap_stop(v4l2->evconn.fd);
-			v4l2->state == V4L2_STATE_OPEN;
-		}
-	}
 	return ret;
 }
-
-int v4l2_stop(v4l2_t *v4l2) {
-}
-
 
 void* v4l2_init(void *evctx, const char *path) {
 	int ret = -1;
 	v4l2_t *v4l2 = NULL;
 
+	if (!path || !path[0]) path = "/dev/video10";
+
 	if ((v4l2 = (v4l2_t*)aloe_calloc(1, sizeof(*v4l2))) == NULL) {
+		log_e("failed alloc v4l2\n");
 		goto finally;
 	}
+	v4l2->evconn.fd = -1;
 	v4l2->evconn.ev_ctx = evctx;
 
-	if (v4l2_open(v4l2, "/dev/video10", 1920, 1080) != 0) {
+	if (v4l2_open(v4l2, path, 1920, 1080) != 0) {
 		goto finally;
 	}
-	v4l2_start(v4l2);
+	if (v4l2_start(v4l2) != 0) {
+		goto finally;
+	}
 	ret = 0;
 finally:
-	if (ret != 0) {
-
+	if (ret != 0 && v4l2) {
+		v4l2_destroy(v4l2);
+		v4l2 = NULL;
 	}
 	return v4l2;
 }
 
-void v4l2_destroy(void *_v4l2ctx) {
+void v4l2_destroy(void *_v4l2) {
+	v4l2_t *v4l2 = (v4l2_t*)_v4l2;
+
+	if (!v4l2) return;
+	v4l2_close(v4l2);
+	aloe_free(v4l2);
 }
 
 int v4l2_cli(void *_v4l2, int argc, const char **argv) {
@@ -414,4 +502,13 @@ int v4l2_cli(void *_v4l2, int argc, const char **argv) {
 		log_e("v4l2 absent\n");
 		return 1;
 	}
+
+	if (strcasecmp(argv[1], "start") == 0) {
+		return v4l2_start(v4l2);
+	}
+	if (strcasecmp(argv[1], "stop") == 0) {
+		return v4l2_stop(v4l2);
+	}
+	log_e("Unknown command %s\n", argv[1]);
+	return -1;
 }

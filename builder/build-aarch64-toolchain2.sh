@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# ubuntu required package: texinfo gawk
+
 set -euo pipefail
 
 # === Configuration ===
@@ -7,22 +10,22 @@ BUILDDIR="$(pwd)/tmp/cross_tmp"
 PREFIX=${BUILDDIR}/$TARGET
 SYSROOT=$PREFIX/$TARGET/sysroot
 SRC=${BUILDDIR}/src
-NPROC=$(nproc)
+NPROC="$(( $(nproc) / 4 ))"
 
 mkdir -p "$PREFIX" "$SYSROOT" "$SRC"
 
 # === Versions ===
-BINUTILS_VER=2.42
-GCC_VER=13.2.0
-GLIBC_VER=2.39
-LINUX_VER=6.9.4
+BINUTILS_VER=2.47
+GCC_VER=16.2.0
+GLIBC_VER=2.44
+LINUX_VER=7.2
 
 # === Download sources ===
 cd "$SRC"
 wget -nc https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz
 wget -nc https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz
 wget -nc https://ftp.gnu.org/gnu/libc/glibc-$GLIBC_VER.tar.xz
-wget -nc https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$LINUX_VER.tar.xz
+wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
 
 tar -xf binutils-$BINUTILS_VER.tar.xz
 tar -xf gcc-$GCC_VER.tar.xz
@@ -106,12 +109,24 @@ mkdir -p build-glibc2 && cd build-glibc2
   --enable-kernel=4.15 \
   --disable-multilib \
   --with-sysroot=$SYSROOT
-make -j$NPROC
+if [ ${GCC_VER%%.*} -ge 16 ]; then
+# GCC 16 adds -latomic_asneeded to every link.  libatomic cannot be built
+# until after glibc, so do not request it during this bootstrap pass.
+  make CC="$TARGET-gcc -fno-link-libatomic" -j$NPROC
+else
+  make -j$NPROC
+fi
 make install install_root=$SYSROOT
 cd ..
 
-# === 7. Rebuild libstdc++ ===
+# === 7. Build target libraries that require glibc ===
 cd build-gcc2
+if [ ${GCC_VER%%.*} -ge 16 ]; then
+# builds and installs libatomic immediately after glibc;
+# then builds libstdc++
+  make -j$NPROC all-target-libatomic
+  make install-target-libatomic
+fi
 make -j$NPROC all-target-libstdc++-v3
 make install-target-libstdc++-v3
 cd ..

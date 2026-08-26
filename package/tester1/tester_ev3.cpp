@@ -27,6 +27,9 @@
 #ifdef USE_V4L2
 #  include "v4l2.h"
 #endif
+#ifdef USE_USB
+#  include "usb.h"
+#endif
 
 static struct {
 	void *ev_ctx;
@@ -56,6 +59,10 @@ static void cycletime_cb(int fd, unsigned ev, void *arg) {
 	struct timespec *cycle_ts = &impl.cycle_ts, *cycle_td = &impl.cycle_td;
 	struct timespec ts;
 
+	(void)fd;
+	(void)ev;
+	(void)arg;
+
 	clock_gettime(CLOCK_REALTIME, &ts);
 
 	if (cycle_ts->tv_sec != 0 && cycle_ts->tv_nsec != 0 // initial
@@ -67,11 +74,6 @@ static void cycletime_cb(int fd, unsigned ev, void *arg) {
 				cycle_td->tv_sec, cycle_td->tv_nsec, 1000000000ul);
 	}
 	*cycle_ts = ts;
-
-finally:
-	if (aloe_ev_put(impl.ev_ctx, -1, &cycletime_cb, NULL, 0, 0, 0) == NULL) {
-		log_e("Failure aloe_ev_put\n");
-	}
 }
 
 static int cli_cmd_cycle_time(void*, int, const char**) {
@@ -435,7 +437,7 @@ int main(int argc, const char **argv) {
 		goto finally;
 	}
 
-	if ((impl.ev_ctx = aloe_ev_init(0)) == NULL) {
+	if ((impl.ev_ctx = aloe_evb2_create()) == NULL) {
 		log_e("Failure alloc ev_ctx\n");
 		goto finally;
 	}
@@ -445,8 +447,8 @@ int main(int argc, const char **argv) {
 	ipc_global = ipc1_init(impl.ev_ctx);
 
 #if 1
-	if (aloe_ev_put(impl.ev_ctx, -1, &cycletime_cb, NULL, 0, 0, 0) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+	if (aloe_evb2_add_timer(impl.ev_ctx, 0, &cycletime_cb, NULL) == NULL) {
+		log_e("Failure aloe_evb2_add_timer\n");
 		goto finally;
 	}
 	cli1_cmd_add(cli_global, "cycle_time", &cli_cmd_cycle_time, NULL, "event cycle time");
@@ -476,17 +478,28 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "v4l2", &cli_cmd_v4l2, NULL, "v4l2 manager");
 #endif
 
+#ifdef USE_USB
+	usb_global = usb_init(impl.ev_ctx);
+	cli1_cmd_add(cli_global, "usb", &cli_cmd_usb, NULL, "usb manager");
+#endif
+
 	while (!impl.quit) {
-		aloe_ev_once(impl.ev_ctx);
+		aloe_evb2_run_once(impl.ev_ctx, ALOE_EVB2_INFINITE);
 	}
 	ret = 0;
 finally:
-	if (impl.ev_ctx) {
-		aloe_ev_destroy(impl.ev_ctx);
-	}
 	if (mgmt) mgmt1_destroy(mgmt);
-	cli1_destroy(cli_global);
-	ipc1_destroy(ipc_global);
+	if (cli_global) cli1_destroy(cli_global);
+	if (ipc_global) ipc1_destroy(ipc_global);
+#ifdef USE_V4L2
+	if (v4l2_global) v4l2_destroy(v4l2_global);
+#endif
+#ifdef USE_USB
+	if (usb_global) usb_destroy(usb_global);
+#endif
+	if (impl.ev_ctx) {
+		aloe_evb2_destroy(impl.ev_ctx);
+	}
 
 	return ret;
 }

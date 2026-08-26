@@ -10,7 +10,7 @@
 #define _H_ALGAE_PRIV
 
 #include <aloe/sys.h>
-#include <aloe/ev.h>
+#include <aloe/evb2.h>
 #include <aloe/compat/openbsd/sys/queue.h>
 #include <aloe/compat/openbsd/sys/tree.h>
 
@@ -79,6 +79,19 @@ typedef TAILQ_HEAD(evconn_list_rec, evconn_rec) evconn_list_t;
 #define evconn_list_add(_q, _e) TAILQ_INSERT_TAIL(_q, _e, qent)
 #define evconn_list_rm(_q, _e) TAILQ_REMOVE(_q, _e, qent)
 evconn_t* evconn_list_foreach(evconn_list_t *q, evconn_t *p);
+
+static inline void evconn_cancel(evconn_t *e) {
+	if (e && e->ev) {
+		aloe_evb2_cancel(e->ev_ctx, e->ev);
+		e->ev = NULL;
+	}
+}
+
+static inline void* evconn_add_read(evconn_t *e, aloe_evb2_cb_t cb, void *ud) {
+	e->ev = aloe_evb2_add_fd(e->ev_ctx, e->fd, ALOE_EVB2_FLAG_READ,
+			ALOE_EVB2_INFINITE, cb, ud);
+	return e->ev;
+}
 
 #ifdef __cplusplus
 } /* extern "C" */

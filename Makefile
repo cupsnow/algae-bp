@@ -1841,7 +1841,6 @@ openssl_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssl_BUILDDIR)
 openssl_ACARGS_ub20+=linux-x86_64
 openssl_ACARGS_bp+=linux-aarch64
 openssl_ACARGS_qemuarm64+=linux-aarch64
-openssl_ACARGS_sa7715+=linux-armv4
 openssl_ACARGS_iq9+=linux-aarch64
 
 GENDIR+=$(openssl_BUILDDIR)
@@ -2000,7 +1999,7 @@ x264_%: | $(x264_BUILDDIR)/Makefile
 #
 live555_DEP+=openssl
 live555_DIR=$(PKGDIR2)/live555
-live555_BUILDDIR=$(BUILDDIR)/live555-$(APP_BUILD)
+live555_BUILDDIR?=$(BUILDDIR2)/live555-$(APP_BUILD)
 
 live555_INCDIR+=$(BUILD_INCDIR)
 live555_LIBDIR+=$(BUILD_LIBDIR)

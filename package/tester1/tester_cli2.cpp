@@ -217,7 +217,7 @@ int main(int argc, const char **argv) {
 		goto finally;
 	}
 
-	if ((impl.ev_ctx = aloe_ev_init(0)) == NULL) {
+	if ((impl.ev_ctx = aloe_evb2_create()) == NULL) {
 		log_e("Failure alloc ev_ctx\n");
 		goto finally;
 	}
@@ -234,15 +234,15 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "forkwait", &cli_cmd_forkwait, NULL, "forkwait -> fork to execute program");
 
 	while (!impl.quit) {
-		aloe_ev_once(impl.ev_ctx);
+		aloe_evb2_run_once(impl.ev_ctx, ALOE_EVB2_INFINITE);
 	}
 	ret = 0;
 finally:
+	if (cli_global) cli1_destroy(cli_global);
+	if (ipc_global) ipc1_destroy(ipc_global);
 	if (impl.ev_ctx) {
-		aloe_ev_destroy(impl.ev_ctx);
+		aloe_evb2_destroy(impl.ev_ctx);
 	}
-	cli1_destroy(cli_global);
-	ipc1_destroy(ipc_global);
 
 	return ret;
 }

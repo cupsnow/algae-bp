@@ -35,7 +35,7 @@ static void mgmt1_client_rm(mgmt1_t *mgmt, mgmt1_client_t *client) {
 }
 
 static void mgmt1_client_release(mgmt1_client_t *client) {
-	if (client->evconn.ev) aloe_ev_cancel(client->evconn.ev_ctx, client->evconn.ev);
+	evconn_cancel(&client->evconn);
 	if (client->evconn.fd) close(client->evconn.fd);
 	if (client->mgmt) mgmt1_client_rm((mgmt1_t*)client->mgmt, client);
 	aloe_free(client);
@@ -43,20 +43,16 @@ static void mgmt1_client_release(mgmt1_client_t *client) {
 
 static void mgmt1_client_cb(int fd, unsigned ev, void *cbarg) {
 	mgmt1_client_t *client = (mgmt1_client_t*)cbarg;
-	mgmt1_t *mgmt = (mgmt1_t*)client->mgmt;
 	char buf[1024];
 	int r;
 
-	client->evconn.ev = NULL;
-
-	if (ev & aloe_ev_flag_read) {
+	if (ev & ALOE_EVB2_FLAG_READ) {
 		r = read(fd, buf, sizeof(buf) - 1);
 		log_d("read %d from peer\n", r);
 		if (r == 0) {
 			log_d("peer closed\n");
 			mgmt1_client_release(client);
-			client = NULL;
-			goto finally;
+			return;
 		}
 		if (r < 0) {
 			r = errno;
@@ -68,21 +64,11 @@ static void mgmt1_client_cb(int fd, unsigned ev, void *cbarg) {
 					) {
 				log_e("failure read %s\n", strerror(r));
 				mgmt1_client_release(client);
-				client = NULL;
 			}
-			goto finally;
+			return;
 		}
 		buf[r] = '\0';
 		log_d("recv: %s\n", buf);
-	}
-finally:
-	if (client) {
-		if ((client->evconn.ev = aloe_ev_put(client->evconn.ev_ctx,
-				client->evconn.fd, &mgmt1_client_cb, client, aloe_ev_flag_read,
-				ALOE_EV_INFINITE, 0)) == NULL) {
-			log_e("Failure aloe_ev_put\n");
-			mgmt1_client_release(client);
-		}
 	}
 }
 
@@ -93,11 +79,11 @@ static void mgmt1_accept_cb(int fd, unsigned ev, void *cbarg) {
 	socklen_t sa_len = sizeof(sa);
 	mgmt1_client_t *client;
 
-	mgmt->evconn.ev = NULL;
+	(void)ev;
 
 	if ((client_fd = accept(fd, (struct sockaddr*)&sa, &sa_len)) == -1) {
 		log_e("failure accept\n");
-		goto finally;
+		return;
 	}
 #if 1
 	do {
@@ -120,13 +106,13 @@ static void mgmt1_accept_cb(int fd, unsigned ev, void *cbarg) {
 		) {
 		log_e("failure set nonblock or socket flag\n");
 		close(client_fd);
-		goto finally;
+		return;
 	}
 
 	if ((client = (mgmt1_client_t*)aloe_calloc(1, sizeof(*client))) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+		log_e("Failure alloc mgmt client\n");
 		close(client_fd);
-		goto finally;
+		return;
 	}
 	client->evconn.fd = client_fd;
 	client->sa = sa;
@@ -134,19 +120,9 @@ static void mgmt1_accept_cb(int fd, unsigned ev, void *cbarg) {
 	client->evconn.ev_ctx = mgmt->evconn.ev_ctx;
 	mgmt1_client_add(mgmt, client);
 
-	if ((client->evconn.ev = aloe_ev_put(client->evconn.ev_ctx,
-			client->evconn.fd, &mgmt1_client_cb, client, aloe_ev_flag_read,
-			ALOE_EV_INFINITE, 0)) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+	if (evconn_add_read(&client->evconn, &mgmt1_client_cb, client) == NULL) {
+		log_e("Failure aloe_evb2_add_fd\n");
 		mgmt1_client_release(client);
-		goto finally;
-	}
-finally:
-	// keep listen
-	if ((mgmt->evconn.ev = aloe_ev_put(mgmt->evconn.ev_ctx, mgmt->evconn.fd,
-			&mgmt1_accept_cb, mgmt, aloe_ev_flag_read, ALOE_EV_INFINITE,
-			0)) == NULL) {
-		log_e("Failure aloe_ev_put\n");
 	}
 }
 
@@ -204,10 +180,8 @@ void* mgmt1_init(void *evctx, const char *path) {
 		goto finally;
 	}
 
-	if ((mgmt->evconn.ev = aloe_ev_put(mgmt->evconn.ev_ctx, mgmt->evconn.fd,
-			&mgmt1_accept_cb, mgmt, aloe_ev_flag_read, ALOE_EV_INFINITE,
-			0)) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+	if (evconn_add_read(&mgmt->evconn, &mgmt1_accept_cb, mgmt) == NULL) {
+		log_e("Failure aloe_evb2_add_fd\n");
 		goto finally;
 	}
 
@@ -216,9 +190,7 @@ void* mgmt1_init(void *evctx, const char *path) {
 finally:
 	if (ret != 0) {
 		if (mgmt) {
-			if (mgmt->evconn.ev) {
-				aloe_ev_cancel(mgmt->evconn.ev_ctx, mgmt->evconn.ev);
-			}
+			evconn_cancel(&mgmt->evconn);
 			if (mgmt->evconn.fd != -1) close(mgmt->evconn.fd);
 			aloe_free(mgmt);
 			mgmt = NULL;
@@ -235,9 +207,12 @@ void mgmt1_destroy(void *_mgmtctx) {
 	while ((evconn = evconn_list_foreach(&mgmt->client_list, NULL))) {
 		mgmt1_client_t *client = aloe_containerof(evconn, mgmt1_client_t, evconn);
 		mgmt1_client_rm(mgmt, client);
+		evconn_cancel(&client->evconn);
 		if (client->evconn.fd) close(client->evconn.fd);
 		aloe_free(client);
 	}
+	evconn_cancel(&mgmt->evconn);
+	if (mgmt->evconn.fd != -1) close(mgmt->evconn.fd);
 	aloe_free(mgmt);
 }
 

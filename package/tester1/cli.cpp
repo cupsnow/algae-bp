@@ -254,9 +254,7 @@ static int cli_input(cli1_t *cli, const char *data, size_t data_sz) {
 }
 
 static void cli1_release(cli1_t *cli) {
-	if (cli->evconn.ev) {
-		aloe_ev_cancel(cli->evconn.ev_ctx, cli->evconn.ev);
-	}
+	evconn_cancel(&cli->evconn);
 	if (cli->evconn.fd != -1) close(cli->evconn.fd);
 	aloe_free(cli);
 }
@@ -266,16 +264,13 @@ static void cli1_cb(int fd, unsigned ev, void *cbarg) {
 	char buf[1024];
 	int r;
 
-	cli->evconn.ev = NULL;
-
-	if (ev & aloe_ev_flag_read) {
+	if (ev & ALOE_EVB2_FLAG_READ) {
 		r = read(fd, buf, sizeof(buf) - 1);
 //		log_d("read %d from cli\n", r);
 		if (r == 0) {
 			log_d("peer closed\n");
 			cli1_release(cli);
-			cli = NULL;
-			goto finally;
+			return;
 		}
 		if (r < 0) {
 			r = errno;
@@ -287,22 +282,12 @@ static void cli1_cb(int fd, unsigned ev, void *cbarg) {
 					) {
 				log_e("failure read %s\n", strerror(r));
 				cli1_release(cli);
-				cli = NULL;
 			}
-			goto finally;
+			return;
 		}
 		buf[r] = '\0';
 //		log_d("recv: %s\n", buf);
 		cli_input(cli, buf, r);
-	}
-finally:
-	if (cli) {
-		if ((cli->evconn.ev = aloe_ev_put(cli->evconn.ev_ctx, cli->evconn.fd,
-				&cli1_cb, cli, aloe_ev_flag_read, ALOE_EV_INFINITE,
-				0)) == NULL) {
-			log_e("Failure aloe_ev_put\n");
-			cli1_release(cli);
-		}
 	}
 }
 
@@ -335,10 +320,8 @@ void* cli1_init(void *evctx) {
 		log_e("failure set nonblock or socket flag\n");
 		goto finally;
 	}
-	if ((cli->evconn.ev = aloe_ev_put(cli->evconn.ev_ctx, cli->evconn.fd,
-			&cli1_cb, cli, aloe_ev_flag_read, ALOE_EV_INFINITE,
-			0)) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+	if (evconn_add_read(&cli->evconn, &cli1_cb, cli) == NULL) {
+		log_e("Failure aloe_evb2_add_fd\n");
 		goto finally;
 	}
 
@@ -365,6 +348,7 @@ void cli1_destroy(void *_clictx) {
 		cli_cmdq_del(&cli->cmdq, cli_ref);
 		aloe_free(cli_ref);
 	}
+	evconn_cancel(&cli->evconn);
 	if (cli->evconn.fd != -1) close(cli->evconn.fd);
 	aloe_free(cli);
 }

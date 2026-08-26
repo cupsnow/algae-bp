@@ -47,9 +47,7 @@ void *ipc_global;
 
 
 static void ipc1_release(ipc1_t *ipc) {
-	if (ipc->evconn.ev) {
-		aloe_ev_cancel(ipc->evconn.ev_ctx, ipc->evconn.ev);
-	}
+	evconn_cancel(&ipc->evconn);
 	if (ipc->evconn.fd != -1) {
 		close(ipc->evconn.fd);
 	}
@@ -144,15 +142,12 @@ static void ipc1_cb(int fd, unsigned ev, void *cbarg) {
 	char buf[1024];
 	int r;
 
-	ipc->evconn.ev = NULL;
-
-	if (ev & aloe_ev_flag_read) {
+	if (ev & ALOE_EVB2_FLAG_READ) {
 		r = read(fd, buf, sizeof(buf) - 1);
 		if (r == 0) {
 			log_d("peer closed\n");
 			ipc1_release(ipc);
-			ipc = NULL;
-			goto finally;
+			return;
 		}
 		if (r < 0) {
 			r = errno;
@@ -164,22 +159,12 @@ static void ipc1_cb(int fd, unsigned ev, void *cbarg) {
 					) {
 				log_e("failure read %s\n", strerror(r));
 				ipc1_release(ipc);
-				ipc = NULL;
 			}
-			goto finally;
+			return;
 		}
 		buf[r] = '\0';
 //		log_d("recv: %s\n", buf);
 		ipc1_input(ipc, buf, r);
-	}
-finally:
-	if (ipc) {
-		if ((ipc->evconn.ev = aloe_ev_put(ipc->evconn.ev_ctx, ipc->evconn.fd,
-				&ipc1_cb, ipc, aloe_ev_flag_read, ALOE_EV_INFINITE,
-				0)) == NULL) {
-			log_e("Failure aloe_ev_put\n");
-			ipc1_release(ipc);
-		}
 	}
 }
 
@@ -293,10 +278,8 @@ void* ipc1_init(void *evctx) {
 		goto finally;
 	}
 
-	if ((ipc->evconn.ev = aloe_ev_put(ipc->evconn.ev_ctx, ipc->evconn.fd,
-			&ipc1_cb, ipc, aloe_ev_flag_read, ALOE_EV_INFINITE,
-			0)) == NULL) {
-		log_e("Failure aloe_ev_put\n");
+	if (evconn_add_read(&ipc->evconn, &ipc1_cb, ipc) == NULL) {
+		log_e("Failure aloe_evb2_add_fd\n");
 		goto finally;
 	}
 
@@ -324,6 +307,7 @@ void ipc1_destroy(void *_ipc) {
 	}
 	locked = 1;
 
+	evconn_cancel(&ipc->evconn);
 	if (ipc->evconn.fd != -1) close(ipc->evconn.fd);
 	for (int i = 0; i < aloe_arraysize(ipc->fd); i++) {
 		if (ipc->fd[i] != -1) close(ipc->fd[i]);

@@ -20,9 +20,9 @@ BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 lib64 usr/lib lib)
 endif
 
 CPPFLAGS+=$(BUILD_INCDIR:%=-I%)
-CFLAGS+=-g
-CXXFLAGS+=-g
-LDFLAGS+=$(BUILD_LIBDIR:%=-L%)
+CFLAGS+=-g -pthread
+CXXFLAGS+=-g -pthread
+LDFLAGS+=$(BUILD_LIBDIR:%=-L%) -pthread
 
 GENDIR:=
 
@@ -87,11 +87,11 @@ x264_CPPFLAGS=-I$(BUILD_SYSROOT)/include
 x264_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lx264
 
 tester_aloe_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
-tester_aloe_SRCS+=$(wildcard \
+tester_aloe_SRCS+=$(filter-out %/aloe/ev.c,$(wildcard \
   $(PROJDIR)/package/aloe/*.cpp \
   $(PROJDIR)/package/aloe/*.c \
   $(PROJDIR)/package/aloe/sys_linux/*.cpp \
-  $(PROJDIR)/package/aloe/sys_linux/*.c)
+  $(PROJDIR)/package/aloe/sys_linux/*.c))
 
 #------------------------------------
 #
@@ -159,7 +159,7 @@ $(eval $(call TESTER1_APP2,tester_cli2, \
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264
+tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB
 ifneq ($(strip $(wildcard $(BUILD_SYSROOT)/lib/libwpa_client.a)),)
 tester_ev3_ATTR+=USE_WPASUPCLIENT
 endif
@@ -194,6 +194,12 @@ tester_ev3_SRCS+=x264_encoder.cpp
 tester_ev3_CPPFLAGS+=-DUSE_X264=1 $(x264_CPPFLAGS)
 tester_ev3_LDFLAGS+=$(x264_LDFLAGS)
 # end of USE_X264
+endif
+
+ifneq ($(filter USE_USB,$(tester_ev3_ATTR)),)
+tester_ev3_SRCS+=usb.cpp
+tester_ev3_CPPFLAGS+=-DUSE_USB=1
+# end of USE_USB
 endif
 
 tester_ev3_CPPFLAGS+=$(CPPFLAGS)
