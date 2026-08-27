@@ -57,7 +57,10 @@ void* aloe_ev_get(void *ctx, int fd, aloe_ev_noti_cb_t cb);
 /** Remove the event from internal process. */
 void aloe_ev_cancel(void *ctx, void *ev);
 
-/** Process a loop. */
+/** Process a loop.
+ *
+ * @return Number of notified events (>= 0), or negative errno on failure.
+ */
 int aloe_ev_once(void *ctx);
 
 /** Initialize context.

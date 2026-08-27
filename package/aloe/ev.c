@@ -172,7 +172,12 @@ static aloe_ev_ctx_noti_t* noti_q_find(aloe_ev_ctx_noti_queue_t *q,
 	}
 
 	TAILQ_FOREACH(ev_noti, q, qent) {
-		if (ev_noti == _ev_noti) return ev_noti;
+		if (ev_noti == _ev_noti) {
+			if (pop) {
+				TAILQ_REMOVE(q, ev_noti, qent);
+			}
+			return ev_noti;
+		}
 	}
 	return NULL;
 }
@@ -204,7 +209,7 @@ void* aloe_ev_put(void *_ctx, int fd, aloe_ev_noti_cb_t cb, void *cbarg,
 	if (sec == ALOE_EV_INFINITE) {
 		due.tv_sec = ALOE_EV_INFINITE;
 	} else {
-		if ((clock_gettime(CLOCK_MONOTONIC_RAW, &due)) != 0) {
+		if ((clock_gettime(CLOCK_MONOTONIC, &due)) != 0) {
 			int r = errno;
 			log_e("monotonic timestamp: %s(%d)\n", strerror(r), r);
 			return NULL;
@@ -320,10 +325,10 @@ int aloe_ev_once(void *_ctx) {
 
 	// convert to relative time for select()
 	if (due) {
-		if ((clock_gettime(CLOCK_MONOTONIC_RAW, &ts)) != 0) {
+		if ((clock_gettime(CLOCK_MONOTONIC, &ts)) != 0) {
 			r = errno;
 			log_e("Failed to get time: %s(%d)\n", strerror(r), r);
-			return r;
+			return -r;
 		}
 		if (ALOE_TIMESEC_CMP(ts.tv_sec, ts.tv_nsec,
 				due->tv_sec, due->tv_nsec) < 0) {
@@ -355,15 +360,15 @@ int aloe_ev_once(void *_ctx) {
 //		} else {
 			log_e("Failed to wait IO: %s(%d)\n", strerror(r), r);
 //		}
-		return r;
+		return -r;
 	}
 
 	// used for checking timeout
 	// CLOCK_MONOTONIC may effect by NTP
-	if ((r = clock_gettime(CLOCK_MONOTONIC_RAW, &ts)) != 0) {
+	if ((r = clock_gettime(CLOCK_MONOTONIC, &ts)) != 0) {
 		r = errno;
 		log_e("Failed to get time: %s(%d)\n", strerror(r), r);
-		return r;
+		return -r;
 	}
 
 	TAILQ_FOREACH_SAFE(ev_fd, &ctx->fd_q, qent, ev_fd_safe) {
@@ -460,7 +465,7 @@ void aloe_ev_destroy(void *_ctx) {
 		free(ev_fd);
 	}
 	while ((ev_fd = TAILQ_FIRST(&ctx->spare_fd_q))) {
-		TAILQ_REMOVE(&ctx->fd_q, ev_fd, qent);
+		TAILQ_REMOVE(&ctx->spare_fd_q, ev_fd, qent);
 		free(ev_fd);
 	}
 	while ((ev_noti = TAILQ_FIRST(&ctx->noti_q))) {
