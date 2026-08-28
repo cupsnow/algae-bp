@@ -18,10 +18,10 @@
 #include "usb.h"
 #include "priv.h"
 
-#define KEY_UDEV_SUBSYSTEM "SUBSYSTEM"
-#define KEY_UDEV_ACTION "ACTION"
-#define KEY_UDEV_DEVNAME "DEVNAME"
-#define KEY_UDEV_SUBSYSTEM_HIDRAW "hidraw"
+#define UDEV_KEY_SUBSYSTEM "SUBSYSTEM"
+#define UDEV_KEY_ACTION "ACTION"
+#define UDEV_KEY_DEVNAME "DEVNAME"
+#define UDEV_KEY_SUBSYSTEM_HIDRAW "hidraw"
 
 typedef struct {
 	evconn_t evconn;
@@ -59,12 +59,12 @@ static void usb2_poll_cb(int fd, unsigned ev, void *cbarg) {
 					|| r == EWOULDBLOCK
 #endif
 					) {
-				return;
+				break;
 			}
 			log_e("failed recv; %s\n", strerror(r));
-			return;
+			break;
 		}
-		if (len == 0) return;
+		if (len == 0) break;
 
 		((char*)fb.data)[fb.pos = len] = '\0';
 
@@ -87,14 +87,14 @@ static void usb2_poll_cb(int fd, unsigned ev, void *cbarg) {
 		}
 #endif
 
-		udev_subsystem = mini_udev_uevent_check((char*)fb.data, fb.pos, KEY_UDEV_SUBSYSTEM);
-		udev_action = mini_udev_uevent_check((char*)fb.data, fb.pos, KEY_UDEV_ACTION);
-		udev_devname = mini_udev_uevent_check((char*)fb.data, fb.pos, KEY_UDEV_DEVNAME);
+		udev_subsystem = mini_udev_uevent_check((char*)fb.data, fb.pos, UDEV_KEY_SUBSYSTEM);
+		udev_action = mini_udev_uevent_check((char*)fb.data, fb.pos, UDEV_KEY_ACTION);
+		udev_devname = mini_udev_uevent_check((char*)fb.data, fb.pos, UDEV_KEY_DEVNAME);
 
 		log_d("%s=%s; %s=%s; %s=%s\n",
-				KEY_UDEV_SUBSYSTEM, udev_subsystem ? udev_subsystem : "<Null>",
-				KEY_UDEV_ACTION, udev_action ? udev_action : "<Null>",
-				KEY_UDEV_DEVNAME, udev_devname ? udev_devname : "<Null>");
+				UDEV_KEY_SUBSYSTEM, udev_subsystem ? udev_subsystem : "<Null>",
+				UDEV_KEY_ACTION, udev_action ? udev_action : "<Null>",
+				UDEV_KEY_DEVNAME, udev_devname ? udev_devname : "<Null>");
 	}
 }
 
