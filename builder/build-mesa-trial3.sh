@@ -25,6 +25,11 @@ build_env() {
 
   # Host LLVM installation
   export LLVM_HOST="$TOP/tool/llvm-host"
+
+  # Target development/root filesystem:
+  # libdrm, Mesa, LLVM, etc. will eventually be installed here.
+  export BP_SYSROOT="$WS/build/sysroot-bp"
+
 }
 
 build_env_host() {
@@ -36,10 +41,6 @@ build_env_cross() {
 
   # GCC's own sysroot: libc, loader, GCC runtime, etc.
   export GCC_SYSROOT="$CROSS/aarch64-linux-gnu/sysroot"
-
-  # Target development/root filesystem:
-  # libdrm, Mesa, LLVM, etc. will eventually be installed here.
-  export BP_SYSROOT="$WS/build/sysroot-bp"
 
   # Cross tools
   export CC="$CROSS/bin/aarch64-linux-gnu-gcc"
@@ -153,11 +154,128 @@ host_llvm_install() {
 }
 
 inspect_cross_test() {
+  cmd_run $CC -dumpmachine
   cmd_run eval "find \"$LLVM_HOST/bin\" -maxdepth 1 -type f \
       \( -name '*tblgen*' -o -name 'llvm-config' \) \
       -printf '%f\n' | sort"
   cmd_run "$LLVM_HOST/bin/llvm-config" --host-target
   cmd_run "$LLVM_HOST/bin/llvm-config" --targets-built
+}
+
+inspect_cross_build_cxx() {
+  _lo_src=tmp/test-cxx.cpp
+  _lo_tgt=tmp/test-cxx-aarch64
+  cat >$_lo_src <<'EOF'
+#include <iostream>
+
+int main()
+{
+    std::cout << "hello\n";
+    return 0;
+}
+EOF
+
+  "$CXX" \
+      --sysroot="$GCC_SYSROOT" \
+      $_lo_src \
+      -o $_lo_tgt
+
+  cmd_run file $_lo_tgt
+
+  cmd_run eval "readelf -d $_lo_tgt | grep NEEDED"
+
+}
+
+build_cross_llvm_defconfig_deprecate1() {
+  mkdir -p $BUILD/llvm-aarch64-build
+
+  . .venv/bin/activate \
+    && cmake -G Ninja \
+        -S "$SRC/llvm-project/llvm" \
+        -B "$BUILD/llvm-aarch64-build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_C_COMPILER="$CC" \
+        -DCMAKE_CXX_COMPILER="$CXX" \
+        -DCMAKE_AR="$AR" \
+        -DCMAKE_RANLIB="$RANLIB" \
+        -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+        -DCMAKE_C_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_CXX_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        -DCMAKE_FIND_ROOT_PATH="$BP_SYSROOT;$GCC_SYSROOT" \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
+        -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu \
+        -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+        -DLLVM_TARGETS_TO_BUILD="AArch64" \
+        -DLLVM_ENABLE_PROJECTS="clang;libclc" \
+        -DLLVM_ENABLE_DUMP=ON \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_ENABLE_ASSERTIONS=OFF
+}
+
+build_cross_llvm_defconfig() {
+  mkdir -p $BUILD/llvm-aarch64-build
+
+  . .venv/bin/activate \
+    && cmake -G Ninja \
+        -S "$SRC/llvm-project/llvm" \
+        -B "$BUILD/llvm-aarch64-build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_C_COMPILER="$CC" \
+        -DCMAKE_CXX_COMPILER="$CXX" \
+        -DCMAKE_AR="$AR" \
+        -DCMAKE_RANLIB="$RANLIB" \
+        -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+        -DCMAKE_C_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_CXX_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        -DCMAKE_FIND_ROOT_PATH="$BP_SYSROOT;$GCC_SYSROOT" \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
+        -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu \
+        -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+        -DLLVM_TARGETS_TO_BUILD=AArch64 \
+        -DLLVM_ENABLE_PROJECTS=clang \
+        -DLLVM_ENABLE_DUMP=ON \
+        -DCLANG_BUILD_TOOLS=OFF \
+        -DCLANG_INCLUDE_DOCS=OFF \
+        -DCLANG_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_ENABLE_ASSERTIONS=OFF
+}
+
+inspect_cross_defconfig() {
+  # cmd_run grep -E \
+  #     'CMAKE_(C|CXX)_COMPILER:|CMAKE_SYSROOT:|LLVM_NATIVE_TOOL_DIR:|LLVM_DEFAULT_TARGET_TRIPLE:|LLVM_HOST_TRIPLE:|LLVM_TARGETS_TO_BUILD:' \
+  #     "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+  # cmd_run eval "file \"$BUILD/llvm-aarch64-build/bin/llvm-tblgen\" 2>/dev/null || true"
+  # cmd_run grep 'CMAKE_C_COMPILER:' \
+  #     "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+  # cmd_run file "$LLVM_HOST/bin/llvm-tblgen"
+  # cmd_run file "$LLVM_HOST/bin/clang-tblgen"
+
+  # cmd_run eval "cmake -LAH \"$BUILD/llvm-aarch64-build\" | grep -i -E 'LIBCLC|CLANG|LLVM_ENABLE_DUMP|LLVM_NATIVE'"
+  # cmd_run grep -R "LIBCLC" "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+
+  # cmd_run eval "grep -R \"LIBCLC_TARGETS_TO_BUILD\" \"$SRC/llvm-project/libclc\" \"$SRC/llvm-project/llvm\" | head -30"
+  # cmd_run eval "find \"$SRC/llvm-project/libclc\" -maxdepth 2 -type f \( -name 'CMakeLists.txt' -o -name '*.cmake' \) -print"
+  # cmd_run eval "grep -R \"spirv\" \"$SRC/llvm-project/libclc/CMakeLists.txt\" \"$SRC/llvm-project/libclc/cmake\" 2>/dev/null"
+
 }
 
 if [ -n "$1" ]; then
@@ -173,9 +291,11 @@ build_env || { log_e "failed set env"; exit 1; }
 # host_llvm_test || { log_e "failed test host llvm"; exit 1; }
 # host_llvm_install || { log_e "failed install host llvm"; exit 1; }
 build_env_cross || { log_e "failed set env for cross build"; exit 1; }
+# inspect_cross_build_cxx
 
-inspect_cross_test
-
+# inspect_cross_test
+# build_cross_llvm_defconfig
+inspect_cross_defconfig
 
 log_d "done"
 exit
