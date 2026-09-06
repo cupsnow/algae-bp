@@ -1,0 +1,28 @@
+[constants]
+CROSS_COMPILE = '${AARCH64_CROSS_COMPILE}'
+BUILD_SYSROOT = '${BUILD_SYSROOT}'
+
+[binaries]
+c = CROSS_COMPILE + 'gcc'
+cpp = CROSS_COMPILE + 'c++'
+ar = CROSS_COMPILE + 'ar'
+ld = CROSS_COMPILE + 'ld'
+objcopy = CROSS_COMPILE + 'objcopy'
+strip = CROSS_COMPILE + 'strip'
+pkg-config = 'pkg-config'
+# llvm-config = 'llvm-config'
+${LLVM_CONFIG}
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'armv8a'
+endian = 'little'
+
+[properties]
+sys_root = BUILD_SYSROOT
+# needs_exe_wrapper = true
+${NEEDS_EXE_WRAPPER}
+
+[built-in options]
+c_link_args = [ '-Wl,-rpath-link=' + BUILD_SYSROOT / 'lib', '-Wl,-rpath-link=' + BUILD_SYSROOT / 'lib64' ]

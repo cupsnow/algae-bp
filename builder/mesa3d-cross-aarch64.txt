@@ -1,0 +1,28 @@
+[constants]
+toolchain_path = '/home/joelai/02_dev/algae-ws/algae-bp/cross/aarch64-linux-gnu'
+toolchain_sysroot = toolchain_path / 'aarch64-linux-gnu/sysroot'
+llvm_path = '/home/joelai/02_dev/algae-ws/algae-bp/tool/llvm-aarch64'
+root1_path = '/home/joelai/02_dev/algae-ws/build/sysroot-bp'
+
+[binaries]
+c = toolchain_path / 'bin/aarch64-linux-gnu-gcc'
+cpp = toolchain_path / 'bin/aarch64-linux-gnu-g++'
+ar = toolchain_path / 'bin/aarch64-linux-gnu-ar'
+strip = toolchain_path / 'bin/aarch64-linux-gnu-strip'
+pkg-config = 'pkg-config'
+
+ldlibrary1_path = toolchain_path / 'aarch64-linux-gnu/lib64'
+ldlibrary2_path = toolchain_path / 'aarch64-linux-gnu/lib'
+exe_wrapper = [ 'qemu-aarch64', '-L', toolchain_sysroot, '-E', 'LD_LIBRARY_PATH=' + ldlibrary1_path + ':' + ldlibrary2_path ]
+
+llvm-config = llvm_path / 'bin/llvm-config'
+
+[properties]
+sys_root = toolchain_sysroot
+pkg_config_libdir = [ root1_path / 'lib/pkgconfig' ]
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'

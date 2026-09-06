@@ -193,7 +193,7 @@ depgraph: DEPDOT_PKGS+=coreutils
 depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(DEPDOT_PKGS))
 depgraph: | $(BUILDDIR)
 depgraph:
-	@{ \
+	@{ \1
 	  echo "digraph $(DEPDOT_ID2) {" \
 	  && $(foreach iter,$(DEPDOT_PKGS),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT)) \
 	  echo "}"; \
@@ -2515,7 +2515,7 @@ include builder/glib2.mk
 # include builder/llvm.mk
 # include builder/llvm2.mk
 # include builder/llvm3.mk
-include builder/llvm4.mk
+# include builder/llvm4.mk
 
 #------------------------------------
 #
@@ -2747,7 +2747,30 @@ spirvtools: | $(spirvtools_BUILDDIR)/Makefile
 # include builder/mesa3d.mk
 # include builder/mesa3d2.mk
 # include builder/mesa3d3.mk
-include builder/mesa3d4.mk
+# include builder/mesa3d4.mk
+
+mesa3d_DIR=$(PKGDIR2)/mesa3d
+mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
+
+GENDIR+=$(mesa3d_BUILDDIR)
+
+$(BUILDDIR)/mesa3d-cross-aarch64.txt: $(PROJDIR)/builder/mesa3d-cross-aarch64.txt
+	cp $(PROJDIR)/builder/mesa3d-cross-aarch64.txt $@
+
+mesa3d_defconfig: | $(mesa3d_BUILDDIR) $(BUILDDIR)/mesa3d-cross-aarch64.txt
+	. $(PYVENVDIR)/bin/activate \
+	  && meson setup $(mesa3d_BUILDDIR) $(mesa3d_DIR) \
+	      --cross-file $(BUILDDIR)/mesa3d-cross-aarch64.txt \
+	      --prefix=$(PROJDIR)/mesa-aarch64 \
+	      -Dbuildtype=release \
+	      -Dllvm=enabled \
+	      -Dgallium-drivers=llvmpipe \
+	      -Dvulkan-drivers= \
+	      -Dgallium-rusticl=false \
+	      -Dglx=xlib \
+	      -Degl=enabled \
+	      -Dgles1=enabled \
+	      -Dgles2=enabled
 
 #------------------------------------
 #
