@@ -28,6 +28,7 @@ BINUTILS_VER=2.47
 GCC_VER=16.2.0
 GLIBC_VER=2.44
 LINUX_VER=7.2
+GDB_VER=16.2
 
 # === Download sources ===
 cd "$SRC"
@@ -58,6 +59,13 @@ if [ -f "${PKGDIR}/linux-$LINUX_VER.tar.xz" ]; then
 else
   wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
   tar -xf linux-$LINUX_VER.tar.xz
+fi
+
+if [ -f "${PKGDIR}/gdb-$GDB_VER.tar.xz" ]; then
+  tar -xf "${PKGDIR}/gdb-$GDB_VER.tar.xz"
+else
+  wget -nc "https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VER.tar.xz"
+  tar -xf "gdb-$GDB_VER.tar.xz"
 fi
 
 # GCC prerequisites
@@ -162,21 +170,39 @@ make install-target-libstdc++-v3
 # GCC separates them intentionally because they serve different roles:
 # - The sysroot represents the target operating system: kernel headers, glibc, dynamic loader, and target packages.
 # - GCC’s target directory represents the compiler’s private support files: C++ headers, libgcc, libstdc++, libatomic, compiler specs, plugins, and version-specific internals.
-# TARGET_LIBDIR="$PREFIX/$TARGET/lib64"
-# SYSROOT_LIBDIR="$SYSROOT/lib64"
-
-# mkdir -p "$SYSROOT_LIBDIR"
-
-# # Required target shared runtimes; -a retains .so and SONAME symlinks.
-# cp -a "$TARGET_LIBDIR"/libgcc_s.so* "$SYSROOT_LIBDIR"/
-# cp -a "$TARGET_LIBDIR"/libatomic.so* "$SYSROOT_LIBDIR"/
-# cp -a "$TARGET_LIBDIR"/libstdc++.so* "$SYSROOT_LIBDIR"/
-
-# cp -a "$TARGET_LIBDIR"/libatomic.a "$TARGET_LIBDIR"/libstdc++.a "$SYSROOT_LIBDIR"/
+# gdbserver and target C++ programs need these shared objects at runtime.
+TARGET_LIBDIR="$PREFIX/$TARGET/lib64"
+SYSROOT_LIBDIR="$SYSROOT/lib64"
+mkdir -p "$SYSROOT_LIBDIR"
+cp -a "$TARGET_LIBDIR"/libgcc_s.so* "$SYSROOT_LIBDIR"/
+cp -a "$TARGET_LIBDIR"/libatomic.so* "$SYSROOT_LIBDIR"/
+cp -a "$TARGET_LIBDIR"/libstdc++.so* "$SYSROOT_LIBDIR"/
 
 cd ..
 
-# === 8. Package the toolchain ===
+# === 8. Build the host debugger and target gdbserver ===
+# Host GDB runs on the PC and debugs aarch64-linux-gnu over TCP.
+mkdir -p build-gdb && cd build-gdb
+../gdb-$GDB_VER/configure \
+  --target=$TARGET --prefix=$PREFIX \
+  --with-sysroot=$SYSROOT \
+  --disable-nls --disable-werror
+make -j$NPROC all-gdb
+make install-gdb
+cd ..
+
+# gdbserver runs on the target.  Stage it as /usr/bin/gdbserver in SYSROOT.
+mkdir -p build-gdbserver && cd build-gdbserver
+CC="$TARGET-gcc" CXX="$TARGET-g++" \
+  ../gdb-$GDB_VER/gdb/gdbserver/configure \
+    --host=$TARGET --target=$TARGET --prefix=/usr \
+    --disable-werror
+make -j$NPROC
+make DESTDIR="$SYSROOT" install
+
+cd ..
+
+# === 9. Package the toolchain ===
 cd "${BUILDDIR}"
 tar -czf $TARGET-toolchain.tar.gz $TARGET
 
