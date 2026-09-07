@@ -4,6 +4,16 @@
 
 set -euo pipefail
 
+_pri_step=$1
+
+log_d() {
+  echo "[Debug] $*"
+}
+
+log_e() {
+  echo "[ERROR] $*"
+}
+
 # === Configuration ===
 TARGET=aarch64-linux-gnu
 BUILDDIR="$(pwd)/tmp/cross_tmp"
@@ -11,6 +21,7 @@ PREFIX=${BUILDDIR}/$TARGET
 SYSROOT=$PREFIX/$TARGET/sysroot
 SRC=${BUILDDIR}/src
 NPROC="$(( $(nproc) / 4 ))"
+PKGDIR="$(pwd)/.."
 
 mkdir -p "$PREFIX" "$SYSROOT" "$SRC"
 
@@ -22,15 +33,36 @@ LINUX_VER=7.2
 
 # === Download sources ===
 cd "$SRC"
-wget -nc https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz
-wget -nc https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz
-wget -nc https://ftp.gnu.org/gnu/libc/glibc-$GLIBC_VER.tar.xz
-wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
 
-tar -xf binutils-$BINUTILS_VER.tar.xz
-tar -xf gcc-$GCC_VER.tar.xz
-tar -xf glibc-$GLIBC_VER.tar.xz
-tar -xf linux-$LINUX_VER.tar.xz
+if [ -f "${PKGDIR}/binutils-$BINUTILS_VER.tar.xz" ]; then
+  tar -xf ${PKGDIR}/binutils-$BINUTILS_VER.tar.xz
+else
+  wget -nc https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz
+  tar -xf binutils-$BINUTILS_VER.tar.xz
+fi
+
+if [ -f "${PKGDIR}/gcc-$GCC_VER.tar.xz" ]; then
+  tar -xf ${PKGDIR}/gcc-$GCC_VER.tar.xz
+else
+  wget -nc https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz
+  tar -xf gcc-$GCC_VER.tar.xz
+fi
+
+if [ -f "${PKGDIR}/glibc-$GLIBC_VER.tar.xz" ]; then
+  tar -xf ${PKGDIR}/glibc-$GLIBC_VER.tar.xz
+else
+  wget -nc https://ftp.gnu.org/gnu/libc/glibc-$GLIBC_VER.tar.xz
+  tar -xf glibc-$GLIBC_VER.tar.xz
+fi
+
+if [ -f "${PKGDIR}/linux-$LINUX_VER.tar.xz" ]; then
+  tar -xf linux-$LINUX_VER.tar.xz
+else
+  wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
+  tar -xf linux-$LINUX_VER.tar.xz
+fi
+
+[ ! "$_pri_step" = "dw1" ] || { log_d "Done step $_pri_step"; exit; }
 
 # GCC prerequisites
 (cd gcc-$GCC_VER && ./contrib/download_prerequisites)
