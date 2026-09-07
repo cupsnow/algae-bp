@@ -4,8 +4,6 @@
 
 set -euo pipefail
 
-_pri_step=$1
-
 log_d() {
   echo "[Debug] $*"
 }
@@ -61,8 +59,6 @@ else
   wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
   tar -xf linux-$LINUX_VER.tar.xz
 fi
-
-[ ! "$_pri_step" = "dw1" ] || { log_d "Done step $_pri_step"; exit; }
 
 # GCC prerequisites
 (cd gcc-$GCC_VER && ./contrib/download_prerequisites)
@@ -161,6 +157,23 @@ if [ ${GCC_VER%%.*} -ge 16 ]; then
 fi
 make -j$NPROC all-target-libstdc++-v3
 make install-target-libstdc++-v3
+
+# === 7b. Stage GCC target runtimes in the sysroot ===
+# GCC separates them intentionally because they serve different roles:
+# - The sysroot represents the target operating system: kernel headers, glibc, dynamic loader, and target packages.
+# - GCC’s target directory represents the compiler’s private support files: C++ headers, libgcc, libstdc++, libatomic, compiler specs, plugins, and version-specific internals.
+# TARGET_LIBDIR="$PREFIX/$TARGET/lib64"
+# SYSROOT_LIBDIR="$SYSROOT/lib64"
+
+# mkdir -p "$SYSROOT_LIBDIR"
+
+# # Required target shared runtimes; -a retains .so and SONAME symlinks.
+# cp -a "$TARGET_LIBDIR"/libgcc_s.so* "$SYSROOT_LIBDIR"/
+# cp -a "$TARGET_LIBDIR"/libatomic.so* "$SYSROOT_LIBDIR"/
+# cp -a "$TARGET_LIBDIR"/libstdc++.so* "$SYSROOT_LIBDIR"/
+
+# cp -a "$TARGET_LIBDIR"/libatomic.a "$TARGET_LIBDIR"/libstdc++.a "$SYSROOT_LIBDIR"/
+
 cd ..
 
 # === 8. Package the toolchain ===
