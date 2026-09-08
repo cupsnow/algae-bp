@@ -2415,12 +2415,12 @@ GENDIR+=$(utilinux_BUILDDIR)
 
 utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(utilinux_BUILDDIR)
 	cd $(utilinux_BUILDDIR) \
-	  && $(utilinux_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(utilinux_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 	      --disable-liblastlog2 --without-python \
 	      --disable-makeinstall-chown --disable-makeinstall-setuid \
 	      CFLAGS="$(addprefix -I,$(utilinux_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(utilinux_LIBDIR))" \
+	      LDFLAGS="$(addprefix -L,$(utilinux_LIBDIR)) -ltinfow" \
 	      $(utilinux_ACARGS_$(APP_PLATFORM))
 
 utilinux_install: DESTDIR=$(BUILD_SYSROOT)
@@ -3479,7 +3479,7 @@ br2_DIR=$(PKGDIR2)/br2
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 br2_EXTDIR=$(PKGDIR)/br2_ext_$(APP_PLATFORM)
 endif
-br2_DLDIR=$(HOME)/02_dev/br2_dl
+br2_DLDIR=$(HOME)/02_dev/pkgs/buildroot-dl
 br2_BUILDDIR=$(BUILDDIR2)/br2-$(APP_BUILD)
 
 br2_MAKE=$(MAKE) -C $(br2_DIR) \

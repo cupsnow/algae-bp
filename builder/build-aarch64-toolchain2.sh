@@ -19,7 +19,7 @@ PREFIX=${BUILDDIR}/$TARGET
 SYSROOT=$PREFIX/$TARGET/sysroot
 SRC=${BUILDDIR}/src
 NPROC="$(( $(nproc) / 4 ))"
-PKGDIR="$(pwd)/.."
+PKGDIR="/home/joelai/02_dev/pkgs"
 
 mkdir -p "$PREFIX" "$SYSROOT" "$SRC"
 
@@ -31,181 +31,239 @@ LINUX_VER=7.2
 GDB_VER=16.2
 
 # === Download sources ===
-cd "$SRC"
+download_source() {
+  cd "$SRC"
 
-if [ -f "${PKGDIR}/binutils-$BINUTILS_VER.tar.xz" ]; then
-  tar -xf ${PKGDIR}/binutils-$BINUTILS_VER.tar.xz
-else
-  wget -nc https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz
-  tar -xf binutils-$BINUTILS_VER.tar.xz
-fi
+  if [ -f "${PKGDIR}/binutils-$BINUTILS_VER.tar.xz" ]; then
+    tar -xf ${PKGDIR}/binutils-$BINUTILS_VER.tar.xz
+  else
+    wget -nc https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VER.tar.xz
+    tar -xf binutils-$BINUTILS_VER.tar.xz
+  fi
 
-if [ -f "${PKGDIR}/gcc-$GCC_VER.tar.xz" ]; then
-  tar -xf ${PKGDIR}/gcc-$GCC_VER.tar.xz
-else
-  wget -nc https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz
-  tar -xf gcc-$GCC_VER.tar.xz
-fi
+  if [ -f "${PKGDIR}/gcc-$GCC_VER.tar.xz" ]; then
+    tar -xf ${PKGDIR}/gcc-$GCC_VER.tar.xz
+  else
+    wget -nc https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VER/gcc-$GCC_VER.tar.xz
+    tar -xf gcc-$GCC_VER.tar.xz
+  fi
 
-if [ -f "${PKGDIR}/glibc-$GLIBC_VER.tar.xz" ]; then
-  tar -xf ${PKGDIR}/glibc-$GLIBC_VER.tar.xz
-else
-  wget -nc https://ftp.gnu.org/gnu/libc/glibc-$GLIBC_VER.tar.xz
-  tar -xf glibc-$GLIBC_VER.tar.xz
-fi
+  if [ -f "${PKGDIR}/glibc-$GLIBC_VER.tar.xz" ]; then
+    tar -xf ${PKGDIR}/glibc-$GLIBC_VER.tar.xz
+  else
+    wget -nc https://ftp.gnu.org/gnu/libc/glibc-$GLIBC_VER.tar.xz
+    tar -xf glibc-$GLIBC_VER.tar.xz
+  fi
 
-if [ -f "${PKGDIR}/linux-$LINUX_VER.tar.xz" ]; then
-  tar -xf linux-$LINUX_VER.tar.xz
-else
-  wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
-  tar -xf linux-$LINUX_VER.tar.xz
-fi
+  if [ -f "${PKGDIR}/linux-$LINUX_VER.tar.xz" ]; then
+    tar -xf linux-$LINUX_VER.tar.xz
+  else
+    wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
+    tar -xf linux-$LINUX_VER.tar.xz
+  fi
 
-if [ -f "${PKGDIR}/gdb-$GDB_VER.tar.xz" ]; then
-  tar -xf "${PKGDIR}/gdb-$GDB_VER.tar.xz"
-else
-  wget -nc "https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VER.tar.xz"
-  tar -xf "gdb-$GDB_VER.tar.xz"
-fi
+  if [ -f "${PKGDIR}/gdb-$GDB_VER.tar.xz" ]; then
+    tar -xf "${PKGDIR}/gdb-$GDB_VER.tar.xz"
+  else
+    wget -nc "https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VER.tar.xz"
+    tar -xf "gdb-$GDB_VER.tar.xz"
+  fi
 
-# GCC prerequisites
-(cd gcc-$GCC_VER && ./contrib/download_prerequisites)
+  # GCC prerequisites
+  (cd gcc-$GCC_VER && ./contrib/download_prerequisites)
+}
+
+download_source
 
 export PATH=$PREFIX/bin:$PATH
 
 # === 1. Build binutils ===
-mkdir -p build-binutils && cd build-binutils
-../binutils-$BINUTILS_VER/configure \
-  --target=$TARGET --prefix=$PREFIX \
-  --with-sysroot=$SYSROOT \
-  --disable-nls --disable-werror
-make -j$NPROC
-make install
-cd ..
+build_binutils() {
+  cd "$SRC"
+
+  mkdir -p build-binutils && cd build-binutils
+  ../binutils-$BINUTILS_VER/configure \
+    --target=$TARGET --prefix=$PREFIX \
+    --with-sysroot=$SYSROOT \
+    --disable-nls --disable-werror
+  make -j$NPROC
+  make install
+  cd ..
+}
+
+build_binutils
 
 # === 2. Install Linux headers ===
-cd linux-$LINUX_VER
-make ARCH=arm64 INSTALL_HDR_PATH=$SYSROOT/usr headers_install
-cd ..
+install_linux_header() {
+  cd "$SRC"
+
+  cd linux-$LINUX_VER
+  make ARCH=arm64 INSTALL_HDR_PATH=$SYSROOT/usr headers_install
+  cd ..
+}
+
+install_linux_header
 
 # === 3. Build GCC stage1 (C only, no libc) ===
-mkdir -p build-gcc1 && cd build-gcc1
-../gcc-$GCC_VER/configure \
-  --target=$TARGET --prefix=$PREFIX \
-  --with-sysroot=$SYSROOT \
-  --enable-languages=c \
-  --disable-multilib --disable-nls \
-  --without-headers
-make all-gcc -j$NPROC
-make install-gcc
-cd ..
+build_gcc_stage1() {
+  cd "$SRC"
+
+  mkdir -p build-gcc1 && cd build-gcc1
+  ../gcc-$GCC_VER/configure \
+    --target=$TARGET --prefix=$PREFIX \
+    --with-sysroot=$SYSROOT \
+    --enable-languages=c \
+    --disable-multilib --disable-nls \
+    --without-headers
+  make all-gcc -j$NPROC
+  make install-gcc
+  cd ..
+}
+
+build_gcc_stage1
 
 # === 4. Install glibc headers and startup files ===
-mkdir -p build-glibc1 && cd build-glibc1
-../glibc-$GLIBC_VER/configure \
-  --prefix=/usr --host=$TARGET \
-  --build=$(../glibc-$GLIBC_VER/scripts/config.guess) \
-  --with-headers=$SYSROOT/usr/include \
-  --enable-kernel=4.15 \
-  --disable-multilib \
-  --with-sysroot=$SYSROOT
-make install-bootstrap-headers=yes install-headers install_root=$SYSROOT
-make -j$NPROC csu/subdir_lib
-mkdir -p $SYSROOT/usr/lib
-cp csu/crt1.o csu/crti.o csu/crtn.o $SYSROOT/usr/lib
-$TARGET-gcc -nostdlib -nostartfiles -shared -x c /dev/null -o $SYSROOT/usr/lib/libc.so
-touch $SYSROOT/usr/include/gnu/stubs.h
-cd ..
+build_glibc_stage1() {
+  cd "$SRC"
+
+  mkdir -p build-glibc1 && cd build-glibc1
+  ../glibc-$GLIBC_VER/configure \
+    --prefix=/usr --host=$TARGET \
+    --build=$(../glibc-$GLIBC_VER/scripts/config.guess) \
+    --with-headers=$SYSROOT/usr/include \
+    --enable-kernel=4.15 \
+    --disable-multilib \
+    --with-sysroot=$SYSROOT
+  make install-bootstrap-headers=yes install-headers install_root=$SYSROOT
+  make -j$NPROC csu/subdir_lib
+  mkdir -p $SYSROOT/usr/lib
+  cp csu/crt1.o csu/crti.o csu/crtn.o $SYSROOT/usr/lib
+  $TARGET-gcc -nostdlib -nostartfiles -shared -x c /dev/null -o $SYSROOT/usr/lib/libc.so
+  touch $SYSROOT/usr/include/gnu/stubs.h
+  cd ..
+}
+
+build_glibc_stage1
 
 # === 5. Build full GCC (C & C++) ===
-mkdir -p build-gcc2 && cd build-gcc2
-../gcc-$GCC_VER/configure \
-  --target=$TARGET --prefix=$PREFIX \
-  --with-sysroot=$SYSROOT \
-  --enable-languages=c,c++ \
-  --disable-multilib --disable-nls
+build_gcc_stage2() {
+  cd "$SRC"
 
-# failure to build libquadmath, libssp, etc
-# make -j$NPROC all
-# make install
+  mkdir -p build-gcc2 && cd build-gcc2
+  ../gcc-$GCC_VER/configure \
+    --target=$TARGET --prefix=$PREFIX \
+    --with-sysroot=$SYSROOT \
+    --enable-languages=c,c++ \
+    --disable-multilib --disable-nls
 
-make -j$NPROC all-gcc
-make install-gcc
-make -j$NPROC all-target-libgcc
-make install-target-libgcc
+  # failure to build libquadmath, libssp, etc
+  # make -j$NPROC all
+  # make install
 
-cd ..
+  make -j$NPROC all-gcc
+  make install-gcc
+  make -j$NPROC all-target-libgcc
+  make install-target-libgcc
+
+  cd ..
+}
+
+build_gcc_stage2
 
 # === 6. Build full glibc ===
-mkdir -p build-glibc2 && cd build-glibc2
-../glibc-$GLIBC_VER/configure \
-  --prefix=/usr --host=$TARGET \
-  --build=$(../glibc-$GLIBC_VER/scripts/config.guess) \
-  --with-headers=$SYSROOT/usr/include \
-  --enable-kernel=4.15 \
-  --disable-multilib \
-  --with-sysroot=$SYSROOT
-if [ ${GCC_VER%%.*} -ge 16 ]; then
-# GCC 16 adds -latomic_asneeded to every link.  libatomic cannot be built
-# until after glibc, so do not request it during this bootstrap pass.
-  make CC="$TARGET-gcc -fno-link-libatomic" -j$NPROC
-else
-  make -j$NPROC
-fi
-make install install_root=$SYSROOT
-cd ..
+build_glibc_stage2() {
+  cd "$SRC"
+
+  mkdir -p build-glibc2 && cd build-glibc2
+  ../glibc-$GLIBC_VER/configure \
+    --prefix=/usr --host=$TARGET \
+    --build=$(../glibc-$GLIBC_VER/scripts/config.guess) \
+    --with-headers=$SYSROOT/usr/include \
+    --enable-kernel=4.15 \
+    --disable-multilib \
+    --with-sysroot=$SYSROOT
+  if [ ${GCC_VER%%.*} -ge 16 ]; then
+  # GCC 16 adds -latomic_asneeded to every link.  libatomic cannot be built
+  # until after glibc, so do not request it during this bootstrap pass.
+    make CC="$TARGET-gcc -fno-link-libatomic" -j$NPROC
+  else
+    make -j$NPROC
+  fi
+  make install install_root=$SYSROOT
+  cd ..
+}
+
+build_glibc_stage2
 
 # === 7. Build target libraries that require glibc ===
-cd build-gcc2
-if [ ${GCC_VER%%.*} -ge 16 ]; then
-# builds and installs libatomic immediately after glibc;
-# then builds libstdc++
-  make -j$NPROC all-target-libatomic
-  make install-target-libatomic
-fi
-make -j$NPROC all-target-libstdc++-v3
-make install-target-libstdc++-v3
+build_target_library_stdcxx() {
+  cd "$SRC"
 
-# === 7b. Stage GCC target runtimes in the sysroot ===
-# GCC separates them intentionally because they serve different roles:
-# - The sysroot represents the target operating system: kernel headers, glibc, dynamic loader, and target packages.
-# - GCC’s target directory represents the compiler’s private support files: C++ headers, libgcc, libstdc++, libatomic, compiler specs, plugins, and version-specific internals.
-# gdbserver and target C++ programs need these shared objects at runtime.
-TARGET_LIBDIR="$PREFIX/$TARGET/lib64"
-SYSROOT_LIBDIR="$SYSROOT/lib64"
-mkdir -p "$SYSROOT_LIBDIR"
-cp -a "$TARGET_LIBDIR"/libgcc_s.so* "$SYSROOT_LIBDIR"/
-cp -a "$TARGET_LIBDIR"/libatomic.so* "$SYSROOT_LIBDIR"/
-cp -a "$TARGET_LIBDIR"/libstdc++.so* "$SYSROOT_LIBDIR"/
+  cd build-gcc2
+  if [ ${GCC_VER%%.*} -ge 16 ]; then
+  # builds and installs libatomic immediately after glibc;
+  # then builds libstdc++
+    make -j$NPROC all-target-libatomic
+    make install-target-libatomic
+  fi
+  make -j$NPROC all-target-libstdc++-v3
+  make install-target-libstdc++-v3
 
-cd ..
+  # === 7b. Stage GCC target runtimes in the sysroot ===
+  # GCC separates them intentionally because they serve different roles:
+  # - The sysroot represents the target operating system: kernel headers, glibc, dynamic loader, and target packages.
+  # - GCC’s target directory represents the compiler’s private support files: C++ headers, libgcc, libstdc++, libatomic, compiler specs, plugins, and version-specific internals.
+  # gdbserver and target C++ programs need these shared objects at runtime.
+  TARGET_LIBDIR="$PREFIX/$TARGET/lib64"
+  SYSROOT_LIBDIR="$SYSROOT/lib64"
+  mkdir -p "$SYSROOT_LIBDIR"
+  cp -a "$TARGET_LIBDIR"/libgcc_s.so* "$SYSROOT_LIBDIR"/
+  cp -a "$TARGET_LIBDIR"/libatomic.so* "$SYSROOT_LIBDIR"/
+  cp -a "$TARGET_LIBDIR"/libstdc++.so* "$SYSROOT_LIBDIR"/
+
+  cd ..
+}
+
+build_target_library_stdcxx
 
 # === 8. Build the host debugger and target gdbserver ===
 # Host GDB runs on the PC and debugs aarch64-linux-gnu over TCP.
-mkdir -p build-gdb && cd build-gdb
-../gdb-$GDB_VER/configure \
-  --target=$TARGET --prefix=$PREFIX \
-  --with-sysroot=$SYSROOT \
-  --disable-nls --disable-werror
-make -j$NPROC all-gdb
-make install-gdb
-cd ..
+build_gdb() {
+  cd "$SRC"
 
-# gdbserver runs on the target.  Stage it as /usr/bin/gdbserver in SYSROOT.
-mkdir -p build-gdbserver && cd build-gdbserver
-CC="$TARGET-gcc" CXX="$TARGET-g++" \
-  ../gdb-$GDB_VER/gdb/gdbserver/configure \
-    --host=$TARGET --target=$TARGET --prefix=/usr \
-    --disable-werror
-make -j$NPROC
-make DESTDIR="$SYSROOT" install
+  mkdir -p build-gdb && cd build-gdb
+  ../gdb-$GDB_VER/configure \
+    --target=$TARGET --prefix=$PREFIX \
+    --with-sysroot=$SYSROOT \
+    --disable-nls --disable-werror
+  make -j$NPROC all-gdb
+  make install-gdb
+  cd ..
 
-cd ..
+  # gdbserver runs on the target.  Stage it as /usr/bin/gdbserver in SYSROOT.
+  mkdir -p build-gdbserver && cd build-gdbserver
+  CC="$TARGET-gcc" CXX="$TARGET-g++" \
+    ../gdb-$GDB_VER/gdb/gdbserver/configure \
+      --host=$TARGET --target=$TARGET --prefix=/usr \
+      --disable-werror
+  make -j$NPROC
+  make DESTDIR="$SYSROOT" install
+
+  cd ..
+}
+
+# build_gdb()
 
 # === 9. Package the toolchain ===
-cd "${BUILDDIR}"
-tar -czf $TARGET-toolchain.tar.gz $TARGET
+package_dist() {
+  cd "$SRC"
 
-echo "✅ Cross toolchain built and packaged:"
-echo "   ${BUILDDIR}/$TARGET-toolchain.tar.gz"
-echo "Add to PATH: export PATH=\${BUILDDIR}/$TARGET/bin:\$PATH"
+  cd "${BUILDDIR}"
+  tar -czf $TARGET-toolchain.tar.gz $TARGET
+
+  echo "✅ Cross toolchain built and packaged:"
+  echo "   ${BUILDDIR}/$TARGET-toolchain.tar.gz"
+  echo "Add to PATH: export PATH=\${BUILDDIR}/$TARGET/bin:\$PATH"
+}
+
+package_dist
