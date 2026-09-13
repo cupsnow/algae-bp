@@ -1,0 +1,44 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="spi-initd"
+
+log_d "$0 $*"
+
+_lo_spi_ko="spi-omap2-mcspi spidev"
+
+spi_start () {
+  for ko in $_lo_spi_ko; do
+    cmd_run do_modprobe $ko || { echo "Failure modprobe $ko"; return 1; }
+  done
+}
+
+spi_stop () {
+    for ko in $(echo $_lo_spi_ko | tr -s " " "\n" | tac); do
+    cmd_run modprobe -r $ko || { echo "Failure modprobe $ko"; return 1; }
+  done
+}
+
+case "$1" in
+"start")
+  cmd_run spi_start
+  ;;
+"stop")
+  cmd_run spi_stop
+  ;;
+"restart")
+  $0 stop && $0 start
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    $(basename "$0") [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

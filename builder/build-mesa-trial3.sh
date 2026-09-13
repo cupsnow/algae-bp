@@ -272,9 +272,9 @@ inspect_cross_defconfig() {
   # cmd_run eval "cmake -LAH \"$BUILD/llvm-aarch64-build\" | grep -i -E 'LIBCLC|CLANG|LLVM_ENABLE_DUMP|LLVM_NATIVE'"
   # cmd_run grep -R "LIBCLC" "$BUILD/llvm-aarch64-build/CMakeCache.txt"
 
-  # cmd_run eval "grep -R \"LIBCLC_TARGETS_TO_BUILD\" \"$SRC/llvm-project/libclc\" \"$SRC/llvm-project/llvm\" | head -30"
-  # cmd_run eval "find \"$SRC/llvm-project/libclc\" -maxdepth 2 -type f \( -name 'CMakeLists.txt' -o -name '*.cmake' \) -print"
-  # cmd_run eval "grep -R \"spirv\" \"$SRC/llvm-project/libclc/CMakeLists.txt\" \"$SRC/llvm-project/libclc/cmake\" 2>/dev/null"
+  cmd_run eval "grep -R \"LIBCLC_TARGETS_TO_BUILD\" \"$SRC/llvm-project/libclc\" \"$SRC/llvm-project/llvm\" | head -30"
+  cmd_run eval "find \"$SRC/llvm-project/libclc\" -maxdepth 2 -type f \( -name 'CMakeLists.txt' -o -name '*.cmake' \) -print"
+  cmd_run eval "grep -R \"spirv\" \"$SRC/llvm-project/libclc/CMakeLists.txt\" \"$SRC/llvm-project/libclc/cmake\" 2>/dev/null"
 
 }
 

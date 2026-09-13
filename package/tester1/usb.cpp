@@ -145,6 +145,7 @@ void usb_destroy(void *_usb2) {
 }
 
 int cli_cmd_usb(void*, int argc, const char **argv) {
-
+	log_d("not implement\n");
+	return 0;
 }
 

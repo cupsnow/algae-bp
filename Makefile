@@ -93,6 +93,15 @@ endif
 # ====
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
 
+# Setup c/c++ header/library directory
+# ====
+
+# Add sysroot to c/c++ header/library directory
+ifneq ($(strip $(BUILD_SYSROOT)),)
+BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
+BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 usr/lib lib64 lib)
+endif
+
 # Setup for use of pkg-config in cross compilation
 # ====
 # 0 remove .pc and .la after build
@@ -107,15 +116,6 @@ BUILD_PKGCFG_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/, \
   usr/lib/pkgconfig usr/share/pkgconfig lib/pkgconfig share/pkgconfig)
 BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR) $(PKG_CONFIG_LIBDIR))" \
     PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)"
-endif
-
-# Setup c/c++ header/library directory
-# ====
-
-# Add sysroot to c/c++ header/library directory
-ifneq ($(strip $(BUILD_SYSROOT)),)
-BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
-BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 usr/lib lib64 lib)
 endif
 
 # Push host executable search path
@@ -138,6 +138,7 @@ RSYNC_VERBOSE+=-v
 CP_VERBOSE+=-v
 MV_VERBOSE+=-v
 ELFSTRIP_VERBOSE+=-v
+MESON_VERBOSE+=-v
 endif
 
 #------------------------------------
@@ -905,9 +906,41 @@ mmcutils_%: | $(mmcutils_BUILDDIR)/Makefile
 #------------------------------------
 #
 libgpiod_DIR=$(PKGDIR2)/libgpiod
-libgpiod_BUILDDIR=$(BUILDDIR2)/libgpiod
+libgpiod_BUILDDIR=$(BUILDDIR2)/libgpiod-$(APP_BUILD)
 libgpiod_MAKE=$(MAKE) -C $(libgpiod_BUILDDIR)
 
+ifeq (1,1)
+libgpiod_MESON=. $(PYVENVDIR)/bin/activate && meson
+
+libgpiod_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+
+GENDIR+=$(libgpiod_BUILDDIR)
+
+libgpiod_defconfig $(libgpiod_BUILDDIR)/build.ninja: | $(libgpiod_BUILDDIR) $(libgpiod_CROSSFILE_$(APP_PLATFORM))
+	$(libgpiod_MESON) setup \
+	    $(libgpiod_CROSSFILE_$(APP_PLATFORM):%=--cross-file=%) \
+	    --prefix=/ \
+	    --buildtype=release \
+	    --default-library=both \
+	    --libdir=lib \
+	    -Dtools=enabled \
+	    -Dtests=disabled \
+		-Dbindings-glib=disabled \
+	    $(libgpiod_ACARGS_$(APP_PLATFORM)) \
+	    $(libgpiod_BUILDDIR) $(libgpiod_DIR)
+
+libgpiod_install: DESTDIR=$(BUILD_SYSROOT)
+libgpiod_install: | $(libgpiod_BUILDDIR)/build.ninja
+	$(libgpiod_MESON) compile $(MESON_VERBOSE) -C $(libgpiod_BUILDDIR)
+	$(libgpiod_MESON) install --destdir=$(DESTDIR) -C $(libgpiod_BUILDDIR)
+
+$(eval $(call DEF_DESTDEP,libgpiod))
+
+libgpiod: | $(libgpiod_BUILDDIR)/build.ninja
+	$(libgpiod_MESON) compile $(MESON_VERBOSE) -C $(libgpiod_BUILDDIR)
+
+else ifeq (1,1)
+# old
 GENDIR+=$(libgpiod_BUILDDIR)
 
 $(libgpiod_DIR)/configure:
@@ -939,6 +972,9 @@ libgpiod: | $(libgpiod_BUILDDIR)/Makefile
 
 libgpiod_%: | $(libgpiod_BUILDDIR)/Makefile
 	$(libgpiod_MAKE) $(PARALLEL_BUILD) $(@:libgpiod_%=%)
+
+# end of libgpiod
+endif
 
 #------------------------------------
 #
@@ -3778,9 +3814,15 @@ dist-bp_itb_fdtaddr=$(shell $(call CMD_SED_KEYVAL1,fdtaddr) ubootenv-bp-a53.txt)
 dist-bp_mkimage_dtcargs+=-I dts -O dtb -p 500
 dist-bp_mkimage_dtcargs+=-Wno-unit_address_vs_reg
 
+dist-bp_phase2_dtb: | $(dist_DIR)/$(APP_PLATFORM)/boot
+	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
+	#     $(dist_DIR)/$(APP_PLATFORM)/boot/
+	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot dist-bp_dtb dist-bp_dtbo
+
 dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot_sd
 dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
+dist-bp_phase2_boot: dist-bp_phase2_dtb
 	$(MAKE) DESTDIR=$(BUILDDIR) ubootenv
 	### serve sbl
 	rsync -L $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-r5)/tiboot3-am62x-gp-evm.bin \
@@ -3807,9 +3849,7 @@ dist-bp_phase2_boot: | $(dist_DIR)/$(APP_PLATFORM)/boot_emmc
 	rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/Image \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
 	    $(dist_DIR)/$(APP_PLATFORM)/boot/
-	# rsync -L $(RSYNC_VERBOSE) $(linux_BUILDDIR)/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb \
-	#     $(dist_DIR)/$(APP_PLATFORM)/boot/
-	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot dist-bp_dtb dist-bp_dtbo
+# 	$(MAKE) dist-bp_phase2_dtb
 	### serve uboot fit image
 	sed \
 	  -e "s/\$$\$$(KERNEL_DATA_FILE)/$(subst /,\/,$(linux_BUILDDIR)/arch/arm64/boot/Image)/g" \

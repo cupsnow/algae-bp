@@ -40,6 +40,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdint.h> // for uint64_t
+#include <sys/socket.h>
 
 #ifdef __cplusplus
 extern "C" {

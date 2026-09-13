@@ -86,6 +86,9 @@ live555_LDFLAGS+=$(live555_ELEM:%=$(BUILD_SYSROOT)/lib/lib%.a)
 x264_CPPFLAGS=-I$(BUILD_SYSROOT)/include
 x264_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lx264
 
+libgpiod_CPPFLAGS=-I$(BUILD_SYSROOT)/include
+libgpiod_LDFLAGS+=-L$(BUILD_SYSROOT)/lib -lgpiod
+
 tester_aloe_CPPFLAGS+=-I$(PROJDIR)/package/aloe/include -DALOE_SYS_LINUX=1
 tester_aloe_SRCS+=$(filter-out %/aloe/ev.c,$(wildcard \
   $(PROJDIR)/package/aloe/*.cpp \
@@ -337,6 +340,38 @@ tester_rg10r2_dism: $(tester_rg10r2_BUILDDIR)/$(tester_rg10r2_BIN)
 	  >$(tester_rg10r2_BUILDDIR)/objs/$(tester_rg10r2_BIN).dism
 
 ARTIFACT+=$(tester_rg10r2_BIN)
+
+#------------------------------------
+#
+tester_spi2_SRCS+=$(tester_aloe_SRCS)
+tester_spi2_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+
+#$(foreach pkg,live555 openssl x264, \
+#  $(eval tester_spi2_CPPFLAGS+=$($(pkg)_CPPFLAGS)) \
+#  $(eval tester_spi2_LDFLAGS+=$($(pkg)_LDFLAGS)))
+
+tester_spi2_CPPFLAGS+=$(libgpiod_CPPFLAGS)
+tester_spi2_LDFLAGS+=$(libgpiod_LDFLAGS)
+
+tester_spi2_CFLAGS+=$(ARCH_CFLAGS)
+tester_spi2_CXXFLAGS+=$(ARCH_CXXFLAGS)
+tester_spi2_LDFLAGS+=$(ARCH_LDFLAGS)
+
+tester_spi2_CPPFLAGS+=$(CPPFLAGS)
+tester_spi2_CFLAGS+=$(CFLAGS)
+tester_spi2_CXXFLAGS+=$(CXXFLAGS)
+tester_spi2_LDFLAGS+=$(LDFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_spi2, \
+    tester_spi2.cpp epd_v21.c \
+	))
+
+$(tester_spi2_BIN): tester_spi2_dism
+tester_spi2_dism: $(tester_spi2_BUILDDIR)/$(tester_spi2_BIN)
+	$(OBJDUMP) -dS $(tester_spi2_BUILDDIR)/$(tester_spi2_BIN) \
+	  >$(tester_spi2_BUILDDIR)/objs/$(tester_spi2_BIN).dism
+
+ARTIFACT+=$(tester_spi2_BIN)
 
 #------------------------------------
 #
