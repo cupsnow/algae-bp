@@ -809,6 +809,7 @@ coreutils_LIBDIR+=$(BUILD_LIBDIR)
 
 GENDIR+=$(coreutils_BUILDDIR)
 
+# if the bootstrap failed, maybe download the released tar ball instead of git repo
 $(coreutils_DIR)/configure:
 	cd $(coreutils_DIR) \
 	  && ./bootstrap --gen
@@ -906,13 +907,14 @@ mmcutils_%: | $(mmcutils_BUILDDIR)/Makefile
 #------------------------------------
 #
 libgpiod_DIR=$(PKGDIR2)/libgpiod
-libgpiod_BUILDDIR=$(BUILDDIR2)/libgpiod-$(APP_BUILD)
+libgpiod_BUILDDIR=$(BUILDDIR)/libgpiod-$(APP_BUILD)
 libgpiod_MAKE=$(MAKE) -C $(libgpiod_BUILDDIR)
 
 ifeq (1,1)
 libgpiod_MESON=. $(PYVENVDIR)/bin/activate && meson
 
 libgpiod_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+libgpiod_CROSSFILE_qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 
 GENDIR+=$(libgpiod_BUILDDIR)
 
@@ -1061,13 +1063,16 @@ $(mtdutils_DIR)/configure: | $(mtdutils_DIR)/autogen.sh
 
 GENDIR+=$(mtdutils_BUILDDIR)
 
+# add --without-crypto, openssl remove the support
 mtdutils_defconfig $(mtdutils_BUILDDIR)/Makefile: | $(mtdutils_DIR)/configure $(mtdutils_BUILDDIR)
 	cd $(mtdutils_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(mtdutils_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 		  --without-zstd --without-selinux \
+		  --without-tests \
+		  --without-crypto \
 	      CFLAGS="$(addprefix -I,$(mtdutils_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(mtdutils_LIBDIR))" \
+	      LDFLAGS="$(addprefix -L,$(mtdutils_LIBDIR))"
 
 mtdutils_install: DESTDIR=$(BUILD_SYSROOT)
 mtdutils_install: | $(mtdutils_BUILDDIR)/Makefile
@@ -2785,29 +2790,6 @@ spirvtools: | $(spirvtools_BUILDDIR)/Makefile
 # include builder/mesa3d3.mk
 # include builder/mesa3d4.mk
 
-mesa3d_DIR=$(PKGDIR2)/mesa3d
-mesa3d_BUILDDIR?=$(BUILDDIR2)/mesa3d-$(APP_BUILD)
-
-GENDIR+=$(mesa3d_BUILDDIR)
-
-$(BUILDDIR)/mesa3d-cross-aarch64.txt: $(PROJDIR)/builder/mesa3d-cross-aarch64.txt
-	cp $(PROJDIR)/builder/mesa3d-cross-aarch64.txt $@
-
-mesa3d_defconfig: | $(mesa3d_BUILDDIR) $(BUILDDIR)/mesa3d-cross-aarch64.txt
-	. $(PYVENVDIR)/bin/activate \
-	  && meson setup $(mesa3d_BUILDDIR) $(mesa3d_DIR) \
-	      --cross-file $(BUILDDIR)/mesa3d-cross-aarch64.txt \
-	      --prefix=$(PROJDIR)/mesa-aarch64 \
-	      -Dbuildtype=release \
-	      -Dllvm=enabled \
-	      -Dgallium-drivers=llvmpipe \
-	      -Dvulkan-drivers= \
-	      -Dgallium-rusticl=false \
-	      -Dglx=xlib \
-	      -Degl=enabled \
-	      -Dgles1=enabled \
-	      -Dgles2=enabled
-
 #------------------------------------
 #
 kmod_DEP=
@@ -3652,8 +3634,8 @@ dist_rootfs_phase1:
 	for i in dev lib/firmware media proc root sys tmp var/run; do \
 	  [ -d "$(DESTDIR)/$${i}" ] || $(MKDIR) "$(DESTDIR)/$${i}"; \
 	done
-# busybox command replaced by standalone package
 	$(MAKE) busybox_destdep_install
+# install standalone package after busybox command
 	$(MAKE) $(addsuffix _destdep_install, \
 	    tmux mmcutils mtdutils wpasup jsonc \
 	    $(dist_rootfs_phase1_pkg))
@@ -3693,6 +3675,7 @@ dist-qemuarm64_phase1:
 
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+ifeq (1,1)
 	$(MAKE) DESTDIR=$(dist_DIR)/$(APP_PLATFORM)/boot ubootenv
 	rsync -L $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/u-boot.bin \
 	    $(linux_BUILDDIR)/arch/arm64/boot/Image.gz \
@@ -3709,6 +3692,7 @@ dist-qemuarm64_phase2: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	$(busybox_DIR)/examples/depmod.pl \
 	    -b "$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/modules/$$(cat $(kernelrelease))" \
 	    -F $(linux_BUILDDIR)/System.map
+endif
 	. $(PYVENVDIR)/bin/activate && python3 builder/elfstrip.py \
 	      $(ELFSTRIP_VERBOSE) \
 	      -l $(BUILDDIR)/elfstrip.log \

@@ -57,6 +57,7 @@ start_uboot() {
   _lo_cmd_qemu="${cmd_qemu_bootroot2}"
   _lo_dtb="${_pri_destdir}/boot/qemuarm64.dtb"
   _lo_ub="${_pri_destdir}/boot/u-boot.bin"
+  _lo_qemuargs="${_lo_qemuargs} -nographic"
 
   if [ ! -f "${_lo_dtb}" ]; then
     # shellcheck disable=SC2086
@@ -67,6 +68,7 @@ start_uboot() {
   # shellcheck disable=SC2086
   cmd_run ${_lo_cmd_qemu} \
     -bios ${_lo_ub} \
+    ${_lo_qemuargs} \
     "$@"
 }
 
