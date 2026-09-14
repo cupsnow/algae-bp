@@ -303,26 +303,25 @@ uboot_BUILDDIR=$(BUILDDIR2)/uboot-$(or $1,$(APP_PLATFORM))
 uboot_MAKE=$(MAKE) O=$(uboot_BUILDDIR) $(uboot_MAKEARGS-$(APP_PLATFORM)) \
     -C $(uboot_DIR)
 
+uboot_defconfig-bp-r5=am62x_beagleplay_r5_defconfig
 uboot_MAKEARGS-bp-r5+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)
 
-uboot_defconfig-bp-r5=am62x_beagleplay_r5_defconfig
-
+uboot_configfile-bp-a53=uboot-bp-a53.defconfig
+uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
 uboot_MAKEARGS-bp-a53+=BINMAN_INDIRS=$(ti-linux-fw_DIR) \
     BL31=$(firstword $(wildcard $(atf_BUILDDIR)/k3/lite/release/bl31.bin \
         $(atf_BUILDDIR)/k3/lite/debug/bl31.bin)) \
     TEE=$(optee_BUILDDIR)/core/tee-raw.bin \
 	ARCH=arm CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
+uboot_configfile-bp-a53-emmc=uboot-bp-a53-emmc.defconfig
+uboot_defconfig-bp-a53-emmc=$(uboot_defconfig-bp-a53)
 uboot_MAKEARGS-bp-a53-emmc=$(uboot_MAKEARGS-bp-a53)
 
-uboot_defconfig-bp-a53=am62x_beagleplay_a53_defconfig
-
-uboot_defconfig-bp-a53-emmc=$(uboot_defconfig-bp-a53)
-
-uboot_MAKEARGS-qemuarm64+=CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
-
+uboot_configfile-qemuarm64=uboot-qemuarm64.defconfig
 uboot_defconfig-qemuarm64=qemu_arm64_defconfig
+uboot_MAKEARGS-qemuarm64+=CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 UBOOT_TOOLS+=dumpimage fdtgrep gen_eth_addr gen_ethaddr_crc \
     mkenvimage mkimage proftool spl_size_limit
@@ -337,7 +336,6 @@ CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 # bp runs uboot for 2 different core, pass APP_PLATFORM for specified core to else
 #
-
 $(addprefix uboot_,menuconfig htmldocs tools tools_install envtools envtools_install):
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
@@ -350,26 +348,19 @@ ubootenv:
 	$(MAKE) APP_PLATFORM=bp-a53 $@
 	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53.env
 
-uboot: APP_uboot_DEFCONFIG_USER=1
-# uboot: APP_uboot_DEFCONFIG_PATCH=1
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) \
-		APP_uboot_DEFCONFIG_USER=$(APP_uboot_DEFCONFIG_USER) \
 	    uboot
 	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) \
-		APP_uboot_DEFCONFIG_USER=$(APP_uboot_DEFCONFIG_USER) \
 	    uboot
 
-uboot_%: APP_uboot_DEFCONFIG_USER=1
-# uboot_%: APP_uboot_DEFCONFIG_PATCH=1
 uboot_%:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot_$(@:uboot_%=%)
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) \
-		APP_uboot_DEFCONFIG_USER=$(APP_uboot_DEFCONFIG_USER) \
 	    uboot_$(@:uboot_%=%)
 	$(MAKE) APP_PLATFORM=bp-a53-emmc atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) \
@@ -379,17 +370,16 @@ else
 # normal case
 
 uboot_defconfig $(uboot_BUILDDIR)/.config: | $(uboot_BUILDDIR)
-	if [ "$(APP_uboot_DEFCONFIG_USER)" = "1" ] && [ -f "uboot-$(APP_PLATFORM).defconfig" ]; then \
-	  rsync -a $(RSYNC_VERBOSE) uboot-$(APP_PLATFORM).defconfig $(uboot_BUILDDIR)/.config \
-	    && ( yes "" | $(uboot_MAKE) olddefconfig ); \
-	else \
+	if [ -f "$(uboot_configfile-$(APP_PLATFORM))" ]; then \
+	  echo "Apply $(uboot_configfile-$(APP_PLATFORM))"; \
+	  rsync -aL $(RSYNC_VERBOSE) $(uboot_configfile-$(APP_PLATFORM)) $(uboot_BUILDDIR)/.config \
+	    && yes "" | $(uboot_MAKE) oldconfig; \
+	elif [ -n "$(uboot_defconfig-$(APP_PLATFORM))" ]; then \
+	  echo "Apply $(uboot_defconfig-$(APP_PLATFORM))"; \
 	  $(uboot_MAKE) $(uboot_defconfig-$(APP_PLATFORM)); \
-	fi
-	if [ "$(APP_uboot_DEFCONFIG_PATCH)" = "1" ]; then \
-		cd $(uboot_BUILDDIR) \
-		&& for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/uboot-$(APP_PLATFORM)-defconfig*.patch))); do \
-			patch -p1 --verbose <$${i}; \
-		done; \
+	else \
+	  echo "Unknown how to defconfig uboot"; \
+	  false; \
 	fi
 
 $(addprefix uboot_,help):
@@ -468,18 +458,18 @@ linux_MAKE_BASE=$(MAKE) $(linux_MAKEARGS-$(APP_PLATFORM)) \
 linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
     -C $(linux_DIR)
 
-linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
 linux_configfile-bp=linux-bp-bb.config
 linux_defconfig-bp=bb.org_defconfig
 else
+linux_configfile-bp=linux-bp.config
 linux_defconfig-bp=defconfig
 endif
+linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
-linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+linux_configfile-qemuarm64=linux-qemuarm64.config
 linux_defconfig-qemuarm64=defconfig
-
-linux_configfile-$(APP_PLATFORM)?=linux-$(APP_PLATFORM).config
+linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
 	$(linux_MAKE_BASE) mrproper
