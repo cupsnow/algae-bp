@@ -897,10 +897,11 @@ mmcutils_%: | $(mmcutils_BUILDDIR)/Makefile
 #------------------------------------
 #
 libgpiod_DIR=$(PKGDIR2)/libgpiod
-libgpiod_BUILDDIR=$(BUILDDIR)/libgpiod-$(APP_BUILD)
+libgpiod_BUILDDIR=$(BUILDDIR2)/libgpiod-$(APP_BUILD)
 libgpiod_MAKE=$(MAKE) -C $(libgpiod_BUILDDIR)
 
 ifeq (1,1)
+# libgpiod2
 libgpiod_MESON=. $(PYVENVDIR)/bin/activate && meson
 
 libgpiod_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
@@ -3987,11 +3988,11 @@ $(ENVSH):
 
 #------------------------------------
 #
-shell:
-	/bin/bash -l
-
 $(sort $(GENDIR)):
 	$(MKDIR) $@
+
+exec:
+	@exec $(EXEC_CMD)
 
 print_%:
 	@echo "$($*)"
