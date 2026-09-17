@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, logging, argparse
+import sys, os, json, logging, argparse, ast
 
 logging.basicConfig(level=logging.NOTSET, format="[%(asctime)s][%(levelname)s][%(name)s][%(funcName)s][#%(lineno)d]%(message)s")
 
@@ -7,8 +7,17 @@ logger = logging.getLogger("configure")
 
 def json_parse(infile, key):
     with open(infile) as f:
-        jroot = json.load(f)
+        text = f.read()
+        try:
+            jroot = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                jroot = ast.literal_eval(text)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(f"{infile}: not valid JSON or Python object") from e
     jobj = jroot
+    if not key:
+        return jobj
     for k in key.split(","):
         k = k.strip()
         if k.startswith("[") and k.endswith("]") and isinstance(jobj, list):
@@ -36,9 +45,12 @@ def main(argv = sys.argv):
 
     args = argparser.parse_args(argv[1:])
 
-    print(json_parse(args.infile, args.key))
+    print(json.dumps(json_parse(args.infile, args.key)
+            , ensure_ascii=False
+            , separators=(',', ':')))
 
 if __name__ == "__main__":
-    main()
+    # main()
+    main(["json_parse.py", "/home/joelai/02_dev/esh-ws/tmp/tmp.py", ""])
     # main(["json_parse.py", "air192/prebuilt/sa7715/common/etc/sa7715.json", "led,[1],color"])
     # main(["json_parse.py", "air192/prebuilt/sa7715/common/etc/sa7715.json", "downgradable"])

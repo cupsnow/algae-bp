@@ -1,7 +1,7 @@
 #!/bin/bash
 
-_pri_runner="systemd-run --user --scope -p MemoryMax=4G -p CPUQuota=500%"
-_pri_parallel="3"
+_pri_runner="systemd-run --user --scope -p MemoryMax=4G -p CPUQuota=480%"
+_pri_parallel="4"
 
 log_ts() {
   date "+%y%m%d %H:%M:%S"
@@ -18,8 +18,15 @@ log_e() {
 }
 
 cmd_run() {
-  log_d "Execute $*"
+  # echo "================================"
+  log_d "Execute: $*"
+  echo ""
   "$@"
+  _lo_ret=$?
+  echo ""
+  log_d "Exit code $_lo_ret ($1 $2 $3 ...)"
+  echo ""
+  return $_lo_ret
 }
 
 setenv_base() {
@@ -82,18 +89,9 @@ setenv_cross() {
   export PKG_CONFIG_LIBDIR
 
   unset PKG_CONFIG_PATH
-
-  # TARGET=aarch64-linux-gnu
-  # TARGET="$(printf "%s" $(EXEC_CMD="\$(CC) -dumpmachine" make exec))"
-  # SYSROOT=/home/joelai/02_dev/algae-ws/build/sysroot-qemuarm64
-  # SYSROOT="$(printf "%s" $(make print_BUILD_SYSROOT))"
-
-  # export TARGET
-  # export SYSROOT
-
 }
 
-# Test for cross compile, libdrm, sysroot
+# Test for cross cxx, libdrm, sysroot
 test_cross_with_libdrm() {
   _lo_libdrm_so="$(realpath $BP_SYSROOT/lib/libdrm.so)"
 
@@ -112,18 +110,20 @@ test_cross_with_libdrm() {
     return 1
   }
 
-  _lo_src="tmp/test.c"
+  _lo_src="tmp/test.cpp"
   _lo_out="tmp/test.o"
   cat > $_lo_src <<'EOF'
+#include <iostream>
 #include <drm/drm.h>
 
 int main(void)
 {
+    std::cout << "hello\n";
     return 0;
 }
 EOF
 
-  $CC \
+  $CXX \
     --sysroot="$GCC_SYSROOT" \
     -I"$BP_SYSROOT/include" \
     -L"$BP_SYSROOT/lib" \
@@ -135,8 +135,12 @@ EOF
     log_e "Failed to compile test program for cross-compilation"
     return 1
   }
+
+  cmd_run eval "readelf -d $_lo_out | grep NEEDED"
 }
 
+# Generate llvm cross toolchain file
+# not used yet
 llvm_cross_file() {
   _lo_src="builder/llvm4-aarch64-toolchain.cmake"
   _lo_out="build/llvm-aarch64-toolchain.cmake"
@@ -169,6 +173,8 @@ llvm_host_defconfig() {
     }
 }
 
+# build llvm host
+# following hint to limit memory and cpu usage for execution
 # systemd-run --user --scope -p MemoryMax=4G -p CPUQuota=500% ./builder/mesa3d_eval.sh llvm_host_build -j3
 llvm_host_build() {
   [ -f "$BUILD/llvm-host-build/build.ninja" ] || llvm_host_defconfig || {
@@ -181,6 +187,17 @@ llvm_host_build() {
       log_e "Failed to build llvm host"
       return 1
     }
+
+  # sanity check for expecting x86_64 executable
+  cmd_run eval "file $BUILD/llvm-host-build/bin/llvm-config | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+    log_e "Failed to check llvm host"
+    return 1
+  }
+
+  cmd_run eval "file $BUILD/llvm-host-build/bin/llvm-tblgen | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+    log_e "Failed to check llvm host"
+    return 1
+  }
 }
 
 llvm_host_install() {
@@ -194,12 +211,254 @@ llvm_host_install() {
       log_e "Failed to install llvm host"
       return 1
     }
+
+  # sanity check for expecting x86_64 executable
+  cmd_run eval "file $LLVM_HOST/bin/llvm-config | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+    log_e "Failed to check llvm host"
+    return 1
+  }
+
+  cmd_run eval "file $LLVM_HOST/bin/llvm-tblgen | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+    log_e "Failed to check llvm host"
+    return 1
+  }
+
+  # expect output the version and info
+  cmd_run "$LLVM_HOST/bin/llvm-config" --version
+  cmd_run "$LLVM_HOST/bin/llvm-config" --host-target
+  cmd_run "$LLVM_HOST/bin/llvm-config" --targets-built
+}
+
+llvm_aarch64_defconfig() {
+
+  [ -d "$BUILD/llvm-aarch64-build" ] || cmd_run mkdir -p "$BUILD/llvm-aarch64-build"
+  . .venv/bin/activate \
+    && cmd_run cmake -G Ninja \
+        -S "$SRC/llvm-project/llvm" \
+        -B "$BUILD/llvm-aarch64-build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        \
+        -DCMAKE_C_COMPILER="$CC" \
+        -DCMAKE_CXX_COMPILER="$CXX" \
+        -DCMAKE_AR="$AR" \
+        -DCMAKE_RANLIB="$RANLIB" \
+        \
+        -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+        -DCMAKE_C_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_CXX_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        \
+        -DCMAKE_FIND_ROOT_PATH="$BP_SYSROOT;$GCC_SYSROOT" \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        \
+        -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
+        -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu \
+        -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+        -DLLVM_TARGETS_TO_BUILD=AArch64 \
+        \
+        -DLLVM_ENABLE_PROJECTS=clang \
+        -DLLVM_ENABLE_DUMP=ON \
+        \
+        -DCLANG_BUILD_TOOLS=OFF \
+        -DCLANG_INCLUDE_DOCS=OFF \
+        -DCLANG_INCLUDE_TESTS=OFF \
+        \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_ENABLE_ASSERTIONS=OFF || {
+    log_e "Failed to configure llvm aarch64 build"
+    return 1
+  }
+
+  # expect
+  # CMAKE_C_COMPILER:STRING=.../aarch64-linux-gnu-gcc
+  # CMAKE_CXX_COMPILER:STRING=.../aarch64-linux-gnu-g++
+  # CMAKE_SYSROOT=.../aarch64-linux-gnu/sysroot
+  # LLVM_ENABLE_PROJECTS:STRING=clang
+  # LLVM_TARGETS_TO_BUILD:STRING=AArch64
+  # LLVM_DEFAULT_TARGET_TRIPLE:STRING=aarch64-linux-gnu
+  # LLVM_HOST_TRIPLE:STRING=x86_64-unknown-linux-gnu
+  # LLVM_NATIVE_TOOL_DIR:PATH=.../tool/llvm-host/bin
+  cmd_run grep -E \
+      'LLVM_ENABLE_PROJECTS:|LLVM_ENABLE_RUNTIMES:|LLVM_TARGETS_TO_BUILD:|LLVM_DEFAULT_TARGET_TRIPLE:|LLVM_HOST_TRIPLE:|LLVM_NATIVE_TOOL_DIR:|CMAKE_C_COMPILER:|CMAKE_CXX_COMPILER:|CMAKE_SYSROOT:' \
+      "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+}
+
+llvm_aarch64_defconfig2() {
+
+  [ -d "$BUILD/llvm-aarch64-build" ] || cmd_run mkdir -p "$BUILD/llvm-aarch64-build"
+  . .venv/bin/activate \
+    && cmd_run cmake -G Ninja \
+        -S "$SRC/llvm-project/llvm" \
+        -B "$BUILD/llvm-aarch64-build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        \
+        -DCMAKE_C_COMPILER="$CC" \
+        -DCMAKE_CXX_COMPILER="$CXX" \
+        -DCMAKE_AR="$AR" \
+        -DCMAKE_RANLIB="$RANLIB" \
+        \
+        -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+        -DCMAKE_C_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_CXX_FLAGS="-I$BP_SYSROOT/include" \
+        -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib" \
+        \
+        -DCMAKE_FIND_ROOT_PATH="$BP_SYSROOT;$GCC_SYSROOT" \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        \
+        -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
+        -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu \
+        -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+        -DLLVM_TARGETS_TO_BUILD=AArch64 \
+        \
+        -DLLVM_ENABLE_PROJECTS=clang \
+        -DLLVM_ENABLE_DUMP=ON \
+        \
+        -DLLVM_BUILD_LLVM_DYLIB=ON \
+        -DLLVM_LINK_LLVM_DYLIB=ON \
+        \
+        -DCLANG_BUILD_TOOLS=OFF \
+        -DCLANG_INCLUDE_DOCS=OFF \
+        -DCLANG_INCLUDE_TESTS=OFF \
+        \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_ENABLE_ASSERTIONS=OFF || {
+    log_e "Failed to configure llvm aarch64 build"
+    return 1
+  }
+
+  # expect
+  # CMAKE_C_COMPILER:STRING=.../aarch64-linux-gnu-gcc
+  # CMAKE_CXX_COMPILER:STRING=.../aarch64-linux-gnu-g++
+  # CMAKE_SYSROOT=.../aarch64-linux-gnu/sysroot
+  # LLVM_ENABLE_PROJECTS:STRING=clang
+  # LLVM_TARGETS_TO_BUILD:STRING=AArch64
+  # LLVM_DEFAULT_TARGET_TRIPLE:STRING=aarch64-linux-gnu
+  # LLVM_HOST_TRIPLE:STRING=x86_64-unknown-linux-gnu
+  # LLVM_NATIVE_TOOL_DIR:PATH=.../tool/llvm-host/bin
+  cmd_run grep -E \
+      'LLVM_ENABLE_PROJECTS:|LLVM_ENABLE_RUNTIMES:|LLVM_TARGETS_TO_BUILD:|LLVM_DEFAULT_TARGET_TRIPLE:|LLVM_HOST_TRIPLE:|LLVM_NATIVE_TOOL_DIR:|CMAKE_C_COMPILER:|CMAKE_CXX_COMPILER:|CMAKE_SYSROOT:' \
+      "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+
+  # expect
+  # LLVM_BUILD_LLVM_DYLIB:BOOL=ON
+  # LLVM_LINK_LLVM_DYLIB:BOOL=ON
+  cmd_run grep -E \
+      'LLVM_BUILD_LLVM_DYLIB:|LLVM_LINK_LLVM_DYLIB:' \
+      "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+}
+
+llvm_aarch64_build() {
+  [ -f "$BUILD/llvm-aarch64-build/build.ninja" ] || llvm_aarch64_defconfig || {
+    log_e "Failed to configure llvm aarch64 build"
+    return 1
+  }
+
+  . .venv/bin/activate \
+    && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} -C "$BUILD/llvm-aarch64-build" || {
+      log_e "Failed to build llvm aarch64"
+      return 1
+    }
+
+  if [ -f "$BUILD/llvm-aarch64-build/bin/clang" ]; then
+    cmd_run eval "file \"$BUILD/llvm-aarch64-build/bin/clang\" | grep \"ELF 64-bit LSB executable, ARM aarch64\" >/dev/null 2>&1" || {
+      log_e "Failed to check llvm aarch64"
+      return 1
+    }
+  else
+    log_e "\$BUILD/llvm-aarch64-build/bin/clang not found"
+  fi
+
+  if [ -f "$BUILD/llvm-aarch64-build/lib/libLLVM.so" ]; then
+    cmd_run eval "file \"$BUILD/llvm-aarch64-build/lib/libLLVM.so\" | grep \"ELF 64-bit LSB shared object, ARM aarch64\" >/dev/null 2>&1" || {
+      log_e "Failed to check llvm aarch64"
+      return 1
+    }
+  else
+    log_e "\$BUILD/llvm-aarch64-build/lib/libLLVM.so not found"
+  fi
+}
+
+llvm_aarch64_build_inspect2() {
+  if [ -f "$BUILD/llvm-aarch64-build/bin/clang" ]; then
+    cmd_run eval "file \"$BUILD/llvm-aarch64-build/bin/clang\" | grep \"ELF 64-bit LSB executable, ARM aarch64\" >/dev/null 2>&1" || {
+      log_e "Failed to check llvm aarch64"
+      return 1
+    }
+  else
+    log_e "\$BUILD/llvm-aarch64-build/bin/clang not found"
+  fi
+
+  if [ -f "$BUILD/llvm-aarch64-build/lib/libLLVM.so" ]; then
+    cmd_run eval "file \"$BUILD/llvm-aarch64-build/lib/libLLVM.so\" | grep \"ELF 64-bit LSB shared object, ARM aarch64\" >/dev/null 2>&1" || {
+      log_e "Failed to check llvm aarch64"
+      return 1
+    }
+  else
+    log_e "\$BUILD/llvm-aarch64-build/lib/libLLVM.so not found"
+  fi
+}
+
+llvm_aarch64_build_inspect() {
+  echo "=== build/bin ==="
+  find "$BUILD/llvm-aarch64-build/bin" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort | head -50
+
+  echo
+  echo "=== LLVM libraries ==="
+  find "$BUILD/llvm-aarch64-build" -type f \
+      \( -name 'libLLVM*.so*' -o -name 'libLLVM*.a' -o -name 'libclang*.so*' -o -name 'libclang*.a' \) \
+      | head -50
+
+  echo
+  echo "=== clang ==="
+  find "$BUILD/llvm-aarch64-build" -type f \
+      \( -name 'clang' -o -name 'clang-*' \) \
+      | head -30
+
+  echo
+  echo "=== important targets ==="
+  ninja -C "$BUILD/llvm-aarch64-build" -t targets all 2>/dev/null \
+      | grep -E '(^|/)(clang|LLVM|libclang|llvm-config)' \
+      | head -80
+
+
+  echo
+  cmd_run grep -E \
+    'LLVM_ENABLE_PROJECTS:|LLVM_BUILD_LLVM_DYLIB:|LLVM_LINK_LLVM_DYLIB:|LLVM_BUILD_TOOLS:|LLVM_ENABLE_RUNTIMES:' \
+    "$BUILD/llvm-aarch64-build/CMakeCache.txt"
+
+  cmd_run file \
+      "$BUILD/llvm-aarch64-build/lib/libclang-cpp.so.24.0git" \
+      "$BUILD/llvm-aarch64-build/lib/libLLVMCore.a" \
+      "$BUILD/llvm-aarch64-build/bin/llvm-config"
+
+  cmd_run file "$BUILD/llvm-aarch64-build/bin/llvm-ar"
+  cmd_run file "$BUILD/llvm-aarch64-build/bin/llc"
+  cmd_run file "$BUILD/llvm-aarch64-build/bin/llvm-config"
+
+  cmd_run file "$BUILD/llvm-aarch64-build/lib/libLLVM.so"
+  cmd_run readelf -d "$BUILD/llvm-aarch64-build/lib/libLLVM.so" \
+      | grep NEEDED
 }
 
 setenv_base
 
-if [ "$1" == "llvm_host_defconfig" ] \
-    || [ "$1" == "llvm_host_build" ]; then
+if [ "$1" = "llvm_host_defconfig" ] \
+    || [ "$1" = "llvm_host_build" ] \
+    || [ "$1" = "llvm_host_install" ]; then
   setenv_host
   "$@"
   exit
