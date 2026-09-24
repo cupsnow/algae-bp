@@ -3,14 +3,18 @@
 # LLVM 24.0.0
 
 _lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
-if [ "$_lo_free_mem" -ge  20 ]; then
+if [ "$_lo_free_mem" -ge 20 ]; then
   _pri_memory_max=15G
   _pri_cpu_quota=1400%
   _pri_parallel="15"
-else
+elif [ "$_lo_free_mem" -ge 8 ]; then
   _pri_memory_max=4G
   _pri_cpu_quota=480%
   _pri_parallel="4"
+else 
+  _pri_memory_max=2G
+  _pri_cpu_quota=190%
+  _pri_parallel="2"
 fi
 
 _pri_runner="systemd-run --user --scope \
@@ -338,26 +342,131 @@ llvm_aarch64_install() {
         ninja -C "$BUILD/llvm-aarch64-build" install
 }
 
+mesa_aarch64_cross_file() {
+  _lo_crossfile="${1:-$BUILD/mesa_aarch64.cmake}"
+  cmd_run eval "mkdir -p \$(dirname \"$_lo_crossfile\")"
+
+  cat > "$_lo_crossfile" <<EOF
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+set(CMAKE_C_COMPILER "$CROSS/bin/aarch64-linux-gnu-gcc")
+set(CMAKE_CXX_COMPILER "$CROSS/bin/aarch64-linux-gnu-g++")
+set(CMAKE_AR "$CROSS/bin/aarch64-linux-gnu-ar")
+set(CMAKE_RANLIB "$CROSS/bin/aarch64-linux-gnu-ranlib")
+set(CMAKE_STRIP "$CROSS/bin/aarch64-linux-gnu-strip")
+
+set(CMAKE_SYSROOT "$GCC_SYSROOT")
+
+set(CMAKE_C_FLAGS_INIT
+    "--sysroot=$GCC_SYSROOT")
+set(CMAKE_CXX_FLAGS_INIT
+    "--sysroot=$GCC_SYSROOT")
+
+set(CMAKE_EXE_LINKER_FLAGS_INIT
+    "-L$BP_SYSROOT/lib -L$CROSS/aarch64-linux-gnu/lib64 -Wl,-rpath-link,$BP_SYSROOT/lib -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64")
+
+set(CMAKE_SHARED_LINKER_FLAGS_INIT
+    "-L$BP_SYSROOT/lib -L$CROSS/aarch64-linux-gnu/lib64 -Wl,-rpath-link,$BP_SYSROOT/lib -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64")
+
+set(CMAKE_FIND_ROOT_PATH
+    "$BP_SYSROOT"
+    "$GCC_SYSROOT"
+)
+
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+EOF
+
+  cmd_run cat "$_lo_crossfile"
+}
+
+spirvtools_aarch64_defconfig() {
+  _lo_crossfile="$BUILD/spirv-tools_aarch64.cmake"
+
+  [ -f "$_lo_crossfile" ] || mesa_aarch64_cross_file "$_lo_crossfile" || {
+    log_e "Failed to generate aarch64 cross file"
+    return 1
+  }
+
+  rm -rf "$BUILD/spirv-tools-aarch64-build"
+
+  mkdir -p "$BUILD/spirv-tools-aarch64-build"
+
+  . .venv/bin/activate \
+    && cmake -S "$SRC/spirv-tools" \
+        -B "$BUILD/spirv-tools-aarch64-build" \
+        -G Ninja \
+        ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DSPIRV_SKIP_TESTS=ON \
+        -DSPIRV_WERROR=OFF
+}
+
+spirvtools_aarch64_build() {
+  . .venv/bin/activate \
+    && cmd_run $_pri_runner ninja -C "$BUILD/spirv-tools-aarch64-build"
+}
+
+spirvtools_aarch64_install() {
+  mkdir -p "$BUILD/spirv-tools-aarch64-staging"
+  . .venv/bin/activate \
+    && cmd_run env DESTDIR="$BUILD/spirv-tools-aarch64-staging" \
+      ninja -C "$BUILD/spirv-tools-aarch64-build" install
+}
+
 inspect() {
-TARGET_LLVM="$BUILD/llvm-aarch64-staging/usr"
+  echo '=== spirv-tools ==='
+  cmd_run cd $WS/spirv-tools
+  cmd_run git status --short
+  cmd_run git log --oneline -n1
+  cmd_run git -C external/spirv-headers log --oneline -n1
 
-echo "=== target LLVM ==="
-cmd_run file "$TARGET_LLVM/bin/llvm-config"
-cmd_run eval "\"$TARGET_LLVM/bin/llvm-config\" --version 2>&1 || true"
+  cmd_run cd "$SRC/spirv-llvm-translator"
+
+  echo '=== Translator ==='
+  cmd_run git log --oneline -n3
+
+  echo
+  echo '=== LLVM references ==='
+  cmd_run eval "grep -RniE \
+      'LLVM_VERSION|LLVM.*24|llvm_release|SPIRV-Headers|SPIRV_TOOLS' \
+      --include='CMakeLists.txt' \
+      --include='*.cmake' \
+      --include='*.conf' \
+      . 2>/dev/null | head -100"
 
 echo
-echo "=== target LLVM files ==="
-cmd_run eval "find \"$TARGET_LLVM\" \
-    \( -name 'libLLVM*.so*' \
-    -o -name 'libclang-cpp*.so*' \
-    -o -name 'libclang*.a' \
-    -o -name 'libclc*' \
-    -o -name 'LLVMSPIRVLib*' \) \
-    -print | sort"
+echo '=== SPIRV-Tools staging ==='
+cmd_run eval "find \"$BUILD/spirv-tools-aarch64-staging/usr\" \
+    -maxdepth 3 -type f | sort"
 
 echo
-echo "=== target LLVM config ==="
-cmd_run eval "find \"$TARGET_LLVM/lib/cmake\" -maxdepth 2 -type f 2>/dev/null | sort | head -50"
+echo '=== ELF check ==='
+find "$BUILD/spirv-tools-aarch64-staging/usr/bin" \
+    -type f -executable -print 2>/dev/null |
+while read f; do
+    printf '%-80s ' "$f"
+    file "$f" | sed 's/.*: //'
+done
+
+echo
+echo '=== find .pc ==='
+cmd_run eval "find \"$BUILD/spirv-tools-aarch64-staging/usr\" \
+    -name '*.pc' -print"
+
+echo
+echo '=== grep function   ==='
+cmd_run eval "grep -RniE \
+    'SPIRV_TOOLS.*(VERSION|LIBRARY|INCLUDE)|SPIRV-ToolsConfig' \
+    \"$BUILD/spirv-tools-aarch64-staging/usr\" \
+    2>/dev/null | head -50"
+
+
 }
 
 setenv_base
@@ -375,4 +484,19 @@ setenv_cross
 [ -n "$1" ] && {
   cmd_run "$@"
   exit
+}
+
+show_help() {
+  cat <<EOHELP
+Usage: $(basename $0) <COMMAND>
+
+COMMAND:
+  llvm_host_defconfig
+  llvm_host_build
+  llvm_host_install
+  llvm_aarch64_defconfig
+  llvm_aarch64_build
+  llvm_aarch64_install
+
+EOHELP
 }
