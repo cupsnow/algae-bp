@@ -392,9 +392,7 @@ spirvtools_aarch64_defconfig() {
   }
 
   rm -rf "$BUILD/spirv-tools-aarch64-build"
-
   mkdir -p "$BUILD/spirv-tools-aarch64-build"
-
   . .venv/bin/activate \
     && cmake -S "$SRC/spirv-tools" \
         -B "$BUILD/spirv-tools-aarch64-build" \
@@ -419,53 +417,66 @@ spirvtools_aarch64_install() {
       ninja -C "$BUILD/spirv-tools-aarch64-build" install
 }
 
+spirvtranslator_aarch64_defconfig() {
+  _lo_crossfile="$BUILD/spirv-tools_aarch64.cmake"
+
+  [ -f "$_lo_crossfile" ] || mesa_aarch64_cross_file "$_lo_crossfile" || {
+    log_e "Failed to generate aarch64 cross file"
+    return 1
+  }
+
+  rm -rf "$BUILD/spirv-llvm-translator-aarch64-build"
+  mkdir -p "$BUILD/spirv-llvm-translator-aarch64-build"
+
+  export LLVM_AARCH64="$BUILD/llvm-aarch64-staging/usr"
+  export SPIRV_TOOLS_AARCH64="$BUILD/spirv-tools-aarch64-staging/usr"
+  export PKG_CONFIG_SYSROOT_DIR="$BUILD/spirv-tools-aarch64-staging"
+  export PKG_CONFIG_LIBDIR="$SPIRV_TOOLS_AARCH64/lib/pkgconfig"
+  unset PKG_CONFIG_PATH
+  cmd_run pkg-config --cflags --libs SPIRV-Tools
+
+  . .venv/bin/activate \
+    && cmake -S "$SRC/spirv-llvm-translator" \
+        -B "$BUILD/spirv-llvm-translator-aarch64-build" \
+        -G Ninja \
+          ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLVM_DIR="$LLVM_AARCH64/lib/cmake/llvm" \
+        -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
+        -DCCACHE_ALLOWED=OFF \
+        -DCMAKE_INSTALL_PREFIX=/usr
+}
+
+spirvtranslator_aarch64_build() {
+  . .venv/bin/activate \
+    && cmd_run $_pri_runner ninja -C "$BUILD/spirv-llvm-translator-aarch64-build"
+}
+
+spirvtranslator_aarch64_install() {
+  mkdir -p "$BUILD/spirv-llvm-translator-aarch64-staging"
+  . .venv/bin/activate \
+    && cmd_run env DESTDIR="$BUILD/spirv-llvm-translator-aarch64-staging" \
+      ninja -C "$BUILD/spirv-llvm-translator-aarch64-build" install
+}
+
 inspect() {
-  echo '=== spirv-tools ==='
-  cmd_run cd $WS/spirv-tools
-  cmd_run git status --short
-  cmd_run git log --oneline -n1
-  cmd_run git -C external/spirv-headers log --oneline -n1
+  cd "$SRC/spirv-llvm-translator"
 
-  cmd_run cd "$SRC/spirv-llvm-translator"
-
-  echo '=== Translator ==='
-  cmd_run git log --oneline -n3
-
-  echo
-  echo '=== LLVM references ==='
+  echo '=== CMake options ==='
   cmd_run eval "grep -RniE \
-      'LLVM_VERSION|LLVM.*24|llvm_release|SPIRV-Headers|SPIRV_TOOLS' \
+      'option[[:space:]]*\(|LLVM_SPIRV_[A-Z0-9_]+|SPIRV_TOOLS_[A-Z0-9_]+' \
       --include='CMakeLists.txt' \
       --include='*.cmake' \
-      --include='*.conf' \
-      . 2>/dev/null | head -100"
+      . 2>/dev/null | head -160"
 
-echo
-echo '=== SPIRV-Tools staging ==='
-cmd_run eval "find \"$BUILD/spirv-tools-aarch64-staging/usr\" \
-    -maxdepth 3 -type f | sort"
 
-echo
-echo '=== ELF check ==='
-find "$BUILD/spirv-tools-aarch64-staging/usr/bin" \
-    -type f -executable -print 2>/dev/null |
-while read f; do
-    printf '%-80s ' "$f"
-    file "$f" | sed 's/.*: //'
-done
+  cmd_run sed -n '1,180p' CMakeLists.txt
 
-echo
-echo '=== find .pc ==='
-cmd_run eval "find \"$BUILD/spirv-tools-aarch64-staging/usr\" \
-    -name '*.pc' -print"
+  cmd_run eval "cat \"$BUILD/spirv-tools-aarch64-staging/usr/lib/pkgconfig/SPIRV-Tools.pc\""
 
-echo
-echo '=== grep function   ==='
-cmd_run eval "grep -RniE \
-    'SPIRV_TOOLS.*(VERSION|LIBRARY|INCLUDE)|SPIRV-ToolsConfig' \
-    \"$BUILD/spirv-tools-aarch64-staging/usr\" \
-    2>/dev/null | head -50"
-
+cmd_run eval "grep -E \
+    'LLVM_DIR:|LLVM_VERSION|SPIRV_TOOLS|CMAKE_C_COMPILER:|CMAKE_CXX_COMPILER:' \
+    \"$BUILD/spirv-llvm-translator-aarch64-build/CMakeCache.txt\""
 
 }
 
