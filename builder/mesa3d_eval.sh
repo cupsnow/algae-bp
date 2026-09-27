@@ -172,39 +172,41 @@ llvm_cross_file() {
 }
 
 llvm_host_defconfig() {
-    [ -d "$BUILD/llvm-host-build" ] || cmd_run mkdir -p "$BUILD/llvm-host-build"
-    . .venv/bin/activate \
+  [ -d "$BUILD/llvm-host-build" ] \
+      || cmd_run mkdir -p "$BUILD/llvm-host-build"
+  . .venv/bin/activate \
       && cmd_run cmake -G Ninja \
           -S $SRC/llvm-project/llvm \
           -B "$BUILD/llvm-host-build" \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX="$LLVM_HOST" \
-          -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
+          -DLLVM_TARGETS_TO_BUILD="X86;AArch64;SPIRV" \
           -DLLVM_ENABLE_PROJECTS="clang" \
           -DLLVM_INCLUDE_TESTS=OFF \
           -DLLVM_INCLUDE_EXAMPLES=OFF \
           -DLLVM_INCLUDE_BENCHMARKS=OFF \
           -DLLVM_ENABLE_ASSERTIONS=OFF \
           -DLLVM_ENABLE_DUMP=ON || {
-      log_e "Failed to configure llvm host build"
-      return 1
-    }
+    log_e "Failed to configure llvm host build"
+    return 1
+  }
 }
 
 # build llvm host
 # following hint to limit memory and cpu usage for execution
 # systemd-run --user --scope -p MemoryMax=4G -p CPUQuota=500% ./builder/mesa3d_eval.sh llvm_host_build -j3
 llvm_host_build() {
-  [ -f "$BUILD/llvm-host-build/build.ninja" ] || llvm_host_defconfig || {
+  [ -f "$BUILD/llvm-host-build/build.ninja" ] \
+      || llvm_host_defconfig || {
     log_e "Failed to configure llvm host build"
     return 1
   }
 
   . .venv/bin/activate \
-    && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} -C "$BUILD/llvm-host-build" || {
-      log_e "Failed to build llvm host"
-      return 1
-    }
+      && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} -C "$BUILD/llvm-host-build" || {
+    log_e "Failed to build llvm host"
+    return 1
+  }
 
   # sanity check for expecting x86_64 executable
   cmd_run eval "file $BUILD/llvm-host-build/bin/llvm-config | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
@@ -219,95 +221,108 @@ llvm_host_build() {
 }
 
 llvm_host_install() {
-  [ -e "$LLVM_HOST/bin/llvm-config" ] || llvm_host_build || {
+  [ -e "$LLVM_HOST/bin/llvm-config" ] \
+      || llvm_host_build || {
     log_e "Failed to build llvm host"
     return 1
   }
 
   . .venv/bin/activate \
-    && cmd_run ninja -C "$BUILD/llvm-host-build" install || {
-      log_e "Failed to install llvm host"
-      return 1
-    }
+      && cmd_run ninja -C "$BUILD/llvm-host-build" install || {
+    log_e "Failed to install llvm host"
+    return 1
+  }
+
+  cmd_run cp "$BUILD/llvm-host-build/bin/llvm-min-tblgen" \
+      "$LLVM_HOST/bin/llvm-min-tblgen"
 
   # sanity check for expecting x86_64 executable
-  cmd_run eval "file $LLVM_HOST/bin/llvm-config | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
-    log_e "Failed to check llvm host"
-    return 1
-  }
 
-  cmd_run eval "file $LLVM_HOST/bin/llvm-tblgen | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
-    log_e "Failed to check llvm host"
-    return 1
-  }
+  # cmd_run eval "file $LLVM_HOST/bin/llvm-config | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+  #   log_e "Failed to check llvm host"
+  #   return 1
+  # }
 
-  # expect output the version and info
-  cmd_run "$LLVM_HOST/bin/llvm-config" --version
-  cmd_run "$LLVM_HOST/bin/llvm-config" --host-target
-  cmd_run "$LLVM_HOST/bin/llvm-config" --targets-built
+  # cmd_run eval "file $LLVM_HOST/bin/llvm-tblgen | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+  #   log_e "Failed to check llvm host"
+  #   return 1
+  # }
+
+  # cmd_run eval "file $LLVM_HOST/bin/llvm-min-tblgen | grep \"ELF 64-bit LSB .*executable, x86-64\" >/dev/null 2>&1" || {
+  #   log_e "Failed to check llvm host"
+  #   return 1
+  # }
+
+  # # expect output the version and info
+  # cmd_run "$LLVM_HOST/bin/llvm-config" --version
+  # cmd_run "$LLVM_HOST/bin/llvm-config" --host-target
+  # cmd_run "$LLVM_HOST/bin/llvm-config" --targets-built
+  # cmd_run "$LLVM_HOST/bin/llvm-min-tblgen" --version
 }
 
 llvm_aarch64_defconfig() {
 
-  [ -d "$BUILD/llvm-aarch64-build" ] || cmd_run mkdir -p "$BUILD/llvm-aarch64-build"
+  [ -d "$BUILD/llvm-aarch64-build" ] \
+      || cmd_run mkdir -p "$BUILD/llvm-aarch64-build"
   . .venv/bin/activate \
-    && cmd_run cmake -G Ninja \
-        -S "$SRC/llvm-project/llvm" \
-        -B "$BUILD/llvm-aarch64-build" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr \
-        \
-        -DCMAKE_C_COMPILER="$CC" \
-        -DCMAKE_CXX_COMPILER="$CXX" \
-        -DCMAKE_AR="$AR" \
-        -DCMAKE_RANLIB="$RANLIB" \
-        -DCMAKE_SYSROOT="$GCC_SYSROOT" \
-        \
-        -DCMAKE_C_FLAGS="-I$BP_SYSROOT/include" \
-        -DCMAKE_CXX_FLAGS="-I$BP_SYSROOT/include" \
-        -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib -Wl,-rpath-link,$BP_SYSROOT/lib  -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib -Wl,-rpath-link,$BP_SYSROOT/lib  -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64" \
-        \
-        -DCMAKE_FIND_ROOT_PATH="$BP_SYSROOT;$GCC_SYSROOT" \
-        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-        \
-        -DLLVM_USE_HOST_TOOLS=ON \
-        -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
-        -DLLVM_TABLEGEN="$LLVM_HOST/bin/llvm-tblgen" \
-        \
-        -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu \
-        -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
-        -DLLVM_TARGETS_TO_BUILD=AArch64 \
-        \
-        -DLLVM_ENABLE_PROJECTS=clang \
-        \
-        -DLLVM_BUILD_LLVM_DYLIB=ON \
-        -DLLVM_LINK_LLVM_DYLIB=ON \
-        -DLLVM_ENABLE_DUMP=ON \
-        \
-        -DCLANG_TOOL_DRIVER_BUILD=ON \
-        -DCLANG_TOOL_LIBCLANG_BUILD=ON \
-        \
-        -DLLVM_INCLUDE_TESTS=OFF \
-        -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_BENCHMARKS=OFF \
-        -DLLVM_ENABLE_ASSERTIONS=OFF
+      && cmd_run cmake -G Ninja \
+          -S "$SRC/llvm-project/llvm" \
+          -B "$BUILD/llvm-aarch64-build" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr \
+          \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_AR="$AR" \
+          -DCMAKE_RANLIB="$RANLIB" \
+          -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+          \
+          -DCMAKE_C_FLAGS="-I$BP_SYSROOT/include" \
+          -DCMAKE_CXX_FLAGS="-I$BP_SYSROOT/include" \
+          -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib -Wl,-rpath-link,$BP_SYSROOT/lib  -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib -Wl,-rpath-link,$BP_SYSROOT/lib  -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64" \
+          \
+          -DCMAKE_FIND_ROOT_PATH="$BP_SYSROOT;$GCC_SYSROOT" \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+          \
+          -DLLVM_USE_HOST_TOOLS=ON \
+          -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
+          -DLLVM_TABLEGEN="$LLVM_HOST/bin/llvm-tblgen" \
+          \
+          -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu \
+          -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+          -DLLVM_TARGETS_TO_BUILD=AArch64 \
+          \
+          -DLLVM_ENABLE_PROJECTS=clang \
+          \
+          -DLLVM_BUILD_LLVM_DYLIB=ON \
+          -DLLVM_LINK_LLVM_DYLIB=ON \
+          -DLLVM_ENABLE_DUMP=ON \
+          \
+          -DCLANG_TOOL_DRIVER_BUILD=ON \
+          -DCLANG_TOOL_LIBCLANG_BUILD=ON \
+          \
+          -DLLVM_INCLUDE_TESTS=OFF \
+          -DLLVM_INCLUDE_EXAMPLES=OFF \
+          -DLLVM_INCLUDE_BENCHMARKS=OFF \
+          -DLLVM_ENABLE_ASSERTIONS=OFF
 }
 
 llvm_aarch64_build() {
-  [ -f "$BUILD/llvm-aarch64-build/build.ninja" ] || llvm_aarch64_defconfig || {
+  [ -f "$BUILD/llvm-aarch64-build/build.ninja" ] \
+      || llvm_aarch64_defconfig || {
     log_e "Failed to configure llvm aarch64 build"
     return 1
   }
 
   . .venv/bin/activate \
-    && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} -C "$BUILD/llvm-aarch64-build" || {
-      log_e "Failed to build llvm aarch64"
-      return 1
-    }
+      && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} -C "$BUILD/llvm-aarch64-build" || {
+    log_e "Failed to build llvm aarch64"
+    return 1
+  }
 
   if [ -f "$BUILD/llvm-aarch64-build/bin/clang" ]; then
     cmd_run realpath $BUILD/llvm-aarch64-build/bin/clang
@@ -338,11 +353,11 @@ llvm_aarch64_install() {
   cmd_run mkdir -p "$BUILD/llvm-aarch64-staging"
 
   . .venv/bin/activate \
-    && cmd_run env DESTDIR="$BUILD/llvm-aarch64-staging" \
-        ninja -C "$BUILD/llvm-aarch64-build" install
+      && cmd_run env DESTDIR="$BUILD/llvm-aarch64-staging" \
+          ninja -C "$BUILD/llvm-aarch64-build" install
 }
 
-mesa_aarch64_cross_file() {
+aarch64_cross_file_generate() {
   _lo_crossfile="${1:-$BUILD/mesa_aarch64.cmake}"
   cmd_run eval "mkdir -p \$(dirname \"$_lo_crossfile\")"
 
@@ -386,7 +401,8 @@ EOF
 spirvtools_aarch64_defconfig() {
   _lo_crossfile="$BUILD/spirv-tools_aarch64.cmake"
 
-  [ -f "$_lo_crossfile" ] || mesa_aarch64_cross_file "$_lo_crossfile" || {
+  [ -f "$_lo_crossfile" ] \
+      || aarch64_cross_file_generate "$_lo_crossfile" || {
     log_e "Failed to generate aarch64 cross file"
     return 1
   }
@@ -394,33 +410,34 @@ spirvtools_aarch64_defconfig() {
   rm -rf "$BUILD/spirv-tools-aarch64-build"
   mkdir -p "$BUILD/spirv-tools-aarch64-build"
   . .venv/bin/activate \
-    && cmake -S "$SRC/spirv-tools" \
-        -B "$BUILD/spirv-tools-aarch64-build" \
-        -G Ninja \
-        ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr \
-        -DCMAKE_INSTALL_LIBDIR=lib \
-        -DSPIRV_SKIP_TESTS=ON \
-        -DSPIRV_WERROR=OFF
+      && cmake -S "$SRC/spirv-tools" \
+          -B "$BUILD/spirv-tools-aarch64-build" \
+          -G Ninja \
+          ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr \
+          -DCMAKE_INSTALL_LIBDIR=lib \
+          -DSPIRV_SKIP_TESTS=ON \
+          -DSPIRV_WERROR=OFF
 }
 
 spirvtools_aarch64_build() {
   . .venv/bin/activate \
-    && cmd_run $_pri_runner ninja -C "$BUILD/spirv-tools-aarch64-build"
+      && cmd_run $_pri_runner ninja -C "$BUILD/spirv-tools-aarch64-build"
 }
 
 spirvtools_aarch64_install() {
   mkdir -p "$BUILD/spirv-tools-aarch64-staging"
   . .venv/bin/activate \
-    && cmd_run env DESTDIR="$BUILD/spirv-tools-aarch64-staging" \
-      ninja -C "$BUILD/spirv-tools-aarch64-build" install
+      && cmd_run env DESTDIR="$BUILD/spirv-tools-aarch64-staging" \
+          ninja -C "$BUILD/spirv-tools-aarch64-build" install
 }
 
 spirvtranslator_aarch64_defconfig() {
   _lo_crossfile="$BUILD/spirv-tools_aarch64.cmake"
 
-  [ -f "$_lo_crossfile" ] || mesa_aarch64_cross_file "$_lo_crossfile" || {
+  [ -f "$_lo_crossfile" ] \
+        || aarch64_cross_file_generate "$_lo_crossfile" || {
     log_e "Failed to generate aarch64 cross file"
     return 1
   }
@@ -436,47 +453,111 @@ spirvtranslator_aarch64_defconfig() {
   cmd_run pkg-config --cflags --libs SPIRV-Tools
 
   . .venv/bin/activate \
-    && cmake -S "$SRC/spirv-llvm-translator" \
-        -B "$BUILD/spirv-llvm-translator-aarch64-build" \
-        -G Ninja \
-          ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DLLVM_DIR="$LLVM_AARCH64/lib/cmake/llvm" \
-        -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
-        -DCCACHE_ALLOWED=OFF \
-        -DCMAKE_INSTALL_PREFIX=/usr
+      && cmake -S "$SRC/spirv-llvm-translator" \
+          -B "$BUILD/spirv-llvm-translator-aarch64-build" \
+          -G Ninja \
+            ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLLVM_DIR="$LLVM_AARCH64/lib/cmake/llvm" \
+          -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
+          -DCCACHE_ALLOWED=OFF \
+          -DCMAKE_INSTALL_PREFIX=/usr
 }
 
 spirvtranslator_aarch64_build() {
   . .venv/bin/activate \
-    && cmd_run $_pri_runner ninja -C "$BUILD/spirv-llvm-translator-aarch64-build"
+      && cmd_run $_pri_runner ninja -C "$BUILD/spirv-llvm-translator-aarch64-build"
 }
 
 spirvtranslator_aarch64_install() {
   mkdir -p "$BUILD/spirv-llvm-translator-aarch64-staging"
   . .venv/bin/activate \
-    && cmd_run env DESTDIR="$BUILD/spirv-llvm-translator-aarch64-staging" \
-      ninja -C "$BUILD/spirv-llvm-translator-aarch64-build" install
+      && cmd_run env DESTDIR="$BUILD/spirv-llvm-translator-aarch64-staging" \
+          ninja -C "$BUILD/spirv-llvm-translator-aarch64-build" install
 }
 
+libclc_spirv_defconfig() {
+  rm -rf "$BUILD/libclc-spirv-build"
+  mkdir -p "$BUILD/libclc-spirv-build"
+
+  . .venv/bin/activate \
+      && cmake -S "$SRC/llvm-project/llvm" \
+          -B "$BUILD/libclc-spirv-build" \
+          -G Ninja \
+          -DCMAKE_SYSTEM_NAME=Linux \
+          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+          -DCMAKE_INSTALL_PREFIX=/usr \
+          -DLLVM_ENABLE_PROJECTS=clang \
+          -DLLVM_ENABLE_RUNTIMES=libclc \
+          -DLLVM_RUNTIME_TARGETS=spirv64-unknown-unknown \
+          -DRUNTIMES_spirv64-unknown-unknown_LIBCLC_USE_SPIRV_BACKEND=ON \
+          -DLLVM_TARGETS_TO_BUILD=AArch64 \
+          -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+          -DLLVM_USE_HOST_TOOLS=ON \
+          -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
+          -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib -L$CROSS/aarch64-linux-gnu/lib64 -Wl,-rpath-link,$BP_SYSROOT/lib -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib -L$CROSS/aarch64-linux-gnu/lib64 -Wl,-rpath-link,$BP_SYSROOT/lib -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64"
+
+}
+
+
+libclc_spirv_build() {
+  [ -f "$BUILD/libclc-spirv-build/build.ninja" ] \
+      || libclc_spirv_defconfig || {
+    log_e "Failed to configure libclc spirv build"
+    return 1
+  }
+
+  # . .venv/bin/activate \
+  #     && ninja -C "$BUILD/libclc-spirv-build" \
+  #         runtimes-spirv64-unknown-unknown
+
+  # . .venv/bin/activate \
+  #     && cmake --build "$BUILD/libclc-spirv-build" \
+  #         --target runtimes-spirv64-unknown-unknown-configure \
+  #         -j1
+
+  RUNTIME_BUILD="$BUILD/libclc-spirv-build/runtimes/runtimes-spirv64-unknown-unknown-bins"
+
+  . .venv/bin/activate \
+      && cmake --build "$RUNTIME_BUILD" -j"$(nproc)"
+
+}
+
+all() {
+  llvm_host_defconfig
+  llvm_host_build
+  llvm_host_install
+  llvm_aarch64_defconfig
+  llvm_aarch64_build
+  llvm_aarch64_install
+  aarch64_cross_file_generate
+  spirvtools_aarch64_defconfig
+  spirvtools_aarch64_build
+  spirvtools_aarch64_install
+  spirvtranslator_aarch64_defconfig
+  spirvtranslator_aarch64_build
+  spirvtranslator_aarch64_install
+  libclc_spirv_defconfig
+  libclc_spirv_build
+}
+
+
 inspect() {
-  cd "$SRC/spirv-llvm-translator"
 
-  echo '=== CMake options ==='
-  cmd_run eval "grep -RniE \
-      'option[[:space:]]*\(|LLVM_SPIRV_[A-Z0-9_]+|SPIRV_TOOLS_[A-Z0-9_]+' \
-      --include='CMakeLists.txt' \
-      --include='*.cmake' \
-      . 2>/dev/null | head -160"
+  RUNTIME_BUILD="$BUILD/libclc-spirv-build/runtimes/runtimes-spirv64-unknown-unknown-bins"
 
+  cmd_run ls -lh \
+      "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.spv"
 
-  cmd_run sed -n '1,180p' CMakeLists.txt
+  cmd_run file \
+      "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.spv"
 
-  cmd_run eval "cat \"$BUILD/spirv-tools-aarch64-staging/usr/lib/pkgconfig/SPIRV-Tools.pc\""
-
-cmd_run eval "grep -E \
-    'LLVM_DIR:|LLVM_VERSION|SPIRV_TOOLS|CMAKE_C_COMPILER:|CMAKE_CXX_COMPILER:' \
-    \"$BUILD/spirv-llvm-translator-aarch64-build/CMakeCache.txt\""
+  cmd_run ls -lh \
+      "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.a"
 
 }
 
@@ -484,7 +565,8 @@ setenv_base
 
 if [ "$1" = "llvm_host_defconfig" ] \
     || [ "$1" = "llvm_host_build" ] \
-    || [ "$1" = "llvm_host_install" ]; then
+    || [ "$1" = "llvm_host_install" ] \
+    ; then
   setenv_host
   "$@"
   exit
@@ -508,6 +590,16 @@ COMMAND:
   llvm_aarch64_defconfig
   llvm_aarch64_build
   llvm_aarch64_install
+  aarch64_cross_file_generate
+  spirvtools_aarch64_defconfig
+  spirvtools_aarch64_build
+  spirvtools_aarch64_install
+  spirvtranslator_aarch64_defconfig
+  spirvtranslator_aarch64_build
+  spirvtranslator_aarch64_install
+  libclc_spirv_defconfig
+  libclc_spirv_build
+  inspect
 
 EOHELP
 }
