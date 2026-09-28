@@ -477,30 +477,42 @@ spirvtranslator_aarch64_install() {
 }
 
 libclc_spirv_defconfig() {
-  rm -rf "$BUILD/libclc-spirv-build"
-  mkdir -p "$BUILD/libclc-spirv-build"
+  # The output is target-independent SPIR-V, but clang, opt, and llvm-link
+  # execute while building it.  This must therefore be a native build, not
+  # one using the AArch64 compiler/sysroot from setenv_cross().
+  [ -x "$LLVM_HOST/bin/clang" ] || (setenv_host && llvm_host_install) || {
+    log_e "Failed to install the native LLVM tools needed by libclc"
+    return 1
+  }
+
+  cmd_run rm -rf "$BUILD/libclc-spirv-build"
+  cmd_run mkdir -p "$BUILD/libclc-spirv-build"
 
   . .venv/bin/activate \
-      && cmake -S "$SRC/llvm-project/llvm" \
+      && cmd_run cmake -S "$SRC/llvm-project/llvm" \
           -B "$BUILD/libclc-spirv-build" \
           -G Ninja \
-          -DCMAKE_SYSTEM_NAME=Linux \
-          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-          -DCMAKE_C_COMPILER="$CC" \
-          -DCMAKE_CXX_COMPILER="$CXX" \
-          -DCMAKE_SYSROOT="$GCC_SYSROOT" \
+          -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX=/usr \
+          -DCMAKE_C_COMPILER=gcc \
+          -DCMAKE_CXX_COMPILER=g++ \
+          -DCMAKE_AR=ar \
+          -DCMAKE_RANLIB=ranlib \
           -DLLVM_ENABLE_PROJECTS=clang \
-          -DLLVM_ENABLE_RUNTIMES=libclc \
           -DLLVM_RUNTIME_TARGETS=spirv64-unknown-unknown \
+          -DRUNTIMES_spirv64-unknown-unknown_LLVM_ENABLE_RUNTIMES=libclc \
           -DRUNTIMES_spirv64-unknown-unknown_LIBCLC_USE_SPIRV_BACKEND=ON \
-          -DLLVM_TARGETS_TO_BUILD=AArch64 \
-          -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-gnu \
+          -DLLVM_TARGETS_TO_BUILD=SPIRV \
           -DLLVM_USE_HOST_TOOLS=ON \
           -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
-          -DCMAKE_EXE_LINKER_FLAGS="-L$BP_SYSROOT/lib -L$CROSS/aarch64-linux-gnu/lib64 -Wl,-rpath-link,$BP_SYSROOT/lib -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-L$BP_SYSROOT/lib -L$CROSS/aarch64-linux-gnu/lib64 -Wl,-rpath-link,$BP_SYSROOT/lib -Wl,-rpath-link,$CROSS/aarch64-linux-gnu/lib64"
-
+          -DLLVM_INCLUDE_TESTS=OFF \
+          -DLLVM_INCLUDE_EXAMPLES=OFF \
+          -DLLVM_INCLUDE_BENCHMARKS=OFF \
+          -DLLVM_INCLUDE_DOCS=OFF \
+          -DLLVM_ENABLE_ASSERTIONS=OFF || {
+    log_e "Failed to configure libclc SPIR-V runtime"
+    return 1
+  }
 }
 
 
@@ -512,22 +524,37 @@ libclc_spirv_build() {
   }
 
   . .venv/bin/activate \
-      && ninja -C "$BUILD/libclc-spirv-build"
+      && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} \
+          -C "$BUILD/libclc-spirv-build" || {
+    log_e "Failed to build libclc SPIR-V runtime"
+    return 1
+  }
 
-  # . .venv/bin/activate \
-  #     && ninja -C "$BUILD/libclc-spirv-build" \
-  #         runtimes-spirv64-unknown-unknown
+  _lo_libclc_dir="$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown"
+  [ -s "$_lo_libclc_dir/libclc.spv" ] \
+      && [ -s "$_lo_libclc_dir/libclc.a" ] || {
+    log_e "libclc SPIR-V output is missing from $_lo_libclc_dir"
+    return 1
+  }
+}
 
-  # . .venv/bin/activate \
-  #     && cmake --build "$BUILD/libclc-spirv-build" \
-  #         --target runtimes-spirv64-unknown-unknown-configure \
-  #         -j1
+libclc_spirv_install() {
+  [ -s "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.spv" ] \
+      || libclc_spirv_build || return 1
 
-  RUNTIME_BUILD="$BUILD/libclc-spirv-build/runtimes/runtimes-spirv64-unknown-unknown-bins"
+  _lo_runtime_build="$BUILD/libclc-spirv-build/runtimes/runtimes-spirv64-unknown-unknown-bins"
+  [ -f "$_lo_runtime_build/cmake_install.cmake" ] || {
+    log_e "libclc runtime install script is missing: $_lo_runtime_build"
+    return 1
+  }
 
+  cmd_run mkdir -p "$BUILD/llvm-aarch64-staging"
   . .venv/bin/activate \
-      && cmake --build "$RUNTIME_BUILD" -j"$(nproc)"
-
+      && cmd_run env DESTDIR="$BUILD/llvm-aarch64-staging" \
+          cmake --install "$_lo_runtime_build" --prefix /usr || {
+    log_e "Failed to stage libclc SPIR-V runtime"
+    return 1
+  }
 }
 
 all() {
@@ -545,9 +572,9 @@ all() {
   spirvtranslator_aarch64_build
   spirvtranslator_aarch64_install
 
-  # following is not work
   libclc_spirv_defconfig
   libclc_spirv_build
+  libclc_spirv_install
 }
 
 
@@ -604,6 +631,7 @@ COMMAND:
   spirvtranslator_aarch64_install
   libclc_spirv_defconfig
   libclc_spirv_build
+  libclc_spirv_install
   inspect
 
 EOHELP
