@@ -511,6 +511,9 @@ libclc_spirv_build() {
     return 1
   }
 
+  . .venv/bin/activate \
+      && ninja -C "$BUILD/libclc-spirv-build"
+
   # . .venv/bin/activate \
   #     && ninja -C "$BUILD/libclc-spirv-build" \
   #         runtimes-spirv64-unknown-unknown
@@ -541,6 +544,8 @@ all() {
   spirvtranslator_aarch64_defconfig
   spirvtranslator_aarch64_build
   spirvtranslator_aarch64_install
+
+  # following is not work
   libclc_spirv_defconfig
   libclc_spirv_build
 }
