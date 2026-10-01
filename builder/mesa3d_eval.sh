@@ -1,6 +1,14 @@
 #!/bin/bash
 
-# LLVM 24.0.0
+# Usage
+#   ./mesa3d_eval.sh <command>
+# 
+# Description:
+#   This script try build mesa3d from ground, support opengl, vulkan and opencl
+#   Staging: qemu arm64 simulator -> beagleplay (bp) framebuffer -> bp gpu
+# 
+# Source:
+#   LLVM 24.0.0
 
 _lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
 if [ "$_lo_free_mem" -ge 20 ]; then
@@ -48,127 +56,45 @@ cmd_run() {
 }
 
 setenv_base() {
-  WS=$HOME/02_dev/algae-ws
-  TOP=$WS/algae-bp
-  CROSS=$TOP/cross/aarch64-linux-gnu
-  GCC_SYSROOT=$CROSS/aarch64-linux-gnu/sysroot
-  BP_SYSROOT=$WS/build/sysroot-qemuarm64
-  LLVM_HOST="$TOP/tool/llvm-host"
-  BUILD=$WS/build
-  SRC=$WS
-
-  export WS
-  export TOP
-  export CROSS
-  export GCC_SYSROOT
-  export BP_SYSROOT
-  export BUILD
-  export SRC
-  export LLVM_HOST
+  export WS=$HOME/02_dev/algae-ws
+  export TOP=$WS/algae-bp
+  export CROSS=$TOP/cross/aarch64-linux-gnu
+  export GCC_SYSROOT=$CROSS/aarch64-linux-gnu/sysroot
+  export BP_SYSROOT=$WS/build/sysroot-qemuarm64
+  export LLVM_HOST="$TOP/tool/llvm-host"
+  export BUILD=$WS/build
+  export SRC=$WS
 }
 
 setenv_host() {
   unset CROSS_COMPILE
+  # export CC="${CROSS_COMPILE}gcc"
+  # export CXX="${CROSS_COMPILE}g++"
+  # export AR="${CROSS_COMPILE}ar"
+  # export RANLIB="${CROSS_COMPILE}ranlib"
+  # export STRIP="${CROSS_COMPILE}strip"
+  unset CC
+  unset CXX
+  unset AR
+  unset RANLIB
+  unset STRIP
 
-  CC="${CROSS_COMPILE}gcc"
-  CXX="${CROSS_COMPILE}g++"
-  AR="${CROSS_COMPILE}ar"
-  RANLIB="${CROSS_COMPILE}ranlib"
-  STRIP="${CROSS_COMPILE}strip"
-
-  export CC
-  export CXX
-  export AR
-  export RANLIB
-  export STRIP
-
+  unset PKG_CONFIG_PATH
   unset PKG_CONFIG_SYSROOT_DIR
   unset PKG_CONFIG_LIBDIR
 }
 
 setenv_cross() {
-  CROSS_COMPILE=$CROSS/bin/aarch64-linux-gnu-
-  CC="${CROSS_COMPILE}gcc"
-  CXX="${CROSS_COMPILE}g++"
-  AR="${CROSS_COMPILE}ar"
-  RANLIB="${CROSS_COMPILE}ranlib"
-  STRIP="${CROSS_COMPILE}strip"
-
-  export CC
-  export CXX
-  export AR
-  export RANLIB
-  export STRIP
-
-  PKG_CONFIG_SYSROOT_DIR="$BP_SYSROOT"
-  PKG_CONFIG_LIBDIR="$BP_SYSROOT/lib/pkgconfig"
-
-  export PKG_CONFIG_SYSROOT_DIR
-  export PKG_CONFIG_LIBDIR
+  export CROSS_COMPILE=$CROSS/bin/aarch64-linux-gnu-
+  export CC="${CROSS_COMPILE}gcc"
+  export CXX="${CROSS_COMPILE}g++"
+  export AR="${CROSS_COMPILE}ar"
+  export RANLIB="${CROSS_COMPILE}ranlib"
+  export STRIP="${CROSS_COMPILE}strip"
 
   unset PKG_CONFIG_PATH
-}
-
-# Test for cross cxx, libdrm, sysroot
-test_cross_with_libdrm() {
-  _lo_libdrm_so="$(realpath $BP_SYSROOT/lib/libdrm.so)"
-
-  cmd_run eval "file \"$_lo_libdrm_so\" | grep \"ELF 64-bit LSB shared object, ARM aarch64\" >/dev/null 2>&1" || {
-    log_e "Failed check libdrm aarch64"
-    return 1
-  }
-
-  cmd_run eval "readelf -h \"$BP_SYSROOT/lib/libdrm.so\" | grep \"Machine:\s*AArch64\" >/dev/null 2>&1" || {
-    log_e "Failed check libdrm aarch64 machine"
-    return 1
-  }
-
-  cmd_run eval "cat $BP_SYSROOT/lib/pkgconfig/libdrm.pc | grep \"prefix=\" >/dev/null 2>&1" || {
-    log_e "Failed check libdrm pkgconfig"
-    return 1
-  }
-
-  _lo_src="tmp/test.cpp"
-  _lo_out="tmp/test.o"
-  cat > $_lo_src <<'EOF'
-#include <iostream>
-#include <drm/drm.h>
-
-int main(void)
-{
-    std::cout << "hello\n";
-    return 0;
-}
-EOF
-
-  $CXX \
-    --sysroot="$GCC_SYSROOT" \
-    -I"$BP_SYSROOT/include" \
-    -L"$BP_SYSROOT/lib" \
-    $_lo_src \
-    -ldrm \
-    -o $_lo_out
-
-  cmd_run eval "file $_lo_out | grep \"ELF 64-bit LSB executable, ARM aarch64\" >/dev/null 2>&1" || {
-    log_e "Failed to compile test program for cross-compilation"
-    return 1
-  }
-
-  cmd_run eval "readelf -d $_lo_out | grep NEEDED"
-}
-
-# Generate llvm cross toolchain file
-# not used yet
-llvm_cross_file() {
-  _lo_src="builder/llvm4-aarch64-toolchain.cmake"
-  _lo_out="build/llvm-aarch64-toolchain.cmake"
-
-  log_d "Generate llvm cross toolchain file"
-  cat $_lo_src | sed \
-    -e "s|\$\${GCC_SYSROOT}|${GCC_SYSROOT}|g" \
-    -e "s|\$\${BP_SYSROOT}|${BP_SYSROOT}|g" \
-    -e "s|\$\${CC}|${CROSS}/bin/aarch64-linux-gnu-gcc|g" \
-    -e "s|\$\${CXX}|${CROSS}/bin/aarch64-linux-gnu-g++|g" >$_lo_out
+  export PKG_CONFIG_SYSROOT_DIR="$BP_SYSROOT"
+  export PKG_CONFIG_LIBDIR="$BP_SYSROOT/lib/pkgconfig"
 }
 
 llvm_host_defconfig() {
@@ -398,241 +324,3 @@ EOF
   cmd_run cat "$_lo_crossfile"
 }
 
-spirvtools_aarch64_defconfig() {
-  _lo_crossfile="$BUILD/spirv-tools_aarch64.cmake"
-
-  [ -f "$_lo_crossfile" ] \
-      || aarch64_cross_file_generate "$_lo_crossfile" || {
-    log_e "Failed to generate aarch64 cross file"
-    return 1
-  }
-
-  rm -rf "$BUILD/spirv-tools-aarch64-build"
-  mkdir -p "$BUILD/spirv-tools-aarch64-build"
-  . .venv/bin/activate \
-      && cmake -S "$SRC/spirv-tools" \
-          -B "$BUILD/spirv-tools-aarch64-build" \
-          -G Ninja \
-          ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_INSTALL_PREFIX=/usr \
-          -DCMAKE_INSTALL_LIBDIR=lib \
-          -DSPIRV_SKIP_TESTS=ON \
-          -DSPIRV_WERROR=OFF
-}
-
-spirvtools_aarch64_build() {
-  . .venv/bin/activate \
-      && cmd_run $_pri_runner ninja -C "$BUILD/spirv-tools-aarch64-build"
-}
-
-spirvtools_aarch64_install() {
-  mkdir -p "$BUILD/spirv-tools-aarch64-staging"
-  . .venv/bin/activate \
-      && cmd_run env DESTDIR="$BUILD/spirv-tools-aarch64-staging" \
-          ninja -C "$BUILD/spirv-tools-aarch64-build" install
-}
-
-spirvtranslator_aarch64_defconfig() {
-  _lo_crossfile="$BUILD/spirv-tools_aarch64.cmake"
-
-  [ -f "$_lo_crossfile" ] \
-        || aarch64_cross_file_generate "$_lo_crossfile" || {
-    log_e "Failed to generate aarch64 cross file"
-    return 1
-  }
-
-  rm -rf "$BUILD/spirv-llvm-translator-aarch64-build"
-  mkdir -p "$BUILD/spirv-llvm-translator-aarch64-build"
-
-  export LLVM_AARCH64="$BUILD/llvm-aarch64-staging/usr"
-  export SPIRV_TOOLS_AARCH64="$BUILD/spirv-tools-aarch64-staging/usr"
-  export PKG_CONFIG_SYSROOT_DIR="$BUILD/spirv-tools-aarch64-staging"
-  export PKG_CONFIG_LIBDIR="$SPIRV_TOOLS_AARCH64/lib/pkgconfig"
-  unset PKG_CONFIG_PATH
-  cmd_run pkg-config --cflags --libs SPIRV-Tools
-
-  . .venv/bin/activate \
-      && cmake -S "$SRC/spirv-llvm-translator" \
-          -B "$BUILD/spirv-llvm-translator-aarch64-build" \
-          -G Ninja \
-            ${_lo_crossfile:+-DCMAKE_TOOLCHAIN_FILE="$_lo_crossfile"} \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DLLVM_DIR="$LLVM_AARCH64/lib/cmake/llvm" \
-          -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
-          -DCCACHE_ALLOWED=OFF \
-          -DCMAKE_INSTALL_PREFIX=/usr
-}
-
-spirvtranslator_aarch64_build() {
-  . .venv/bin/activate \
-      && cmd_run $_pri_runner ninja -C "$BUILD/spirv-llvm-translator-aarch64-build"
-}
-
-spirvtranslator_aarch64_install() {
-  mkdir -p "$BUILD/spirv-llvm-translator-aarch64-staging"
-  . .venv/bin/activate \
-      && cmd_run env DESTDIR="$BUILD/spirv-llvm-translator-aarch64-staging" \
-          ninja -C "$BUILD/spirv-llvm-translator-aarch64-build" install
-}
-
-libclc_spirv_defconfig() {
-  # The output is target-independent SPIR-V, but clang, opt, and llvm-link
-  # execute while building it.  This must therefore be a native build, not
-  # one using the AArch64 compiler/sysroot from setenv_cross().
-  [ -x "$LLVM_HOST/bin/clang" ] || (setenv_host && llvm_host_install) || {
-    log_e "Failed to install the native LLVM tools needed by libclc"
-    return 1
-  }
-
-  cmd_run rm -rf "$BUILD/libclc-spirv-build"
-  cmd_run mkdir -p "$BUILD/libclc-spirv-build"
-
-  . .venv/bin/activate \
-      && cmd_run cmake -S "$SRC/llvm-project/llvm" \
-          -B "$BUILD/libclc-spirv-build" \
-          -G Ninja \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_INSTALL_PREFIX=/usr \
-          -DCMAKE_C_COMPILER=gcc \
-          -DCMAKE_CXX_COMPILER=g++ \
-          -DCMAKE_AR=ar \
-          -DCMAKE_RANLIB=ranlib \
-          -DLLVM_ENABLE_PROJECTS=clang \
-          -DLLVM_RUNTIME_TARGETS=spirv64-unknown-unknown \
-          -DRUNTIMES_spirv64-unknown-unknown_LLVM_ENABLE_RUNTIMES=libclc \
-          -DRUNTIMES_spirv64-unknown-unknown_LIBCLC_USE_SPIRV_BACKEND=ON \
-          -DLLVM_TARGETS_TO_BUILD=SPIRV \
-          -DLLVM_USE_HOST_TOOLS=ON \
-          -DLLVM_NATIVE_TOOL_DIR="$LLVM_HOST/bin" \
-          -DLLVM_INCLUDE_TESTS=OFF \
-          -DLLVM_INCLUDE_EXAMPLES=OFF \
-          -DLLVM_INCLUDE_BENCHMARKS=OFF \
-          -DLLVM_INCLUDE_DOCS=OFF \
-          -DLLVM_ENABLE_ASSERTIONS=OFF || {
-    log_e "Failed to configure libclc SPIR-V runtime"
-    return 1
-  }
-}
-
-
-libclc_spirv_build() {
-  [ -f "$BUILD/libclc-spirv-build/build.ninja" ] \
-      || libclc_spirv_defconfig || {
-    log_e "Failed to configure libclc spirv build"
-    return 1
-  }
-
-  . .venv/bin/activate \
-      && cmd_run $_pri_runner ninja ${_pri_parallel:+-j$_pri_parallel} \
-          -C "$BUILD/libclc-spirv-build" || {
-    log_e "Failed to build libclc SPIR-V runtime"
-    return 1
-  }
-
-  _lo_libclc_dir="$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown"
-  [ -s "$_lo_libclc_dir/libclc.spv" ] \
-      && [ -s "$_lo_libclc_dir/libclc.a" ] || {
-    log_e "libclc SPIR-V output is missing from $_lo_libclc_dir"
-    return 1
-  }
-}
-
-libclc_spirv_install() {
-  [ -s "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.spv" ] \
-      || libclc_spirv_build || return 1
-
-  _lo_runtime_build="$BUILD/libclc-spirv-build/runtimes/runtimes-spirv64-unknown-unknown-bins"
-  [ -f "$_lo_runtime_build/cmake_install.cmake" ] || {
-    log_e "libclc runtime install script is missing: $_lo_runtime_build"
-    return 1
-  }
-
-  cmd_run mkdir -p "$BUILD/llvm-aarch64-staging"
-  . .venv/bin/activate \
-      && cmd_run env DESTDIR="$BUILD/llvm-aarch64-staging" \
-          cmake --install "$_lo_runtime_build" --prefix /usr || {
-    log_e "Failed to stage libclc SPIR-V runtime"
-    return 1
-  }
-}
-
-all() {
-  llvm_host_defconfig
-  llvm_host_build
-  llvm_host_install
-  llvm_aarch64_defconfig
-  llvm_aarch64_build
-  llvm_aarch64_install
-  aarch64_cross_file_generate
-  spirvtools_aarch64_defconfig
-  spirvtools_aarch64_build
-  spirvtools_aarch64_install
-  spirvtranslator_aarch64_defconfig
-  spirvtranslator_aarch64_build
-  spirvtranslator_aarch64_install
-
-  libclc_spirv_defconfig
-  libclc_spirv_build
-  libclc_spirv_install
-}
-
-
-inspect() {
-
-  RUNTIME_BUILD="$BUILD/libclc-spirv-build/runtimes/runtimes-spirv64-unknown-unknown-bins"
-
-  cmd_run ls -lh \
-      "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.spv"
-
-  cmd_run file \
-      "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.spv"
-
-  cmd_run ls -lh \
-      "$BUILD/libclc-spirv-build/lib/clang/24/lib/spirv64-unknown-unknown/libclc.a"
-
-}
-
-setenv_base
-
-if [ "$1" = "llvm_host_defconfig" ] \
-    || [ "$1" = "llvm_host_build" ] \
-    || [ "$1" = "llvm_host_install" ] \
-    ; then
-  setenv_host
-  "$@"
-  exit
-fi
-
-setenv_cross
-
-[ -n "$1" ] && {
-  cmd_run "$@"
-  exit
-}
-
-show_help() {
-  cat <<EOHELP
-Usage: $(basename $0) <COMMAND>
-
-COMMAND:
-  llvm_host_defconfig
-  llvm_host_build
-  llvm_host_install
-  llvm_aarch64_defconfig
-  llvm_aarch64_build
-  llvm_aarch64_install
-  aarch64_cross_file_generate
-  spirvtools_aarch64_defconfig
-  spirvtools_aarch64_build
-  spirvtools_aarch64_install
-  spirvtranslator_aarch64_defconfig
-  spirvtranslator_aarch64_build
-  spirvtranslator_aarch64_install
-  libclc_spirv_defconfig
-  libclc_spirv_build
-  libclc_spirv_install
-  inspect
-
-EOHELP
-}

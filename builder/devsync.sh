@@ -3,39 +3,43 @@
 # shellcheck disable=SC2164,SC2034
 
 # killall -sigint dexatek_main
-# /usrdata/devsync.sh --applet=wifi_conn DK_SWRD_Test_5G 00000@55555 wpa3-only
-# mkdir -p /run/lavender5/02_exdev2 /run/lavender5/dw
-# mount -o nolock 192.168.234.16:/mnt/dev/02_exdev2 /run/lavender5/02_exdev2
-# mount -o nolock 192.168.50.123:/mnt/dev/02_exdev2 /run/lavender5/02_exdev2
-# mount -o nolock 192.168.50.123:/home/joelai/Downloads /run/lavender5/dw
+# /usrdata/devsync.sh wifi_conn DK_SWQA_Linksys_5G 5555500000 wpa3-only
+# mkdir -p /run/02_dev /run/dw
+# mount -o nolock 192.168.50.123:/home/joelai/02_dev /run/02_dev
+# mount -o nolock 192.168.50.123:/home/joelai/Downloads /run/dw
 
-# cp /run/lavender5/02_exdev2/agt-ws/dkmapi-ws/builder/devsync.sh .
-# cp /run/lavender5/02_exdev2/agt-ws/augentix-platform-application/application_dexatek/dexatek/main_application/dexatek_main /usr/dexatek/dexatek_main
-# cp /run/lavender5/02_exdev2/agt-ws/augentix-platform-application/SA7586_OTA_v6.97.5.54.swu /tmp/
+# cp /run/02_dev/eveplay-ws/air192/builder/devsync.sh .
 
-# cp /run/lavender5/02_exdev2/agt-ws/esh-ws/builder/devsync.sh .
-# cp /run/lavender5/02_exdev2/agt-ws/esghub/application_dexatek/dexatek/main_application/dexatek_main /usr/dexatek/dexatek_main
-# cp /run/lavender5/02_exdev2/agt-ws/esghub-lc/SA7586_OTA_v6.99.5.63.swu  /tmp/
+# cp /run/02_dev/esh-ws/builder/devsync.sh .
+# cp /run/02_dev/esghub/application_dexatek/dexatek/main_application/dexatek_main /usr/dexatek/dexatek_main
+# cp /run/02_dev/esghub-lc/SA7586_OTA_v6.99.5.63.swu /tmp/
 
 # /etc/exportfs
-# /home/joelai/Downloads 192.168.16.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
-# /home/joelai/02_dev 192.168.16.0/24(ro,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
-
+# /home/joelai/Downloads 192.168.16.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000,insecure)
+# /home/joelai/02_dev 192.168.16.0/24(ro,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000,insecure)
 
 # vi wpasup.conf
-# country=US
-# ctrl_interface=/var/run/wpa_supplicant
-# update_config=1
-# network={
-#   scan_ssid=1
-#   ssid="DK_SWRD_Test_5G"
-#   ieee80211w=2
-#   key_mgmt=SAE
-#   psk="00000@55555"
-# }
-# wpa_cli terminate
-# wpa_supplicant -Dnl80211 -iwlan0 -c wpasup.conf -B
-# udhcpc -i wlan0 -q
+dummy() {
+  cat <<-"EOMSG" >wpasup.conf
+country=US
+ctrl_interface=/var/run/wpa_supplicant
+update_config=1
+network={
+  scan_ssid=1
+  ssid="DK_SWRD_Test_5G"
+  ieee80211w=2
+  key_mgmt=SAE
+  psk="00000@55555"
+}
+EOMSG
+  wpa_cli terminate
+  wpa_supplicant -Dnl80211 -iwlan0 -c wpasup.conf -B
+  sleep 2
+  udhcpc -i wlan0 -q
+}
+
+# . /etc/init.d/func
+# . builder/func.sh
 
 self=$0
 selfdir="$(cd "$(dirname "$self")"; pwd)"
@@ -44,8 +48,13 @@ _pri_mount="busybox mount"
 _pri_umount="busybox umount"
 _pri_dd_args2="conv=fdatasync status=progress iflag=nonblock oflag=nonblock"
 
+ts_uptime_sec() {
+  _lo_uptime="$(awk '{ print int($1) }' /proc/uptime)"
+  echo "${_lo_uptime} * 1000 / 1" | bc
+}
+
 ts_uptime() {
-  echo "$(</proc/uptime awk '{ print $1 }') * 1000 / 1" | bc
+  echo "$(ts_uptime_sec) * 1000 / 1" | bc
 }
 
 ts_dt() {
@@ -92,20 +101,30 @@ daemon_sh_stop() {
   start-stop-daemon -K -p ${_lo_pid_file}
 }
 
+_pri_rtl8821_pid="0bda"
+_pri_rtl8821_vid="c820"
+_pri_rtl8821_usbid="${_pri_rtl8821_pid}:${_pri_rtl8821_vid}"
+
 _pri_listok=""
 _pri_listfailed=""
+
+_pri_ip=
+_pri_nfsroot=
 
 get_ip () {
   if [ -n "$_pri_ip" ]; then
     echo "${_pri_ip}"
     return 0
   fi
-  if [ "$_pri_devsite" = "mbp_ub22" ]; then
-    _lo_iptest="192.168.234.86 192.168.50.42"
+  if [ "$_pri_site" = "mbp_ub22" ]; then
+    _lo_candi="192.168.234.86 192.168.50.42"
+  elif [ -n "$(ls -d /sys/bus/virtio/devices/virtio0 2>/dev/null)" ]; then
+    # QEMU
+    _lo_candi="10.0.2.2"
   else
-    _lo_iptest="192.168.16.6"
+    _lo_candi="192.168.234.16 192.168.50.123"
   fi
-  for i in $_lo_iptest; do
+  for i in $_lo_candi; do
     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1" >/dev/null 2>&1; then
       _pri_ip=${i}
       echo "${_pri_ip}"
@@ -115,12 +134,15 @@ get_ip () {
   return 1
 }
 
-get_nfsroot () {
+get_nfsroot() {
   if [ -n "$_pri_nfsroot" ]; then
     echo "${_pri_nfsroot}"
     return 0
   fi
-  for i in /media /mnt /run /var/run /tmp; do
+  _lo_candi=
+  _lo_candi="${_lo_candi} /media /mnt"
+  _lo_candi="${_lo_candi} /run /var/run /tmp"
+  for i in $_lo_candi; do
     if [ -d "$i" ]; then
       _pri_nfsroot="${i}"
       echo "${_pri_nfsroot}"
@@ -131,8 +153,24 @@ get_nfsroot () {
 }
 
 _pri_nfsdw="$(get_nfsroot)/dw"
+
+_pri_nfseveplayws="$(get_nfsroot)/02_dev/eveplay-ws"
+
+_pri_nfsagtws9="$(get_nfsroot)/02_dev/onvcam"
+_pri_nfsagtws3="$(get_nfsroot)/02_dev/esghub-lc"
+_pri_nfsagtws2="$(get_nfsroot)/02_dev/esghub"
+
 _pri_nfsalgaews="$(get_nfsroot)/02_dev/algae-ws"
-_pri_nfsalgaebp="${_pri_nfsalgaews}/algae-bp"
+
+_pri_nfseshws2="$(get_nfsroot)/02_dev/esh-ws"
+
+if [ "$_pri_site" = "mbp_ub22" ]; then
+  _pri_nfsagtws="${_pri_nfsagtws3}"
+  _pri_nfseshws="${_pri_nfseshws2}"
+else
+  _pri_nfsagtws="${_pri_nfsagtws9}"
+  _pri_nfseshws="${_pri_nfseshws2}"
+fi
 
 duty1k_num() {
   [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
@@ -142,6 +180,7 @@ duty1k_num() {
   echo "$(( $_lo_duty1k * $_lo_period / 1000 ))"
 }
 
+# 0bda:c820 rtl8821cs
 usb_find() {
   # log_d "\$1: $1"
   _lo_list2=$(find -L /sys/bus/usb/devices/ -maxdepth 2 -iname idVendor | sed -n "/\/sys\/bus\/usb\/devices\/[0-9.-]\+\/idVendor/p")
@@ -277,7 +316,7 @@ do_ifce_up() {
   done
 }
 
-wifi_conn() {
+do_wifi_conn() {
   _lo_opt_cli=${1}
   _lo_opt_ssid=${2}
   _lo_opt_pw=${3}
@@ -287,7 +326,6 @@ wifi_conn() {
   _lo_netcfg="wpa_network.txt"
 
   _lo_wpasup=
-  # shellcheck disable=SC2043
   for i in "./wpa_supplicant"; do
     if [ -x "$i" ]; then
       _lo_wpasup="${i}"
@@ -296,8 +334,8 @@ wifi_conn() {
   done
   [ -z "$_lo_wpasup" ] && _lo_wpasup="wpa_supplicant"
 
-  cmd_run eval "killall -9 wpa_supplicant udhcpc >/dev/null 2>&1"
-  
+  cmd_run eval "killall -9 wpa_supplicant udhcpc > /dev/null 2>&1"
+
   do_ifce_down wlan0
   do_ifce_up wlan0
 
@@ -319,7 +357,7 @@ wifi_conn() {
   udhcpc -i wlan0 -q || { log_e "Failed dhcp"; return 1; }
 }
 
-wpa_conf() {
+do_wpa_conf() {
   _lo_opt_ssid=${1}
   _lo_opt_pw=${2}
   _lo_opt_auth=${3}
@@ -328,10 +366,8 @@ wpa_conf() {
   _lo_netcfg="wpa_network.txt"
 
   gen_wpa_def "${_lo_wpacfg}" || { log_e "Failed generate $_lo_wpacfg"; return 1; }
-  if [ -n "${_lo_opt_ssid}" ]; then
-    gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_lo_netcfg"; return 1; }
-    cat "$_lo_netcfg" >> "$_lo_wpacfg"
-  fi
+  gen_wpa_conf "$_lo_netcfg" "$_lo_opt_ssid" "$_lo_opt_pw" "$_lo_opt_auth" || { log_e "Failed generate $_lo_netcfg"; return 1; }
+  cat "$_lo_netcfg" >> "$_lo_wpacfg"
 }
 
 find_mount() {
@@ -348,22 +384,20 @@ find_mount() {
   # none /sys/kernel/debug debugfs rw,relatime 0 0
   # /dev/ubi1_0 /mnt/cfg ubifs rw,relatime,assert=read-only,ubi=1,vol=0 0 0
   _pri_for_iter=0
-  while read -r _lo_line; do
+  while read _pri_line; do
     # [ $_pri_for_iter -lt $_pri_for_count ] || break
-    # echo "[$_pri_for_iter]$_lo_line"
+    # echo "[$_pri_for_iter]$_pri_line"
 
-    read -r _pri_dev _pri_dir _pri_fs _dommy <<-EOM
-$_lo_line
+    read _pri_dev _pri_dir _pri_fs _dommy <<-EOM
+$(echo $_pri_line)
 EOM
     # log_d "[#$_pri_for_iter] $_pri_dev, $_pri_dir, $_pri_fs"
 
-    _lo_ng=
-    [ -n "$_lo_ng" ] || [ "$1" = "*" ] || [ "$1" = "$_pri_dev" ] || _lo_ng=n
-    [ -n "$_lo_ng" ] || [ -z "$2" ] || [ "$2" = "*" ] || [ "$2" = "$_pri_dir" ] \
-      || _lo_ng=n
-    [ -n "$_lo_ng" ] || [ -z "$3" ] || [ "$3" = "*" ] || [ "$3" = "$_pri_fs" ] \
-      || _lo_ng=n
-    [ -z "$_lo_ng" ] && { echo "$_lo_line"; return 0; }
+    local _pri_ng=
+    [ -n "$_pri_ng" ] || [ "$1" = "*" ] || [ "$1" = "$_pri_dev" ] || _pri_ng=n
+    [ -n "$_pri_ng" ] || [ -z "$2" ] || [ "$2" = "*" ] || [ "$2" = "$_pri_dir" ] || _pri_ng=n
+    [ -n "$_pri_ng" ] || [ -z "$3" ] || [ "$3" = "*" ] || [ "$3" = "$_pri_fs" ] || _pri_ng=n
+    [ -z "$_pri_ng" ] && { echo $_pri_line; return 0; }
 
     _pri_for_iter="$(( $_pri_for_iter + 1 ))"
   done <<-EOR
@@ -478,22 +512,6 @@ pwm_init() {
   [ -n "$3" ] && pwm_out "$_lo_port" "$3"
 }
 
-boot_tiboot3() {
-  _lo_tiboot3=${1:-tiboot3.bin}
-  [ -f "${_lo_tiboot3}" ] || { log_e "Miss ${_lo_tiboot3}"; return 1; }
-
-  # Enable Boot0 boot
-  cmd_run mmc bootpart enable 1 1 /dev/mmcblk0 || { log_e "Failed"; return 1; }
-  cmd_run mmc bootbus set single_backward x1 x8 /dev/mmcblk0 || { log_e "Failed"; return 1; }
-  # cmd_run mmc hwreset enable /dev/mmcblk0 || { log_e "Failed"; return 1; }
-
-  # Clear eMMC boot0
-  cmd_run eval "echo 0 >> /sys/class/block/mmcblk0boot0/force_ro" || { log_e "Failed"; return 1; }
-  cmd_run eval "dd if=/dev/zero of=/dev/mmcblk0boot0 count=1 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
-  # Write tiboot3.bin
-  cmd_run eval "dd if=${_lo_tiboot3} of=/dev/mmcblk0boot0 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
-}
-
 do_insmod() {
   [ -n "$1" ] || { log_e "do_insmod invalid parameter"; return 1; }
   _lo_modname=$(basename $1)
@@ -593,6 +611,22 @@ nfsget_x() {
   nfsget_n "$@" && cmd_run chmod +x "$_lo_tgt"
 }
 
+boot_tiboot3() {
+  _lo_tiboot3=${1:-tiboot3.bin}
+  [ -f "${_lo_tiboot3}" ] || { log_e "Miss ${_lo_tiboot3}"; return 1; }
+
+  # Enable Boot0 boot
+  cmd_run mmc bootpart enable 1 1 /dev/mmcblk0 || { log_e "Failed"; return 1; }
+  cmd_run mmc bootbus set single_backward x1 x8 /dev/mmcblk0 || { log_e "Failed"; return 1; }
+  # cmd_run mmc hwreset enable /dev/mmcblk0 || { log_e "Failed"; return 1; }
+
+  # Clear eMMC boot0
+  cmd_run eval "echo 0 >> /sys/class/block/mmcblk0boot0/force_ro" || { log_e "Failed"; return 1; }
+  cmd_run eval "dd if=/dev/zero of=/dev/mmcblk0boot0 count=1 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
+  # Write tiboot3.bin
+  cmd_run eval "dd if=${_lo_tiboot3} of=/dev/mmcblk0boot0 bs=4M ${_pri_dd_args2}" || { log_e "Failed"; return 1; }
+}
+
 flash_tiboot3() {
   [ $# -ge 1 ] || { log_e "Invalid argument"; return 1; }
 
@@ -679,6 +713,65 @@ gadget_cdcacm() {
   echo "$_lo_udc" > ${_lo_g1dir}/UDC
 }
 
+# pgrep2 "\bscreen\b" || echo miss
+pgrep2() {
+  for _lo_comm in $(find /proc -maxdepth 3 -regex "/proc/[0-9][0-9]*/comm" 2>/dev/null); do
+    for _lo_ps in "$@"; do
+      # grep "${_lo_ps}" $_lo_comm &>/dev/null && {
+      #   echo "$_lo_comm" | sed -n "s/\/proc\/\([0-9][0-9]*\)\/comm/\1/p";
+      # } && return 0
+
+      # _lo_found=$(grep "${_lo_ps}" $_lo_comm 2>/dev/null)
+      # if [ -n "$_lo_found" ]; then
+      #   _lo_found2=${_lo_comm#/proc/}
+      #   _lo_found2=${_lo_found2%/comm}
+      #   echo $_lo_found2
+      #   return 0
+      # fi
+
+      if grep "${_lo_ps}" $_lo_comm &>/dev/null; then
+        _lo_found2=${_lo_comm#/proc/}
+        _lo_found2=${_lo_found2%/comm}
+        echo $_lo_found2
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+do_start() {
+  [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
+  _lo_ns1=$1
+  _lo_ns=$(basename $_lo_ns1)
+  shift
+  _lo_pid_file=/var/run/${_lo_ns}.pid
+  log_d "start $*"
+  start-stop-daemon -S -b -m -p ${_lo_pid_file} -x /bin/sh -- -c "exec $*"
+  log_d "started $* -> ${_lo_ns}.pid ($(cat ${_lo_pid_file}))"
+}
+
+do_start_tty() {
+  [ "$#" -ge 2 ] || { log_e "Invalid arguments"; return 1; }
+  _lo_ns1=$1
+  _lo_ns=$(basename $_lo_ns1)
+  shift
+  _lo_pid_file=/var/run/${_lo_ns}.pid
+  log_d "start $*"
+  start-stop-daemon -S -b -m -p ${_lo_pid_file} -x /bin/sh -- -c "exec $* >$(tty) 2>&1"
+  log_d "started $* -> ${_lo_ns}.pid ($(cat ${_lo_pid_file}))"
+}
+
+do_stop() {
+  [ "$#" -ge 1 ] || { log_e "Invalid arguments"; return 1; }
+  _lo_ns1=$1
+  _lo_ns=$(basename $_lo_ns1)
+  shift
+  _lo_pid_file=/var/run/${_lo_ns}.pid
+  log_d "stop ${_lo_ns}.pid ($(cat ${_lo_pid_file}))"
+  start-stop-daemon -K -p ${_lo_pid_file}
+}
+
 show_help() {
 cat <<-EOHELP
 USAGE
@@ -693,9 +786,11 @@ OPTIONS
   -t, --test
 
 COMMANDS
-  wifi_conn <SSID> <PW> [open|wpa3-only]
-  wpa_conf <SSID> <PW> [open|wpa3-only]
-  gen_wpa_def [country]
+  wificonn <SSID> <PW> [open | wpa3-only]
+      ex: ./devsync.sh wificonn DK_SWQA_Linksys_5G 5555500000 wpa3-only
+  wpaconf <SSID> <PW> [open | wpa3-only]
+  swqa | swrd | swrd2
+  rs <width> <height>
   flash_tiboot3 <tiboot3.bin>
   flash_tispl <tispl.bin>
   flash_uboot <u-boot.img>
@@ -790,9 +885,9 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
 
-    cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+    cmd_run cp -Hv "${_pri_nfsalgaews}/algae-bp/build/uboot-bp-a53-emmc.env" \
         /media/mmcblk0p1/uboot.env \
-      && cmd_run cp -Hv "${_pri_nfsalgaebp}/build/uboot-bp-a53-emmc.env" \
+      && cmd_run cp -Hv "${_pri_nfsalgaews}/algae-bp/build/uboot-bp-a53-emmc.env" \
         /media/mmcblk0p1/uboot-redund.env \
       || { log_e "Failed"; exit 1; }
 
@@ -822,7 +917,7 @@ while test -n "$1"; do
     ;;
   sh)
     nfsmount || exit
-    cmd_run cp -Hv ${_pri_nfsalgaebp}/prebuilt/bp/common/etc/init.d/imx219 /etc/init.d/ \
+    cmd_run cp -Hv ${_pri_nfsalgaews}/algae-bp/prebuilt/bp/common/etc/init.d/imx219 /etc/init.d/ \
       || { log_e "Failed"; exit 1; }
     exit
     ;;
@@ -858,13 +953,13 @@ while test -n "$1"; do
     _lo_bl_num="$(( ${opt1#bl} ))"
 
     # tispl.bin, uboot.env, u-boot.img, uboot-redund.env
-    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot_emmc/* \
+    cmd_run cp -Hv "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot_emmc/* \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
 
     # bl3 -> tiboot3
     if [ "${_lo_bl_num}" -ge 3 ]; then
-      flash_tiboot3 "${_pri_nfsalgaebp}"/destdir/bp/boot/tiboot3.bin \
+      flash_tiboot3 "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/tiboot3.bin \
         || { log_e "Failed"; exit 1; }
     fi
     sync; sync
@@ -874,15 +969,15 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
     # kernel, dtb
-    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+    cmd_run cp -Hv "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/linux.itb \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/k3-am625-beagleplay.dtb \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
 
     # dt-overlay
     cmd_run cp -Hv \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
     sync; sync
@@ -933,20 +1028,20 @@ while test -n "$1"; do
     [ "$_lo_ota_num" == "?" ] && exit
 
     # kernel, dtb
-    cmd_run cp -Hv "${_pri_nfsalgaebp}"/destdir/bp/boot/Image.gz \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/linux.itb \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+    cmd_run cp -Hv "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/Image.gz \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/linux.itb \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/k3-am625-beagleplay.dtb \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
 
     # dt-overlay
     cmd_run cp -Hv \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
 
     # shellcheck disable=SC2086
-    cmd_run dd if="${_pri_nfsalgaebp}/destdir/bp/rootfs.img" \
+    cmd_run dd if="${_pri_nfsalgaews}/algae-bp/destdir/bp/rootfs.img" \
         of=/dev/mmcblk0p${_lo_tgt_bootset} bs=4M ${_pri_dd_args2} \
       || { log_e "Failed"; exit 1; }
 
@@ -967,7 +1062,7 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
     cmd_run cp -Hv \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay.dtb \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/k3-am625-beagleplay.dtb \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
     exit
@@ -976,7 +1071,7 @@ while test -n "$1"; do
     nfsmount || exit
     devmount /dev/mmcblk0p1 || exit
     cmd_run cp -Hv \
-        "${_pri_nfsalgaebp}"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
+        "${_pri_nfsalgaews}/algae-bp"/destdir/bp/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
         "/media/mmcblk0p1/" \
       || { log_e "Failed"; exit 1; }
     exit
@@ -987,8 +1082,8 @@ while test -n "$1"; do
     ;;
   gdb|gdbserver)
     nfsmount || exit
-    # "${_pri_nfsalgaebp}/tool/gcc-arm/arm-none-linux-gnueabihf/libc/usr/bin/gdbserver"
-    cmd_run cp -Hv "${_pri_nfsalgaebp}/tool/gdbserver" /usr/bin/
+    # "${_pri_nfsalgaews}/algae-bp/tool/gcc-arm/arm-none-linux-gnueabihf/libc/usr/bin/gdbserver"
+    cmd_run cp -Hv "${_pri_nfsalgaews}/algae-bp/tool/gdbserver" /usr/bin/
     ;;
   destpkg_install)
     nfsmount || exit
@@ -1002,17 +1097,17 @@ while test -n "$1"; do
   case "$opt1" in
   devsync|devsync.sh|$(basename "$0")|$(basename -s .sh "$0"))
     nfsmount || exit
-    nfsget_s "${_pri_nfsalgaebp}/builder/$(basename "$0")"
+    nfsget_s "${_pri_nfsalgaews}/algae-bp/builder/$(basename "$0")"
     ;;
   locale)
     nfsmount || exit
-    if nfsget_n "${_pri_nfsalgaebp}/build/locale-aarch64-destpkg.tar.xz"; then
+    if nfsget_n "${_pri_nfsalgaews}/algae-bp/build/locale-aarch64-destpkg.tar.xz"; then
       rm -rf /usr/share/i18n/i18n/charmaps/
       tar -Jxvf locale-aarch64-destpkg.tar.xz --strip-components=1 -C /
     fi
     ;;
   openocd)
-    nfsget_n "${_pri_nfsalgaebp}"/builder/bpgpioswd.cfg
+    nfsget_n "${_pri_nfsalgaews}/algae-bp"/builder/bpgpioswd.cfg
     ;;
   mesa3d)
     nfsmount || exit
@@ -1023,9 +1118,9 @@ while test -n "$1"; do
     _lo_tgt=""
     _lo_tgt="${_lo_tgt} tester_ev3 tester_fb2"
     for i in ${_lo_tgt}; do
-      nfsget_x "${_pri_nfsalgaebp}"/build/${i}-aarch64/${i}
+      nfsget_x "${_pri_nfsalgaews}/algae-bp"/build/${i}-aarch64/${i}
     done
-    nfsget_n "${_pri_nfsalgaebp}"/docs/sample1.bmp
+    nfsget_n "${_pri_nfsalgaews}/algae-bp"/docs/sample1.bmp
     ;;
   sh|sh[2-3])
     nfsmount || exit
@@ -1037,20 +1132,20 @@ while test -n "$1"; do
     lo_tgt="${lo_tgt} usr/share/udhcpc/default.script"
     lo_tgt="${lo_tgt} usr/share/zcip/default.script"
     for i in $lo_tgt; do
-      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then
-        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" /"${i}"
+      if [ -f "${_pri_nfsalgaews}/algae-bp"/prebuilt/bp/common/"${i}" ]; then
+        nfsget_x "${_pri_nfsalgaews}/algae-bp"/prebuilt/bp/common/"${i}" /"${i}"
       else
-        nfsget_x "${_pri_nfsalgaebp}"/prebuilt/common/"${i}" /"${i}"
+        nfsget_x "${_pri_nfsalgaews}/algae-bp"/prebuilt/common/"${i}" /"${i}"
       fi
     done
 
     lo_tgt="etc/skel/.profile"
     lo_tgt="${lo_tgt}"
     for i in $lo_tgt; do
-      if [ -f "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" ]; then
-        nfsget_n "${_pri_nfsalgaebp}"/prebuilt/bp/common/"${i}" /"${i}"
+      if [ -f "${_pri_nfsalgaews}/algae-bp"/prebuilt/bp/common/"${i}" ]; then
+        nfsget_n "${_pri_nfsalgaews}/algae-bp"/prebuilt/bp/common/"${i}" /"${i}"
       else
-        nfsget_n "${_pri_nfsalgaebp}"/prebuilt/common/"${i}" /"${i}"
+        nfsget_n "${_pri_nfsalgaews}/algae-bp"/prebuilt/common/"${i}" /"${i}"
       fi
     done
     ;;

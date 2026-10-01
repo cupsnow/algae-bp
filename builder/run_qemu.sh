@@ -25,10 +25,14 @@ _lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=r
 
 _lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net -device virtio-net-device,netdev=my-shrd-net"
 _lo_qemuargs_usb1="-device qemu-xhci,id=xhci"
-# a69c:8d80 aicsemi AIC Wlan
-_lo_qemuargs_aic8800d80="-device usb-host,vendorid=0xa69c,productid=0x8d80"
+
+_lo_qemuargs_aic8800d80=
 # a69c:5721 aicsemi Aic MSC
 _lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0xa69c,productid=0x5721"
+# a69c:8d80 aicsemi AIC Wlan
+_lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0xa69c,productid=0x8d80"
+# 368b:8d81 AICSemi AIC 8800D80
+_lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0x368b,productid=0x8d81"
 
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"

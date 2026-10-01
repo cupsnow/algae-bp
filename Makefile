@@ -25,11 +25,11 @@ BUILDDIR2=$(abspath $(PROJDIR)/../build)
 APP_ATTR_ub20?=ub20
 
 # beagleplay
-# - bp wl18xx powervr ti_linux bb_linux powervr gdbserver
+# - bp wl18xx powervr ti_linux bb_linux powervr gdbserver aic8800d80
 APP_ATTR_bp?=bp wl18xx powervr gdbserver
 
 # qemu arm64
-# - qemuarm64
+# - qemuarm64 aic8800d80
 APP_ATTR_qemuarm64?=qemuarm64
 
 # Set the target to build
@@ -472,15 +472,15 @@ linux_defconfig-qemuarm64=defconfig
 linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
-	$(linux_MAKE_BASE) mrproper
+# 	$(linux_MAKE_BASE) mrproper
 	if [ -f "$(linux_configfile-$(APP_PLATFORM))" ]; then \
 	  echo "Apply $(linux_configfile-$(APP_PLATFORM))"; \
-	  rsync -aL $(RSYNC_VERBOSE) $(linux_configfile-$(APP_PLATFORM)) $(linux_BUILDDIR)/.config \
-	    && yes "" | $(linux_MAKE) oldconfig; \
-	  $(linux_MAKE) prepare; \
+# 	  rsync -aL $(RSYNC_VERBOSE) $(linux_configfile-$(APP_PLATFORM)) $(linux_BUILDDIR)/.config \
+# 	    && yes "" | $(linux_MAKE) oldconfig; \
+# 	  $(linux_MAKE) prepare; \
 	else \
 	  echo "Apply $(linux_defconfig-$(APP_PLATFORM))"; \
-	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
+# 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
 	fi
 
 $(addprefix linux_,help):
@@ -575,6 +575,54 @@ dtwko: | $(dtwko_BUILDDIR)
 
 dtwko_%: 
 	$(dtwko_MAKE) $(@:dtwko_%=%)
+
+#------------------------------------
+#
+aic8800d80_DIR?=$(PKGDIR2)/aic8800d80
+aic8800d80_BUILDDIR?=$(BUILDDIR2)/aic8800d80-$(APP_PLATFORM)
+aic8800d80_MAKE=$(MAKE) $(aic8800d80_MAKEARGS_$(APP_PLATFORM)) -C $(linux_BUILDDIR) \
+  M=$(or $(aic8800d80_DIR)/drivers/aic8800,$(error miss aic8800d80_DIR/drivers/aic8800)) MO=$(aic8800d80_BUILDDIR)
+aic8800d80_MAKE+=V=1
+
+aic8800d80_MAKEARGS_bp+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+aic8800d80_MAKEARGS_qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE)
+
+GENDIR+=$(aic8800d80_BUILDDIR)
+
+.PHONY: aic8800d80
+aic8800d80: | $(aic8800d80_BUILDDIR)
+	$(aic8800d80_MAKE)
+
+aic8800d80_destpkg:
+	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:libxml2_host_%=libxml2_%)
+
+CMD_AIC8800D80_INSTALL_KO=$(if $(1),,$(error "CMD_AIC8800D80_INSTALL_KO invalid argument")) \
+  rsync -a --ignore-missing-args $(RSYNC_VERBOSE) \
+      $(aic8800d80_BUILDDIR)/aic_zlp_quirk/aic_zlp_quirk.ko \
+      $(aic8800d80_BUILDDIR)/aic8800_fdrv/aic8800_fdrv.ko \
+      $(aic8800d80_BUILDDIR)/aic_load_fw/aic_load_fw.ko \
+      $(1)/
+
+CMD_AIC8800D80_INSTALL_FW=$(if $(1),,$(error "CMD_AIC8800D80_INSTALL_FW invalid argument")) \
+  $(MKDIR) $(1)/lib/firmware \
+    && cd $(aic8800d80_DIR)/fw \
+	&& rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
+	    aic8800D80 \
+		$(1)/lib/firmware/
+
+aic8800d80_destpkg $(aic8800d80_BUILDDIR)-destpkg.tar.xz:
+	$(RMTREE) $(aic8800d80_BUILDDIR)-destpkg
+	$(MKDIR) $(aic8800d80_BUILDDIR)-destpkg
+	$(call CMD_AIC8800D80_INSTALL_KO,$(aic8800d80_BUILDDIR)-destpkg)
+	$(call CMD_AIC8800D80_INSTALL_FW,$(aic8800d80_BUILDDIR)-destpkg)
+	tar -Jcvf $(aic8800d80_BUILDDIR)-destpkg.tar.xz \
+	    -C $(dir $(aic8800d80_BUILDDIR)-destpkg) \
+	    $(notdir $(aic8800d80_BUILDDIR)-destpkg)
+# 	$(RMTREE) $(aic8800d80_BUILDDIR)-destpkg
+
+aic8800d80_%:
+	$(MAKE) -C $(aic8800d80_DIR)/drivers/aic8800 clean
+	$(aic8800d80_MAKE) $(@:aic8800d80_%=%)
 
 #------------------------------------
 #
