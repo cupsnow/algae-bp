@@ -24,6 +24,11 @@ _lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=ra
 _lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,if=none -device virtio-blk-device,drive=rootfs"
 
 _lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net -device virtio-net-device,netdev=my-shrd-net"
+_lo_qemuargs_usb1="-device qemu-xhci,id=xhci"
+# a69c:8d80 aicsemi AIC Wlan
+_lo_qemuargs_aic8800d80="-device usb-host,vendorid=0xa69c,productid=0x8d80"
+# a69c:5721 aicsemi Aic MSC
+_lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0xa69c,productid=0x5721"
 
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
@@ -59,6 +64,9 @@ start_uboot() {
   _lo_ub="${_pri_destdir}/boot/u-boot.bin"
   _lo_qemuargs="${_lo_qemuargs} -nographic"
 
+  # device_add usb-host,vendorid=0xa69c,productid=0x8d80
+  _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usb1} ${_lo_qemuargs_aic8800d80}"
+
   if [ ! -f "${_lo_dtb}" ]; then
     # shellcheck disable=SC2086
     cmd_run ${_lo_cmd_qemu} -M virt,dumpdtb=${_lo_dtb}
@@ -79,7 +87,9 @@ start_kernel() {
   # _lo_cmd_qemu="${_lo_cmd_qemu} -nographic"
   _lo_cmd_qemu="${_lo_cmd_qemu} -display gtk -device virtio-gpu"
   _lo_cmd_qemu="${_lo_cmd_qemu} -serial mon:stdio"
-  
+
+  _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_xhci} ${_lo_qemuargs_aic8800d80}"
+
   _lo_kernel="${_pri_destdir}/boot/Image"
   _lo_bootargs="console=ttyAMA0 root=/dev/vda rw rootwait"
   _lo_bootargs="${_lo_bootargs:+${_lo_bootargs} }init=/sbin/init rdinit=/bin/sh debug"
