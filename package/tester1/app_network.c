@@ -262,7 +262,6 @@ static int wifi_run(const char *cmd)
 		debug(tag, "running: %s", cmd);
 		wifi_close_inherited_fds();
 		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-		debug(tag, "completed: %s", cmd);
 		_exit(127);
 	}
 
@@ -576,16 +575,27 @@ static int wifi_wpa_connected(void) {
 	FILE *fp;
 	char line[128];
 	int completed = 0;
+	unsigned long ts0;
 
-	fp = popen("wpa_cli -i " WIFI_IFACE " status 2>/dev/null", "r");
+	snprintf(line, sizeof(line), "wpa_cli -i %s status 2>/dev/null", WIFI_IFACE);
+	fp = popen(line, "r");
 	if (!fp) {
+		dk_error(tag, "popen failed: %s", line);
 		return 0;
 	}
 
+	ts0 = (unsigned long)time64_get_current_ms();
 	while (fgets(line, sizeof(line), fp) != NULL) {
+		unsigned long td;
+
 		if (strncmp(line, "wpa_state=COMPLETED", 19) == 0) {
 			completed = 1;
 			break;
+		}
+		td = (unsigned long)time64_get_current_ms() - ts0;
+		if (td > 10000) {
+			debug(tag, "wpa_cli status timeout: %s", line);
+			// break;
 		}
 	}
 	pclose(fp);

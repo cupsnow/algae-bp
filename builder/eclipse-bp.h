@@ -25,6 +25,9 @@ extern "C" {
 #define USE_V4L2 1
 #define USE_X264 1
 
+// arm
+#define ALOE_HAVE_NEON
+
 // wpasup
 #define CONFIG_CTRL_IFACE y
 #define CONFIG_CTRL_IFACE_UNIX
