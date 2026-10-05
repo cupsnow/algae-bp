@@ -91,6 +91,9 @@ static const char *tag = "net";
   (wpa_supplicant / udhcpc / hostapd / dnsmasq) do NOT inherit MPI
   device fds opened by app_camera_init(). Otherwise after dexatek
   exits those orphans keep mpp module use-count > 0 and rmmod fails.
+  The parent waits at most WIFI_RUN_TIMEOUT_MS. On timeout it
+  SIGKILLs the child process group so a stuck `ip link` / killall
+  cannot freeze wifi_thread (and leave wpa_supplicant unreaped).
  */
 
 enum {
@@ -116,6 +119,9 @@ enum {
 #define WIFI_CONNECT_TIMEOUT_S     30
 #define WIFI_IPSETUP_TIMEOUT_S     30
 #define WIFI_LOOP_DELAY_MS         1000
+#define WIFI_RUN_TIMEOUT_MS        10000
+#define WIFI_RUN_POLL_MS           100
+#define WIFI_RUN_KILL_WAIT_MS      1000
 
 static PlatformTaskHandle wifi_task_handle = NULL;
 static volatile int wifi_running = 0;
@@ -204,13 +210,42 @@ static void wifi_close_inherited_fds(void)
 	}
 }
 
+/** Poll waitpid until the child exits or timeout_ms elapses.
+ * @return 0 reaped, 1 timeout, -1 waitpid error.
+ */
+static int wifi_wait_child(pid_t pid, int *status, int timeout_ms)
+{
+	uint64_t deadline = time64_get_current_ms() + (uint64_t)timeout_ms;
+
+	for (;;) {
+		pid_t got = waitpid(pid, status, WNOHANG);
+
+		if (got == pid) {
+			return 0;
+		}
+		if (got < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			return -1;
+		}
+		if ((int64_t)(time64_get_current_ms() - deadline) >= 0) {
+			return 1;
+		}
+		time_delay_ms(WIFI_RUN_POLL_MS);
+	}
+}
+
 /** Run a shell command without leaking open fds to the child.
- * Replaces system(): fork, close fds > 2, execl /bin/sh -c, wait.
+ * Replaces system(): fork, close fds > 2, execl /bin/sh -c, wait
+ * with WIFI_RUN_TIMEOUT_MS. The child is its own process group so a
+ * timeout can SIGKILL the shell and the command it is waiting on.
  */
 static int wifi_run(const char *cmd)
 {
 	pid_t pid;
 	int status;
+	int waited;
 
 	if (!cmd) {
 		return -1;
@@ -223,15 +258,37 @@ static int wifi_run(const char *cmd)
 	}
 
 	if (pid == 0) {
+		(void)setpgid(0, 0);
+		debug(tag, "running: %s", cmd);
 		wifi_close_inherited_fds();
 		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+		debug(tag, "completed: %s", cmd);
 		_exit(127);
 	}
 
-	if (waitpid(pid, &status, 0) < 0) {
+	/* Cover the race where the parent signals before the child setpgid. */
+	(void)setpgid(pid, pid);
+
+	debug(tag, "waiting: %s, pid: %d", cmd, pid);
+	waited = wifi_wait_child(pid, &status, WIFI_RUN_TIMEOUT_MS);
+	if (waited < 0) {
 		debug(tag, "waitpid failed: %s", cmd);
 		return -1;
 	}
+	if (waited > 0) {
+		warn(tag, "cmd timeout (%dms), killing pid %d: %s",
+				WIFI_RUN_TIMEOUT_MS, (int)pid, cmd);
+		if (kill(-pid, SIGKILL) != 0) {
+			(void)kill(pid, SIGKILL);
+		}
+		if (wifi_wait_child(pid, &status, WIFI_RUN_KILL_WAIT_MS) != 0) {
+			dk_error(tag, "child pid %d still stuck after SIGKILL: %s",
+					(int)pid, cmd);
+			return -1;
+		}
+		return -1;
+	}
+	debug(tag, "waited: %s, status: %d", cmd, status);
 
 	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
 		debug(tag, "cmd failed (%d): %s",
