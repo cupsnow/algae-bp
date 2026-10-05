@@ -420,6 +420,99 @@ void aloe_rg10_rgb8_i420_v5(int width, int height, int stride,
 	}
 }
 
+/* Extract eight samples spaced four source pixels apart. The shifts and
+ * masks deliberately match v5 even when unused upper RG10 bits are set. */
+#if defined(ALOE_HAVE_SSE2)
+static inline __m128i rg10_v6_pairs(const uint16_t *src) {
+	const __m128i a = _mm_loadu_si128((const __m128i *)(src));
+	const __m128i b = _mm_loadu_si128((const __m128i *)(src + 8));
+	return _mm_unpacklo_epi64(_mm_shuffle_epi32(a, _MM_SHUFFLE(2, 0, 2, 0)),
+		_mm_shuffle_epi32(b, _MM_SHUFFLE(2, 0, 2, 0)));
+}
+static inline __m128i rg10_v6_channel(__m128i a, __m128i b, int shift) {
+	const __m128i mask = _mm_set1_epi32(255);
+	a = _mm_and_si128(_mm_srl_epi32(a, _mm_cvtsi32_si128(shift)), mask);
+	b = _mm_and_si128(_mm_srl_epi32(b, _mm_cvtsi32_si128(shift)), mask);
+	return _mm_packus_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
+}
+#endif
+
+/* Same layout, sampling, dimensions and rounding as v5. SIMD is selected
+ * at build time: NEON on AArch64 / NEON-enabled ARMv7, SSE2 on x86,
+ * otherwise scalar. ALOE_RG10_V6_SCALAR forces the portable path. */
+extern "C"
+void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
+		const void *rg10, void *rgb, void *i420) {
+	if (width < 8 || height < 8 || width % 8 || height % 8) {
+		aloe_log_e("invalid arguments\n");
+		return;
+	}
+	if (!rgb && !i420) return;
+	const int out_w = width / 4, out_h = height / 4;
+	const size_t y_size = (size_t)out_w * out_h;
+	uint8_t *const yp = (uint8_t *)i420;
+	uint8_t *const up = i420 ? yp + y_size : NULL;
+	uint8_t *const vp = i420 ? up + y_size / 4 : NULL;
+	for (int y = 0; y < out_h; ++y) {
+		const uint16_t *row0 = (const uint16_t *)((const uint8_t *)rg10 + (size_t)y * 4 * stride);
+		const uint16_t *row1 = (const uint16_t *)((const uint8_t *)row0 + stride);
+		uint8_t *dst = rgb ? (uint8_t *)rgb + (size_t)y * out_w * 3 : NULL;
+		uint8_t *yd = i420 ? yp + (size_t)y * out_w : NULL;
+		uint8_t *ud = i420 ? up + (size_t)(y / 2) * (out_w / 2) : NULL;
+		uint8_t *vd = i420 ? vp + (size_t)(y / 2) * (out_w / 2) : NULL;
+		int x = 0;
+#if !defined(ALOE_RG10_V6_SCALAR) && (defined(ALOE_HAVE_NEON) || defined(ALOE_HAVE_SSE2))
+		for (; x + 8 <= out_w; x += 8) {
+			uint8_t r[8], g[8], b[8];
+#if defined(ALOE_HAVE_NEON)
+			const uint16x8x4_t top = vld4q_u16(row0 + x * 4);
+			const uint16x8x4_t bottom = vld4q_u16(row1 + x * 4);
+			uint8x8x3_t channels;
+			channels.val[0] = vmovn_u16(vshrq_n_u16(top.val[0], 2));
+			channels.val[1] = vmovn_u16(vshrq_n_u16(top.val[1], 2));
+			channels.val[2] = vmovn_u16(vshrq_n_u16(bottom.val[1], 2));
+			if (dst) vst3_u8(dst + x * 3, channels);
+			if (yd) {
+				uint16x8_t sum = vmull_u8(channels.val[0], vdup_n_u8(66));
+				sum = vmlal_u8(sum, channels.val[1], vdup_n_u8(129));
+				sum = vmlal_u8(sum, channels.val[2], vdup_n_u8(25));
+				vst1_u8(yd + x, vadd_u8(vshrn_n_u16(vaddq_u16(sum, vdupq_n_u16(128)), 8), vdup_n_u8(16)));
+				if (y & 1) {
+					vst1_u8(r, channels.val[0]); vst1_u8(g, channels.val[1]); vst1_u8(b, channels.val[2]);
+				}
+			}
+#else
+			const __m128i top0 = rg10_v6_pairs(row0 + x * 4), top1 = rg10_v6_pairs(row0 + x * 4 + 16);
+			const __m128i bot0 = rg10_v6_pairs(row1 + x * 4), bot1 = rg10_v6_pairs(row1 + x * 4 + 16);
+			_mm_storel_epi64((__m128i *)(void *)r, rg10_v6_channel(top0, top1, 2));
+			_mm_storel_epi64((__m128i *)(void *)g, rg10_v6_channel(top0, top1, 18));
+			_mm_storel_epi64((__m128i *)(void *)b, rg10_v6_channel(bot0, bot1, 18));
+			if (dst) for (int i = 0; i < 8; ++i) {
+				dst[(x + i) * 3] = r[i]; dst[(x + i) * 3 + 1] = g[i]; dst[(x + i) * 3 + 2] = b[i];
+			}
+			if (yd) rgb_y_sse2_8(yd + x, r, g, b);
+#endif
+			if (yd && (y & 1)) for (int i = 1; i < 8; i += 2) {
+				/* Signed division must truncate toward zero, as in v5. */
+				ud[(x + i) / 2] = (-38 * r[i] - 74 * g[i] + 112 * b[i] + 128) / 256 + 128;
+				vd[(x + i) / 2] = (112 * r[i] - 94 * g[i] - 18 * b[i] + 128) / 256 + 128;
+			}
+		}
+#endif
+		for (; x < out_w; ++x) {
+			const uint8_t r = rg10_u8(row0[x * 4]), g = rg10_u8(row0[x * 4 + 1]), b = rg10_u8(row1[x * 4 + 1]);
+			if (dst) { dst[x * 3] = r; dst[x * 3 + 1] = g; dst[x * 3 + 2] = b; }
+			if (yd) {
+				yd[x] = (66 * r + 129 * g + 25 * b + 128) / 256 + 16;
+				if ((y & 1) && (x & 1)) {
+					ud[x / 2] = (-38 * r - 74 * g + 112 * b + 128) / 256 + 128;
+					vd[x / 2] = (112 * r - 94 * g - 18 * b + 128) / 256 + 128;
+				}
+			}
+		}
+	}
+}
+
 /** Convert I420 to RGB888.
  *
  * I420

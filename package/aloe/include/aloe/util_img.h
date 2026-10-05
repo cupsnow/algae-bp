@@ -40,6 +40,10 @@ void aloe_i420_rgb8(int width, int height, const void *i420, void *rgb);
 void aloe_rg10_rgb8_i420_v5(int width, int height, int stride, const void *rg10, 
 		void *rgb, void *i420);
 
+/* v5-compatible quarter-size RGB888 / I420; either output may be NULL. */
+void aloe_rg10_rgb8_i420_v6(int width, int height, int stride, const void *rg10,
+		void *rgb, void *i420);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
