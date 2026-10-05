@@ -9,13 +9,19 @@
 #include "project_config.h"
 
 #include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <unistd.h>
 
 static const char *tag = "net";
 
@@ -75,6 +81,16 @@ static const char *tag = "net";
 - WIFI_STATE_CONNECTED
   if disconnected:
     goto state WIFI_STATE_RESET
+
+- thread exit (app_wifi_deinit / SIGINT):
+  do NOT kill wpa_supplicant/udhcpc and do NOT flush IP — leave the
+  link up so OTA stopStream (kills dexatek_main) does not drop Wi‑Fi.
+  While running, RESET still owns/restarts those daemons.
+
+- wifi_run(): fork + close fds>2 before exec so long-lived daemons
+  (wpa_supplicant / udhcpc / hostapd / dnsmasq) do NOT inherit MPI
+  device fds opened by app_camera_init(). Otherwise after dexatek
+  exits those orphans keep mpp module use-count > 0 and rmmod fails.
  */
 
 enum {
@@ -96,7 +112,7 @@ enum {
 #define WIFI_AP_NETMASK            "255.255.255.0"
 #define WIFI_AP_DHCP_START         "192.168.17.50"
 #define WIFI_AP_DHCP_END           "192.168.17.200"
-#define WIFI_AP_SSID               "IPCam-Setup"
+#define WIFI_AP_SSID_PREFIX        "IPCam-Setup"
 #define WIFI_CONNECT_TIMEOUT_S     30
 #define WIFI_IPSETUP_TIMEOUT_S     30
 #define WIFI_LOOP_DELAY_MS         1000
@@ -143,13 +159,86 @@ static int wifi_state_timed_out(void)
 	return time(NULL) >= wifi_state_deadline;
 }
 
-static int wifi_run(const char *cmd) {
-	int ret;
+/** Close every fd except stdin/stdout/stderr.
+ * Used in the wifi_run child so shell-spawned daemons cannot inherit
+ * MPI /dev nodes and pin the mpp module after dexatek_main exits.
+ */
+static void wifi_close_inherited_fds(void)
+{
+	DIR *d;
+	struct dirent *ent;
+	int fd;
+	int dfd;
+	long maxfd;
 
-	if ((ret = system(cmd)) != 0) {
-		debug(tag, "cmd failed (%d): %s", ret, cmd);
+	d = opendir("/proc/self/fd");
+	if (d) {
+		dfd = dirfd(d);
+		while ((ent = readdir(d)) != NULL) {
+			char *end = NULL;
+			long n;
+
+			if (ent->d_name[0] == '.') {
+				continue;
+			}
+			errno = 0;
+			n = strtol(ent->d_name, &end, 10);
+			if (errno || end == ent->d_name || (end && *end != '\0')) {
+				continue;
+			}
+			fd = (int)n;
+			if (fd > 2 && fd != dfd) {
+				(void)close(fd);
+			}
+		}
+		closedir(d);
+		return;
 	}
-	return ret;
+
+	maxfd = sysconf(_SC_OPEN_MAX);
+	if (maxfd < 0 || maxfd > 1024) {
+		maxfd = 1024;
+	}
+	for (fd = 3; fd < (int)maxfd; fd++) {
+		(void)close(fd);
+	}
+}
+
+/** Run a shell command without leaking open fds to the child.
+ * Replaces system(): fork, close fds > 2, execl /bin/sh -c, wait.
+ */
+static int wifi_run(const char *cmd)
+{
+	pid_t pid;
+	int status;
+
+	if (!cmd) {
+		return -1;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		dk_error(tag, "fork failed for: %s", cmd);
+		return -1;
+	}
+
+	if (pid == 0) {
+		wifi_close_inherited_fds();
+		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+		_exit(127);
+	}
+
+	if (waitpid(pid, &status, 0) < 0) {
+		debug(tag, "waitpid failed: %s", cmd);
+		return -1;
+	}
+
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		debug(tag, "cmd failed (%d): %s",
+				WIFEXITED(status) ? WEXITSTATUS(status) : status, cmd);
+		return -1;
+	}
+	return 0;
 }
 
 static int wifi_iface_exists(void) {
@@ -311,9 +400,41 @@ static int wifi_write_file(const char *path, const char *content) {
 	return SUCCESS;
 }
 
+/** SoftAP SSID = IPCam-Setup-<last 2 MAC octets hex>, e.g. IPCam-Setup-08AC.
+ * Falls back to the bare prefix if MAC cannot be read. */
+static void wifi_build_ap_ssid(char *ssid, size_t ssid_sz)
+{
+	char path[64];
+	char mac[32];
+	unsigned int b0, b1, b2, b3, b4, b5;
+	FILE *fp;
+
+	if (!ssid || ssid_sz == 0) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "/sys/class/net/%s/address", WIFI_IFACE);
+	fp = fopen(path, "r");
+	if (fp && fgets(mac, sizeof(mac), fp) &&
+	    sscanf(mac, "%x:%x:%x:%x:%x:%x", &b0, &b1, &b2, &b3, &b4, &b5) == 6) {
+		fclose(fp);
+		snprintf(ssid, ssid_sz, "%s-%02X%02X", WIFI_AP_SSID_PREFIX, b4, b5);
+		return;
+	}
+	if (fp) {
+		fclose(fp);
+	}
+
+	warn(tag, "cannot read %s MAC; using bare AP SSID", WIFI_IFACE);
+	snprintf(ssid, ssid_sz, "%s", WIFI_AP_SSID_PREFIX);
+}
+
 static int wifi_start_ap(void) {
 	char cmd[256];
 	char conf[512];
+	char ap_ssid[32];
+
+	wifi_build_ap_ssid(ap_ssid, sizeof(ap_ssid));
 
 	snprintf(conf, sizeof(conf),
 			"interface=%s\n"
@@ -323,7 +444,7 @@ static int wifi_start_ap(void) {
 			"channel=6\n"
 			"auth_algs=1\n"
 			"ignore_broadcast_ssid=0\n",
-			WIFI_IFACE, WIFI_AP_SSID);
+			WIFI_IFACE, ap_ssid);
 	if (wifi_write_file(WIFI_HOSTAPD_CONF, conf) != SUCCESS) {
 		return FAIL;
 	}
@@ -356,7 +477,7 @@ static int wifi_start_ap(void) {
 		return FAIL;
 	}
 
-	info(tag, "AP started ssid=%s ip=%s", WIFI_AP_SSID, WIFI_AP_ADDR);
+	info(tag, "AP started ssid=%s ip=%s", ap_ssid, WIFI_AP_ADDR);
 	return SUCCESS;
 }
 
@@ -645,9 +766,14 @@ static void *wifi_thread(void *args) {
 		time_delay_ms(WIFI_LOOP_DELAY_MS);
 	}
 
-	wifi_kill_daemons();
-	wifi_flush_ip();
-	info(tag, "wifi thread exiting");
+	/* Leave wpa_supplicant / udhcpc (and the wlan IP) running after
+	 * dexatek_main exits. stopStream.cgi SIGINT-kills dexatek to free
+	 * MPP RAM for OTA upload; tearing Wi‑Fi down here drops the browser
+	 * session so /stopStream.cgi never returns and the UI sticks on
+	 * "Pausing streaming…". While dexatek_main is alive the state machine
+	 * still owns these daemons (RESET calls wifi_kill_daemons() before
+	 * restart). On the next boot / app_wifi_init(), RESET reclaims them. */
+	info(tag, "wifi thread exiting (keeping wpa_supplicant/udhcpc)");
 	return NULL;
 }
 
