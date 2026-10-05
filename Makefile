@@ -159,6 +159,17 @@ help_buildattr2:
 	$(foreach i,TOOLCHAIN_SYSROOT BUILD_SYSROOT, \
 	  @echo "  $(i): $($(i))"$(NEWLINE))
 
+meson_arm $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini: NEEDS_EXE_WRAPPER=true
+# meson_arm $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini: LLVM_CONFIG=llvm-config
+meson_arm $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini: | $(firstword $(wildcard $(PROJDIR)/builder/meson-arm-$(APP_PLATFORM).ini $(PROJDIR)/builder/meson-arm.ini))
+	rsync -a $(RSYNC_VERBOSE) $(firstword $(wildcard $(PROJDIR)/builder/meson-arm-$(APP_PLATFORM).ini $(PROJDIR)/builder/meson-arm.ini)) \
+	    $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
+	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
+	sed -i "s|\$${ARM_CROSS_COMPILE}|$(ARM_CROSS_COMPILE)|" $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
+# 	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(if $(NEEDS_EXE_WRAPPER),needs_exe_wrapper = true)|" $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
+	sed -i "s|\$${NEEDS_EXE_WRAPPER}|$(NEEDS_EXE_WRAPPER:%=needs_exe_wrapper = %)|" $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
+	sed -i "s|\$${LLVM_CONFIG}|$(LLVM_CONFIG:%=llvm-config = '%')|" $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
+
 meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: NEEDS_EXE_WRAPPER=true
 # meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: LLVM_CONFIG=llvm-config
 meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: | $(firstword $(wildcard $(PROJDIR)/builder/meson-aarch64-$(APP_PLATFORM).ini $(PROJDIR)/builder/meson-aarch64.ini))
