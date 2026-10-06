@@ -604,9 +604,6 @@ GENDIR+=$(aic8800d80_BUILDDIR)
 aic8800d80: | $(aic8800d80_BUILDDIR)
 	$(aic8800d80_MAKE)
 
-aic8800d80_destpkg:
-	$(MAKE) APP_PLATFORM=$(APP_PLATFORM) DESTDIR=$(DESTDIR) $(@:libxml2_host_%=libxml2_%)
-
 CMD_AIC8800D80_INSTALL_KO=$(if $(1),,$(error "CMD_AIC8800D80_INSTALL_KO invalid argument")) \
   rsync -a --ignore-missing-args $(RSYNC_VERBOSE) \
       $(aic8800d80_BUILDDIR)/aic_zlp_quirk/aic_zlp_quirk.ko \
@@ -1530,7 +1527,6 @@ libffi: | $(libffi_BUILDDIR)/Makefile
 libffi_%: | $(libffi_BUILDDIR)/Makefile
 	$(libffi_MAKE) $(PARALLEL_BUILD) $(@:libffi_%=%)
 
-
 #------------------------------------
 # WIP
 # patch configure.ac
@@ -1542,17 +1538,8 @@ screen_DIR=$(PKGDIR2)/screen/src
 screen_BUILDDIR=$(BUILDDIR2)/screen-$(APP_BUILD)
 screen_MAKE=$(MAKE) -C $(screen_BUILDDIR)
 
-ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
-screen_INCDIR+=$(TOOLCHAIN_SYSROOT)/include $(TOOLCHAIN_SYSROOT)/usr/include
-screen_LIBDIR+=$(TOOLCHAIN_SYSROOT)/lib $(TOOLCHAIN_SYSROOT)/usr/lib
 screen_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
 screen_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
-else
-screen_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
-screen_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
-endif
-screen_ACARGS_CFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
-screen_ACARGS_LDFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
 
 GENDIR+=$(screen_BUILDDIR)
 
@@ -1882,8 +1869,6 @@ expat%:
 CLEAN += expat
 
 #------------------------------------
-# WIP
-# dependent: expat
 #
 dbus_DIR = $(PROJDIR)/package/dbus
 dbus_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(dbus_DIR)
@@ -1893,33 +1878,28 @@ dbus_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
 
-dbus: dbus_;
+dbus_DIR=$(PKGDIR2)/dbus
+dbus_BUILDDIR=$(BUILDDIR2)/dbus-$(APP_PLATFORM)
+dbus_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
+dbus_NINJA=. $(PYVENVDIR)/bin/activate && $(1) ninja
 
-dbus_dir:
-	cd $(dir $(dbus_DIR)) && \
-	  wget http://dbus.freedesktop.org/releases/dbus/dbus-1.11.0.tar.gz && \
-	  tar -zxvf dbus-1.11.0.tar.gz && \
-	  ln -sf dbus-1.11.0 $(dbus_DIR)
+dbus_CROSSFILE-bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+dbus_CROSSFILE-qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+dbus_CROSSFILE-air192=$(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
 
-$(addprefix dbus_,clean distclean): ;
-	if [ -e $(dbus_DIR)/Makefile ]; then \
-	  $(dbus_MAKE) $(patsubst _%,%,$(@:dbus%=%)); \
-	fi
+GENDIR+=$(BUILDDIR) $(dbus_BUILDDIR)
 
-dbus_makefile:
-	echo "Makefile *** Generate Makefile by configure..."
-	cd $(dbus_DIR) && $(dbus_CFGENV) ./configure $(dbus_CFGPARAM)
+ifneq ($(dbus_CROSSFILE-$(APP_PLATFORM)),)
+dbus_cross_file: $(dbus_CROSSFILE-$(APP_PLATFORM))
+endif
 
-dbus%:
-	if [ ! -d $(dbus_DIR) ]; then \
-	  $(MAKE) dbus_dir; \
-	fi
-	if [ ! -f $(dbus_DIR)/Makefile ]; then \
-	  $(MAKE) dbus_makefile; \
-	fi
-	$(dbus_MAKE) $(patsubst _%,%,$(@:dbus%=%))
+dbus_defconfig $(dbus_BUILDDIR)/build.ninja: | $(dbus_BUILDDIR) $(PYVENVDIR) $(dbus_CROSSFILE-$(APP_PLATFORM))
+	$(call dbus_MESON,$(BUILD_PKGCFG_ENV)) setup \
+	    $(dbus_CROSSFILE-$(APP_PLATFORM):%=--cross-file %) \
+	    --prefix=/ \
+	    --libdir=lib \
+	    $(dbus_BUILDDIR) $(dbus_DIR)
 
-CLEAN += dbus
 
 #------------------------------------
 # openssl-3.3
@@ -3170,7 +3150,7 @@ CLEAN += libical
 # WIP
 # dependent: glib readline, libical, dbus
 #
-bluez_DIR = $(PROJDIR)/package/bluez
+bluez_DIR = $(PKGDIR2)/bluez
 bluez_MAKE = $(MAKE) DESTDIR=$(DESTDIR) V=1 -C $(bluez_DIR)
 bluez_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
     --with-pic $(addprefix --enable-,static threads pie) \
@@ -3189,6 +3169,31 @@ bluez_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
     ICAL_LIBS="-L$(DESTDIR)/lib -lical -licalss -licalvcal -lpthread" \
     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -lncurses"
+
+bluez_DIR=$(PKGDIR2)/bluez
+bluez_BUILDDIR=$(BUILDDIR2)/bluez-$(APP_PLATFORM)
+
+bluez_INCDIR+=$(BUILD_INCDIR)
+bluez_LIBDIR+=$(BUILD_LIBDIR)
+
+GENDIR+=$(bluez_BUILDDIR)
+
+bluez_bootstrap $(bluez_DIR)/configure:
+	if [ -e "$(bluez_DIR)/bootstrap" ]; then \
+	  cd $(bluez_DIR) && ./bootstrap; \
+	elif [ -e "$(bluez_DIR)/configure.ac" ]; then \
+	  cd $(bluez_DIR) && ./autoreconf -fiv; \
+	else \
+	  false "Failed to generate configure"; \
+	fi
+
+bluez_defconfig $(bluez_BUILDDIR)/Makefile: | $(bluez_BUILDDIR) $(bluez_DIR)/configure
+	cd $(bluez_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(bluez_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      CFLAGS="$(addprefix -I,$(bluez_INCDIR))" \
+	      LDFLAGS="$(addprefix -L,$(bluez_LIBDIR))" \
+	      $(bluez_ACARGS_$(APP_PLATFORM))
 
 bluez: bluez_;
 

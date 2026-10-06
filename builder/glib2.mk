@@ -3,13 +3,16 @@
 #
 glib_DEP=iconvgettext pcre2 utilinux libffi
 glib_DIR=$(PKGDIR2)/glib
-glib_BUILDDIR?=$(BUILDDIR2)/glib-$(APP_BUILD)
+glib_BUILDDIR?=$(BUILDDIR2)/glib-$(APP_PLATFORM)
 glib_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
 glib_NINJA=. $(PYVENVDIR)/bin/activate && $(1) ninja
 
-glib_setup $(glib_BUILDDIR): | $(PYVENVDIR) $(BUILDDIR)/meson-aarch64.ini
+glib_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+glib_CROSSFILE_qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+
+glib_setup $(glib_BUILDDIR): | $(PYVENVDIR) $(glib_CROSSFILE_$(APP_PLATFORM))
 	$(call glib_MESON,$(BUILD_PKGCFG_ENV)) setup \
-	    --cross-file $(BUILDDIR)/meson-aarch64.ini \
+	    $(glib_CROSSFILE_$(APP_PLATFORM):%=--cross-file=%) \
 	    --prefix=/ \
 	    --libdir=lib \
 	    -Dinstalled_tests=false \
