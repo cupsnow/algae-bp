@@ -184,9 +184,16 @@ meson_aarch64 $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini: | $(firstword $(wil
 cmake_aarch64 $(BUILDDIR)/cross-aarch64.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
 	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/cross-aarch64.cmake \
 	    $(BUILDDIR)/cross-aarch64.cmake
-	sed -i "s|\$${BUILD_SYSROOT}|$(BUILD_SYSROOT)|" $(BUILDDIR)/cross-aarch64.cmake
+	sed -i "s|\$${BUILD_SYSROOT}|$(TOOLCHAIN_SYSROOT)|" $(BUILDDIR)/cross-aarch64.cmake
 	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(AARCH64_CROSS_COMPILE)|" $(BUILDDIR)/cross-aarch64.cmake
+	sed -i "s|\$${BUILD_ROOTPATH}|$(BUILD_SYSROOT)|" $(BUILDDIR)/cross-aarch64.cmake
 
+cmake_arm $(BUILDDIR)/cross-arm.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
+	rsync -a $(RSYNC_VERBOSE) $(PROJDIR)/builder/cross-aarch64.cmake \
+	    $(BUILDDIR)/cross-arm.cmake
+	sed -i "s|\$${BUILD_SYSROOT}|$(TOOLCHAIN_SYSROOT)|" $(BUILDDIR)/cross-arm.cmake
+	sed -i "s|\$${AARCH64_CROSS_COMPILE}|$(ARM_CROSS_COMPILE)|" $(BUILDDIR)/cross-arm.cmake
+	sed -i "s|\$${BUILD_ROOTPATH}|$(BUILD_SYSROOT)|" $(BUILDDIR)/cross-arm.cmake
 
 CMD_DEPSHOW_RULE=echo "$(1): $(2)";
 # CMD_DEPSHOW_DOT=$(foreach iter,$(2),echo "  $(iter) -> $(1)";)
@@ -1571,7 +1578,7 @@ screen_%: | $(screen_BUILDDIR)/Makefile
 #------------------------------------
 #
 libevent_DIR?=$(PKGDIR2)/libevent
-libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_BUILD)
+libevent_BUILDDIR?=$(BUILDDIR2)/libevent-$(APP_PLATFORM)
 libevent_MAKE=$(MAKE) -C $(libevent_BUILDDIR)
 
 libevent_ACARGS_CPPFLAGS_iq9+=--sysroot=$(TOOLCHAIN_SYSROOT)
@@ -1831,53 +1838,53 @@ libxml2_%: | $(libxml2_BUILDDIR)/Makefile
 	$(libxml2_MAKE) $(PARALLEL_BUILD) $(@:libxml2_%=%)
 
 #------------------------------------
-# WIP
 #
-expat_DIR = $(PROJDIR)/package/expat
-expat_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(expat_DIR)
-expat_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    --with-pic \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+expat_DIR?=$(PKGDIR2)/libexpat/expat
+expat_BUILDDIR?=$(BUILDDIR2)/expat-$(APP_PLATFORM)
+expat_MAKE=$(MAKE) -C $(expat_BUILDDIR)
 
-expat: expat_;
+expat_INCDIR+=$(BUILD_INCDIR)
+expat_LIBDIR+=$(BUILD_LIBDIR)
 
-$(addprefix expat_,clean distclean): ;
-	if [ -e $(expat_DIR)/Makefile ]; then \
-	  $(expat_MAKE) $(patsubst _%,%,$(@:expat%=%)); \
-	fi
+GENDIR+=$(expat_BUILDDIR)
 
-expat_dir:
-	cd $(dir $(expat_DIR)) && \
-	  wget http://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz && \
-	  tar -zxvf expat-2.1.0.tar.gz && \
-	  ln -sf expat-2.1.0 $(expat_DIR)
+$(expat_DIR)/configure:
+	cd $(expat_DIR) \
+	  && autoreconf -fiv
 
-expat_makefile:
-	echo "Makefile *** Generate Makefile by configure..."
-	cd $(expat_DIR) && $(expat_CFGENV) ./configure $(expat_CFGPARAM)
+expat_defconfig $(expat_BUILDDIR)/Makefile: | $(expat_BUILDDIR) $(expat_DIR)/configure
+	cd $(expat_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(expat_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
+	      CPPFLAGS="$(addprefix -I,$(expat_INCDIR)) $(expat_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(expat_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(expat_LIBDIR)) $(expat_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      $(expat_ACARGS_$(APP_PLATFORM))
 
-expat%:
-	if [ ! -d $(expat_DIR) ]; then \
-	  $(MAKE) expat_dir; \
-	fi
-	if [ ! -f $(expat_DIR)/Makefile ]; then \
-	  $(MAKE) expat_makefile; \
-	fi
-	$(expat_MAKE) $(patsubst _%,%,$(@:expat%=%))
+expat_install: DESTDIR=$(BUILD_SYSROOT)
+expat_install: | $(expat_BUILDDIR)/Makefile
+	$(expat_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib, \
+	    libexpat)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig, \
+	    expat)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
-CLEAN += expat
+$(eval $(call DEF_DESTDEP,expat))
+
+expat: | $(expat_BUILDDIR)/Makefile
+	$(expat_MAKE) $(PARALLEL_BUILD)
+
+expat_%: | $(expat_BUILDDIR)/Makefile
+	$(expat_MAKE) $(PARALLEL_BUILD) $(@:expat_%=%)
 
 #------------------------------------
 #
-dbus_DIR = $(PROJDIR)/package/dbus
-dbus_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(dbus_DIR)
-dbus_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    --with-pic --enable-abstract-sockets \
-    $(addprefix --disable-,tests) \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-
+dbus_DEP+=expat
 dbus_DIR=$(PKGDIR2)/dbus
 dbus_BUILDDIR=$(BUILDDIR2)/dbus-$(APP_PLATFORM)
 dbus_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
@@ -1900,6 +1907,15 @@ dbus_defconfig $(dbus_BUILDDIR)/build.ninja: | $(dbus_BUILDDIR) $(PYVENVDIR) $(d
 	    --libdir=lib \
 	    $(dbus_BUILDDIR) $(dbus_DIR)
 
+dbus_install: DESTDIR=$(BUILD_SYSROOT)
+dbus_install: | $(dbus_BUILDDIR)/build.ninja
+	$(call dbus_MESON) compile $(MESON_VERBOSE) -C $(dbus_BUILDDIR)
+	$(call dbus_MESON) install --destdir=$(DESTDIR) -C $(dbus_BUILDDIR)
+
+$(eval $(call DEF_DESTDEP,dbus))
+
+dbus: | $(dbus_BUILDDIR)/build.ninja
+	$(dbus_MESON) compile $(MESON_VERBOSE) -C $(dbus_BUILDDIR)
 
 #------------------------------------
 # openssl-3.3
@@ -2474,8 +2490,13 @@ CLEAN += socat
 utilinux_DEP=ncursesw
 utilinux_DIR=$(PKGDIR2)/util-linux
 utilinux_BUILDDIR?=$(BUILDDIR2)/utilinux-$(APP_BUILD)
-utilinux_INCDIR=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
-utilinux_LIBDIR=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+
+# configure checked ncursesw, but missing to link the tinfow
+# assign LIBS for static link order: objs, -lncursesw then -ltinfow
+utilinux_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/ncursesw
+utilinux_LIBDIR+=$(BUILD_LIBDIR)
+utilinux_LIBS+=tinfow
+
 utilinux_MAKE=$(MAKE) -C $(utilinux_BUILDDIR)
 
 $(utilinux_DIR)/configure: | $(utilinux_DIR)/autogen.sh
@@ -2490,8 +2511,10 @@ utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(
 	      --host=`$(CC) -dumpmachine` --prefix= \
 	      --disable-liblastlog2 --without-python \
 	      --disable-makeinstall-chown --disable-makeinstall-setuid \
-	      CFLAGS="$(addprefix -I,$(utilinux_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(utilinux_LIBDIR)) -ltinfow" \
+	      CPPFLAGS="$(addprefix -I,$(utilinux_INCDIR)) $(utilinux_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(utilinux_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(utilinux_LIBDIR)) $(utilinux_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
+		  LIBS="$(addprefix -l,$(utilinux_LIBS)) $(utilinux_ACARGS_LIBS_$(APP_PLATFORM))" \
 	      $(utilinux_ACARGS_$(APP_PLATFORM))
 
 utilinux_install: DESTDIR=$(BUILD_SYSROOT)
@@ -2913,51 +2936,56 @@ include builder/libdrm2.mk
 
 #------------------------------------
 #
-systemd_DEP=libcap utilinux libxcrypt
+systemd_DEP=libcap utilinux
+# systemd_DEP+=libxcrypt
 systemd_DIR=$(PKGDIR2)/systemd
 systemd_BUILDDIR?=$(BUILDDIR2)/systemd-$(APP_BUILD)
 systemd_MESON=. $(PYVENVDIR)/bin/activate && meson
 
-systemd_ACARGS_CPPFLAGS+=-I$(BUILD_SYSROOT)/include \
-    -I$(BUILD_SYSROOT)/include/libmount \
-	-I$(BUILD_SYSROOT)/include/blkid
-systemd_ACARGS_LDFLAGS+=-L$(BUILD_SYSROOT)/lib64 \
-    -L$(BUILD_SYSROOT)/lib
-# systemd_ACARGS_LDFLAGS+=-liconv
-systemd_ACARGS_$(APP_PLATFORM)+=-Dstatic-libsystemd=true \
-    -Dstatic-libudev=true
+systemd_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/libmount \
+    $(BUILD_SYSROOT)/include/blkid
+systemd_LIBDIR+=$(BUILD_LIBDIR)
+systemd_PKGCFGDIR+=$(BUILD_PKGCFG_LIBDIR)
+
+systemd_ACARGS_$(APP_PLATFORM)+=-Dstatic-libsystemd=true -Dstatic-libudev=true
 systemd_ACARGS_$(APP_PLATFORM)+=-Dstandalone-binaries=true
 
-systemd_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
-    $(BUILD_SYSROOT)/share/pkgconfig
+# systemd install reference dbus-1.pc and add more DESTDIR
+# here manually assign the directory
+systemd_ACARGS_$(APP_PLATFORM)+=-Ddbuspolicydir=/share/dbus-1/system.d
+systemd_ACARGS_$(APP_PLATFORM)+=-Ddbussessionservicedir=/share/dbus-1/services
+systemd_ACARGS_$(APP_PLATFORM)+=-Ddbussystemservicedir=/share/dbus-1/system-services
+
+systemd_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+systemd_CROSSFILE_qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 
 GENPYVENV+=meson ninja
+
+GENDIR+=$(systemd_BUILDDIR)
 
 systemd_defconfig $(systemd_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 	. $(PYVENVDIR)/bin/activate \
 	  && $(BUILD_PKGCFG_ENV) meson setup \
 	      -Dprefix=/ \
-		  -Dc_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_CPPFLAGS))" \
-	      -Dc_link_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_LDFLAGS))" \
-		  -Dcpp_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_CPPFLAGS))" \
-	      -Dcpp_link_args="$(subst $(SPACE),$(SPACE),$(systemd_ACARGS_LDFLAGS))" \
-		  -Dpkg_config_path="$(subst $(SPACE),:,$(systemd_ACARGS_PKGDIR))" \
-		  -Dtests=false \
-		  -Dinstall-tests=false \
-		  -Dselinux=disabled \
-		  $(systemd_ACARGS_$(APP_PLATFORM)) \
-		  --cross-file=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini \
-		  $(systemd_BUILDDIR) $(systemd_DIR)
+	      -Dc_args="$(addsufix -I,$(systemd_INCDIR)) $(libevent_MESONARGS_CFLAGS_$(APP_PLATFORM))" \
+	      -Dc_link_args="$(addsufix -L,$(systemd_LIBDIR)) $(libevent_MESONARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      -Dcpp_args="$(addsufix -I,$(systemd_INCDIR)) $(libevent_MESONARGS_CFLAGS_$(APP_PLATFORM))" \
+	      -Dcpp_link_args="$(addsufix -L,$(systemd_LIBDIR)) $(libevent_MESONARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      -Dpkg_config_path="$(subst $(SPACE),:,$(systemd_PKGCFGDIR))" \
+	      -Dtests=false -Dinstall-tests=false -Dselinux=disabled \
+	      $(systemd_ACARGS_$(APP_PLATFORM)) \
+	      $(systemd_CROSSFILE_$(APP_PLATFORM):%=--cross-file=%) \
+	      $(systemd_BUILDDIR) $(systemd_DIR)
 
 systemd_install: DESTDIR=$(BUILD_SYSROOT)
 systemd_install: | $(systemd_BUILDDIR)/build.ninja
 	$(systemd_MESON) compile -C $(systemd_BUILDDIR)
-	$(systemd_MESON) install -C $(systemd_BUILDDIR) --destdir=$(DESTDIR)
+	DESTDIR=$(DESTDIR) $(systemd_MESON) install --destdir=$(DESTDIR) -C $(systemd_BUILDDIR)
 
 $(eval $(call DEF_DESTDEP,systemd))
 
 systemd: | $(systemd_BUILDDIR)/build.ninja
-	$(systemd_MESON) compile -C $(systemd_BUILDDIR) -v
+	$(systemd_MESON) compile $(MESON_VERBOSE) -C $(systemd_BUILDDIR)
 
 #------------------------------------
 #
@@ -3109,72 +3137,81 @@ hostapd_%: $(hostapd_BUILDDIR)/hostapd/.config
 
 
 #------------------------------------
-# WIP
 #
-libical_DIR = $(PROJDIR)/package/libical
-libical_MAKE = $(MAKE) DESTDIR=$(DESTDIR) -C $(libical_DIR)/build
-libical_CFGENV = CC=$(CC) CXX=$(C++) \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-libical_CFGPARAM = -DCMAKE_INSTALL_PREFIX=/
+# libical_DEP=glib libxml2
+libical_DIR=$(PKGDIR2)/libical
+libical_BUILDDIR=$(BUILDDIR2)/libical-$(APP_PLATFORM)
+libical_MAKE=$(MAKE) -C $(libical_BUILDDIR)
 
-libical: libical_;
+libical_CROSSFILE_bp=$(BUILDDIR)/cross-aarch64.cmake
+libical_CROSSFILE_qemuarm64=$(BUILDDIR)/cross-aarch64.cmake
 
-libical_dir:
-	git clone https://github.com/libical/libical.git $(libical_DIR)
+# required libxml2
+libical_CMAKEARGS+=-DLIBICAL_GLIB=False -DLIBICAL_BUILD_VZIC=False
+libical_CMAKEARGS+=-DLIBICAL_GLIB_BUILD_DOCS=False
 
-libical_clean:
-	if [ -e $(libical_DIR)/build/Makefile ]; then \
-	  $(libical_MAKE) $(patsubst _%,%,$(@:libical%=%)); \
-	fi
+GENDIR+=$(libical_BUILDDIR)
 
-libical_distclean:
-	$(RM) $(libical_DIR)/build
+libical_defconfig $(libical_BUILDDIR)/Makefile: | $(libical_BUILDDIR) $(libical_CROSSFILE_$(APP_PLATFORM))
+	cd $(libical_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) cmake \
+	      $(libical_CROSSFILE_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	      -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
+	      -DLIBICAL_JAVA_BINDINGS=False -DLIBICAL_GOBJECT_INTROSPECTION=False \
+	      $(libical_CMAKEARGS_$(APP_PLATFORM)) $(libical_CMAKEARGS) \
+	      $(libical_DIR)
 
-libical_makefile:
-	$(MKDIR) $(libical_DIR)/build && cd $(libical_DIR)/build && \
-	  $(libical_CFGENV) cmake $(libical_CFGPARAM) ..
+libical_install: DESTDIR=$(BUILD_SYSROOT)
+libical_install: | $(libical_cross_cmake_$(APP_BUILD))
+	$(MKDIR) $(libical_BUILDDIR)
+	cd $(libical_BUILDDIR) \
+	  && cmake \
+	      $(libical_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
+		  $(libical_DIR)
+	$(libical_MAKE) DESTDIR= install
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
 
-libical%:
-	if [ ! -d $(libical_DIR) ]; then \
-	  $(MAKE) libical_dir; \
-	fi
-	if [ ! -e $(libical_DIR)/build/Makefile ]; then \
-	  $(MAKE) libical_makefile; \
-	fi
-	$(libical_MAKE) $(patsubst _%,%,$(@:libical%=%))
+$(eval $(call DEF_DESTDEP,libical))
 
-CLEAN += libical
+libical: | $(libical_BUILDDIR)/Makefile
+	$(libical_MAKE)
 
 #------------------------------------
 # WIP
 # dependent: glib readline, libical, dbus
 #
-bluez_DIR = $(PKGDIR2)/bluez
-bluez_MAKE = $(MAKE) DESTDIR=$(DESTDIR) V=1 -C $(bluez_DIR)
-bluez_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    --with-pic $(addprefix --enable-,static threads pie) \
-    $(addprefix --disable-,test udev cups systemd) \
-    --enable-library \
-    --with-dbusconfdir=/etc \
-    --with-dbussystembusdir=/share/dbus-1/system-services \
-    --with-dbussessionbusdir=/share/dbus-1/services \
-    GLIB_CFLAGS="-I$(DESTDIR)/include/glib-2.0 -I$(DESTDIR)/lib/glib-2.0/include" \
-    GLIB_LIBS="-L$(DESTDIR)/lib -lglib-2.0" \
-    GTHREAD_CFLAGS="-I$(DESTDIR)/include/glib-2.0" \
-    GTHREAD_LIBS="-L$(DESTDIR)/lib -lgthread-2.0" \
-    DBUS_CFLAGS="-I$(DESTDIR)/include/dbus-1.0 -I$(DESTDIR)/lib/dbus-1.0/include" \
-    DBUS_LIBS="-L$(DESTDIR)/lib -ldbus-1" \
-    ICAL_CFLAGS="-I$(DESTDIR)/include" \
-    ICAL_LIBS="-L$(DESTDIR)/lib -lical -licalss -licalvcal -lpthread" \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -lncurses"
-
+# bluez_DIR = $(PKGDIR2)/bluez
+# bluez_MAKE = $(MAKE) DESTDIR=$(DESTDIR) V=1 -C $(bluez_DIR)
+# bluez_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+#     --with-pic $(addprefix --enable-,static threads pie) \
+#     $(addprefix --disable-,test udev cups systemd) \
+#     --enable-library \
+#     --with-dbusconfdir=/etc \
+#     --with-dbussystembusdir=/share/dbus-1/system-services \
+#     --with-dbussessionbusdir=/share/dbus-1/services \
+#     GLIB_CFLAGS="-I$(DESTDIR)/include/glib-2.0 -I$(DESTDIR)/lib/glib-2.0/include" \
+#     GLIB_LIBS="-L$(DESTDIR)/lib -lglib-2.0" \
+#     GTHREAD_CFLAGS="-I$(DESTDIR)/include/glib-2.0" \
+#     GTHREAD_LIBS="-L$(DESTDIR)/lib -lgthread-2.0" \
+#     DBUS_CFLAGS="-I$(DESTDIR)/include/dbus-1.0 -I$(DESTDIR)/lib/dbus-1.0/include" \
+#     DBUS_LIBS="-L$(DESTDIR)/lib -ldbus-1" \
+#     ICAL_CFLAGS="-I$(DESTDIR)/include" \
+#     ICAL_LIBS="-L$(DESTDIR)/lib -lical -licalss -licalvcal -lpthread" \
+#     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
+#     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -lncurses"
+bluez_DEP=utilinux dbus glib libical
 bluez_DIR=$(PKGDIR2)/bluez
 bluez_BUILDDIR=$(BUILDDIR2)/bluez-$(APP_PLATFORM)
 
-bluez_INCDIR+=$(BUILD_INCDIR)
+bluez_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/ncursesw
 bluez_LIBDIR+=$(BUILD_LIBDIR)
+bluez_LIBS+=tinfow
+
+bluez_MAKE=$(MAKE) -C $(bluez_BUILDDIR)
 
 GENDIR+=$(bluez_BUILDDIR)
 
@@ -3191,8 +3228,10 @@ bluez_defconfig $(bluez_BUILDDIR)/Makefile: | $(bluez_BUILDDIR) $(bluez_DIR)/con
 	cd $(bluez_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(bluez_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      CFLAGS="$(addprefix -I,$(bluez_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(bluez_LIBDIR))" \
+	      CPPFLAGS="$(addprefix -I,$(bluez_INCDIR)) $(bluez_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(bluez_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(addprefix -L,$(bluez_LIBDIR)) $(bluez_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
+		  LIBS="$(addprefix -l,$(bluez_LIBS)) $(bluez_ACARGS_LIBS_$(APP_PLATFORM))" \
 	      $(bluez_ACARGS_$(APP_PLATFORM))
 
 bluez: bluez_;
