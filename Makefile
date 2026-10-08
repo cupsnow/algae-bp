@@ -89,9 +89,11 @@ else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
-# Setup target sysroot
+# Setup target sysroot, staging root path
 # ====
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
+
+BUILD_STAGINGROOT+=
 
 # Setup c/c++ header/library directory
 # ====
@@ -101,6 +103,10 @@ ifneq ($(strip $(BUILD_SYSROOT)),)
 BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
 BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 usr/lib lib64 lib)
 endif
+
+# Append
+BUILD_INCDIR+=$(BUILD_INCDIR_POST2)
+BUILD_LIBDIR+=$(BUILD_LIBDIR_POST2)
 
 # Setup for use of pkg-config in cross compilation
 # ====
@@ -114,6 +120,7 @@ else ifeq ($(strip $(APP_PLATFORM)),)
 else ifneq ($(strip $(BUILD_SYSROOT)),)
 BUILD_PKGCFG_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/, \
   usr/lib/pkgconfig usr/share/pkgconfig lib/pkgconfig share/pkgconfig)
+BUILD_PKGCFG_LIBDIR+=$(BUILD_PKGCFG_LIBDIR_POST2)
 BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR) $(PKG_CONFIG_LIBDIR))" \
     PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)"
 endif
@@ -139,6 +146,9 @@ CP_VERBOSE+=-v
 MV_VERBOSE+=-v
 ELFSTRIP_VERBOSE+=-v
 MESON_VERBOSE+=-v
+
+# for the cmake generated Makefile
+CMAKE_MAKE_VERBOSE+=VERBOSE=1
 endif
 
 #------------------------------------
@@ -156,7 +166,7 @@ help_buildattr2:
 	  @echo "  $(i): $($(i))"$(NEWLINE))
 	@echo "  AARCH64 build target: $$($(AARCH64_CROSS_COMPILE)gcc -dumpmachine)"
 	@echo "  ARM build target: $$($(ARM_CROSS_COMPILE)gcc -dumpmachine)"
-	$(foreach i,TOOLCHAIN_SYSROOT BUILD_SYSROOT, \
+	$(foreach i,TOOLCHAIN_SYSROOT BUILD_SYSROOT BUILD_STAGINGROOT, \
 	  @echo "  $(i): $($(i))"$(NEWLINE))
 
 meson_arm $(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini: NEEDS_EXE_WRAPPER=true
@@ -1244,50 +1254,79 @@ procps_%: | $(procps_BUILDDIR)/Makefile
 	$(procps_MAKE) $(PARALLEL_BUILD) $(@:procps_%=%)
 
 #------------------------------------
-# WIP
-# dependency: ncurses
-# ftp://ftp.cwru.edu/pub/bash/readline-6.3.tar.gz
 #
-readline_DIR = $(PROJDIR)/package/readline
-readline_MAKE = $(MAKE) DESTDIR=$(DESTDIR) SHLIB_LIBS=-lncurses -C $(readline_DIR)
-readline_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-    bash_cv_wcwidth_broken=yes \
-    CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
-    LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
+readline_DEP=ncursesw
+readline_DIR=$(PKGDIR2)/readline
+# readline_MAKE=$(MAKE) DESTDIR=$(DESTDIR) SHLIB_LIBS=-lncurses -C $(readline_DIR)
+# readline_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
+#     bash_cv_wcwidth_broken=yes \
+#     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
+#     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
 
-readline: readline_;
+# readline: readline_;
 
-readline_dir:
-	cd $(dir $(readline_DIR)) && \
-	wget http://ftp.gnu.org/gnu/readline/readline-6.3.tar.gz && \
-	    tar -zxvf readline-6.3.tar.gz && \
-	    ln -sf readline-6.3 readline
+# readline_dir:
+# 	cd $(dir $(readline_DIR)) && \
+# 	wget http://ftp.gnu.org/gnu/readline/readline-6.3.tar.gz && \
+# 	    tar -zxvf readline-6.3.tar.gz && \
+# 	    ln -sf readline-6.3 readline
 
-readline_clean readline_distclean:
-	if [ -e $(readline_DIR)/Makefile ]; then \
-	  $(readline_MAKE) $(patsubst _%,%,$(@:readline%=%)); \
-	fi
+# readline_clean readline_distclean:
+# 	if [ -e $(readline_DIR)/Makefile ]; then \
+# 	  $(readline_MAKE) $(patsubst _%,%,$(@:readline%=%)); \
+# 	fi
 
-readline_makefile:
-	echo "Makefile *** Generate Makefile by configure..."
-	cd $(readline_DIR) && ./configure $(readline_CFGPARAM)
+# readline_makefile:
+# 	echo "Makefile *** Generate Makefile by configure..."
+# 	cd $(readline_DIR) && ./configure $(readline_CFGPARAM)
 
-readline%:
-	if [ ! -d $(readline_DIR) ]; then \
-	  $(MAKE) readline_dir; \
-	fi
-	if [ ! -e $(readline_DIR)/Makefile ]; then \
-	  $(MAKE) readline_makefile; \
-	fi
-	$(readline_MAKE) $(patsubst _%,%,$(@:readline%=%))
-	if [ "$(patsubst _%,%,$(@:readline%=%))" = "install" ]; then \
-	  for i in libhistory.old libhistory.so.6.3.old \
-	      libreadline.old libreadline.so.6.3.old; do \
-	    $(RM) $(DESTDIR)/lib/$$i; \
-	  done; \
-	fi
+# readline%:
+# 	if [ ! -d $(readline_DIR) ]; then \
+# 	  $(MAKE) readline_dir; \
+# 	fi
+# 	if [ ! -e $(readline_DIR)/Makefile ]; then \
+# 	  $(MAKE) readline_makefile; \
+# 	fi
+# 	$(readline_MAKE) $(patsubst _%,%,$(@:readline%=%))
+# 	if [ "$(patsubst _%,%,$(@:readline%=%))" = "install" ]; then \
+# 	  for i in libhistory.old libhistory.so.6.3.old \
+# 	      libreadline.old libreadline.so.6.3.old; do \
+# 	    $(RM) $(DESTDIR)/lib/$$i; \
+# 	  done; \
+# 	fi
 
-CLEAN += readline
+# CLEAN += readline
+readline_BUILDDIR=$(BUILDDIR2)/readline-$(APP_PLATFORM)
+readline_INCDIR+=$(BUILD_INCDIR)
+readline_LIBDIR+=$(BUILD_LIBDIR)
+
+readline_MAKE=$(MAKE) -C $(readline_BUILDDIR)
+
+GENDIR+=$(readline_BUILDDIR)
+
+readline_defconfig $(readline_BUILDDIR)/Makefile: | $(readline_BUILDDIR)
+	cd $(readline_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(readline_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+		  CPPFLAGS="$(addprefix -I,$(readline_INCDIR))" \
+		  LDFLAGS="$(addprefix -L,$(readline_LIBDIR))"
+
+readline_install: DESTDIR=$(BUILD_SYSROOT)
+readline_install: | $(readline_BUILDDIR)/Makefile
+	$(readline_MAKE) DESTDIR=$(DESTDIR) install
+
+$(eval $(call DEF_DESTDEP,readline))
+
+readline_distclean:
+	$(RM) $(readline_BUILDDIR)
+
+readline: | $(readline_BUILDDIR)/Makefile
+	$(readline_MAKE) $(PARALLEL_BUILD)
+
+readline_%: | $(readline_BUILDDIR)/Makefile
+	$(readline_MAKE) $(PARALLEL_BUILD) $(@:readline_%=%)
+
+
 
 #------------------------------------
 #
@@ -1370,10 +1409,9 @@ sqlite3_%: | $(sqlite3_BUILDDIR)/Makefile
 	$(sqlite3_MAKE) $(PARALLEL_BUILD) $(@:sqlite3_%=%)
 
 #------------------------------------
-# https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz
 #
 libiconv_DIR?=$(PKGDIR2)/libiconv
-libiconv_BUILDDIR?=$(BUILDDIR2)/libiconv-$(APP_BUILD)
+libiconv_BUILDDIR?=$(BUILDDIR2)/libiconv-$(APP_PLATFORM)
 libiconv_MAKE=$(MAKE) -C $(libiconv_BUILDDIR)
 
 # $(libiconv_DIR)/configure: | $(libiconv_DIR)/autogen.sh
@@ -1406,10 +1444,9 @@ libiconv_%: | $(libiconv_BUILDDIR)/Makefile
 	$(libiconv_MAKE) $(PARALLEL_BUILD) $(@:libiconv_%=%)
 
 #------------------------------------
-# https://ftp.gnu.org/pub/gnu/gettext/gettext-0.22.5.tar.gz
 #
 gettext_DIR?=$(PKGDIR2)/gettext
-gettext_BUILDDIR?=$(BUILDDIR2)/gettext-$(APP_BUILD)
+gettext_BUILDDIR?=$(BUILDDIR2)/gettext-$(APP_PLATFORM)
 gettext_MAKE=$(MAKE) -C $(gettext_BUILDDIR)
 gettext_ACARGS_$(APP_PLATFORM)=$(libiconv_DESTDIR:%=--with-libiconv-prefix=%)
 
@@ -2694,7 +2731,7 @@ spirvheaders_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
 
 spirvheaders_CMAKEARGS+=
 
-spirvheaders_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(spirvheaders_BUILDDIR)
+spirvheaders_MAKE=$(MAKE) $(CMAKE_MAKE_VERBOSE) -C $(spirvheaders_BUILDDIR)
 
 GENDIR+=$(spirvheaders_BUILDDIR)
 spirvheaders_defconfig $(spirvheaders_BUILDDIR)/Makefile: | $(spirvheaders_BUILDDIR)
@@ -2762,7 +2799,7 @@ spirvllvmtranslator_CMAKEARGS_ub20+= \
 spirvllvmtranslator_CMAKEARGS_bp+= \
   -DLLVM_DIR=$(BUILD_SYSROOT)/lib/cmake/llvm
 
-spirvllvmtranslator_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(spirvllvmtranslator_BUILDDIR)
+spirvllvmtranslator_MAKE=$(MAKE) $(CMAKE_MAKE_VERBOSE) -C $(spirvllvmtranslator_BUILDDIR)
 
 GENDIR+=$(spirvllvmtranslator_BUILDDIR)
 spirvllvmtranslator_defconfig $(spirvllvmtranslator_BUILDDIR)/Makefile: | $(spirvllvmtranslator_BUILDDIR)
@@ -2801,7 +2838,7 @@ spirvtools_CMAKEARGS+= \
 spirvtools_CMAKEARGS+= \
   -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT)
 
-spirvtools_MAKE=$(MAKE) $(if $(filter 1,$(CLIARGS_VERBOSE)),VERBOSE=1) -C $(spirvtools_BUILDDIR)
+spirvtools_MAKE=$(MAKE) $(CMAKE_MAKE_VERBOSE) -C $(spirvtools_BUILDDIR)
 
 GENDIR+=$(spirvtools_BUILDDIR)
 spirvtools_defconfig $(spirvtools_BUILDDIR)/Makefile: | $(spirvtools_BUILDDIR)
@@ -3203,13 +3240,16 @@ libical: | $(libical_BUILDDIR)/Makefile
 #     ICAL_LIBS="-L$(DESTDIR)/lib -lical -licalss -licalvcal -lpthread" \
 #     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
 #     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -lncurses"
-bluez_DEP=utilinux dbus glib libical
+bluez_DEP=utilinux dbus glib libical readline
 bluez_DIR=$(PKGDIR2)/bluez
 bluez_BUILDDIR=$(BUILDDIR2)/bluez-$(APP_PLATFORM)
 
 bluez_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/ncursesw
 bluez_LIBDIR+=$(BUILD_LIBDIR)
-bluez_LIBS+=tinfow
+bluez_LIBS+=tinfow # pcre2-8
+
+bluez_ACARGS+=--disable-obex --disable-manpages --disable-cups \
+    --enable-midi
 
 bluez_MAKE=$(MAKE) -C $(bluez_BUILDDIR)
 
@@ -3232,38 +3272,32 @@ bluez_defconfig $(bluez_BUILDDIR)/Makefile: | $(bluez_BUILDDIR) $(bluez_DIR)/con
 	      CFLAGS="$(bluez_ACARGS_CFLAGS_$(APP_PLATFORM))" \
 	      LDFLAGS="$(addprefix -L,$(bluez_LIBDIR)) $(bluez_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
 		  LIBS="$(addprefix -l,$(bluez_LIBS)) $(bluez_ACARGS_LIBS_$(APP_PLATFORM))" \
-	      $(bluez_ACARGS_$(APP_PLATFORM))
+	      $(bluez_ACARGS_$(APP_PLATFORM)) $(bluez_ACARGS)
 
-bluez: bluez_;
+bluez_install: DESTDIR=$(BUILD_SYSROOT)
+bluez_install: bluez | $(bluez_BUILDDIR)/Makefile
+	$(bluez_MAKE) DESTDIR=$(DESTDIR) PREFIX= install
 
-bluez_dir:
-	cd $(dir $(bluez_DIR)) && \
-	  wget http://www.kernel.org/pub/linux/bluetooth/bluez-5.37.tar.xz && \
-	  tar -Jxvf bluez-5.37.tar.xz && \
-	  ln -sf bluez-5.37 $(bluez_DIR)
+$(eval $(call DEF_DESTDEP,bluez))
 
-$(addprefix bluez_,clean distclean): ;
-	if [ -e $(bluez_DIR)/Makefile ]; then \
-	  $(bluez_MAKE) $(patsubst _%,%,$(@:bluez%=%)); \
-	fi
+bluez: | $(bluez_BUILDDIR)/Makefile
+	$(bluez_MAKE) $(PARALLEL_BUILD)
 
-bluez_makefile:
-	cd $(bluez_DIR) && ./configure $(bluez_CFGPARAM)
+bluez_%: | $(bluez_BUILDDIR)/Makefile
+	$(bluez_MAKE) $(PARALLEL_BUILD) $(@:bluez_%=%)
 
-bluez%:
-	if [ ! -d $(bluez_DIR) ]; then \
-	  $(MAKE) bluez_dir; \
-	fi
-	if [ ! -e $(bluez_DIR)/Makefile ]; then \
-	  $(MAKE) bluez_makefile; \
-	fi
-	$(bluez_MAKE) $(patsubst _%,%,$(@:bluez%=%))
-	if [ "$(patsubst _%,%,$(@:bluez%=%))" = "install" ]; then \
-	  [ -d $(DESTDIR)/etc/bluetooth ] || $(MKDIR) $(DESTDIR)/etc/bluetooth; \
-	  $(CP) $(bluez_DIR)/src/main.conf $(DESTDIR)/etc/bluetooth/; \
-	fi
-
-CLEAN += bluez
+# bluez%:
+# 	if [ ! -d $(bluez_DIR) ]; then \
+# 	  $(MAKE) bluez_dir; \
+# 	fi
+# 	if [ ! -e $(bluez_DIR)/Makefile ]; then \
+# 	  $(MAKE) bluez_makefile; \
+# 	fi
+# 	$(bluez_MAKE) $(patsubst _%,%,$(@:bluez%=%))
+# 	if [ "$(patsubst _%,%,$(@:bluez%=%))" = "install" ]; then \
+# 	  [ -d $(DESTDIR)/etc/bluetooth ] || $(MKDIR) $(DESTDIR)/etc/bluetooth; \
+# 	  $(CP) $(bluez_DIR)/src/main.conf $(DESTDIR)/etc/bluetooth/; \
+# 	fi
 
 #------------------------------------
 # WIP
@@ -3632,7 +3666,7 @@ define SIMPLE_APP1
 $(1)_DIR=$(or $(2),$(firstword $(wildcard $(PKGDIR)/$(1) $(PKGDIR2)/$(1))))
 $(1)_MAKE=$$(MAKE) $(foreach var, \
     PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR BUILD_SYSROOT \
-	TOOLCHAIN_SYSROOT, \
+    TOOLCHAIN_SYSROOT, \
     $(var)="$$($(var))") -C $$($(1)_DIR)
 
 $(1):

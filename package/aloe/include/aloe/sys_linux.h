@@ -142,6 +142,11 @@ pid_t aloe_fork_exec(const char *prog, ...);
 
 int aloe_waitpid(pid_t pid);
 
+char* aloe_errnostr(int eno, char *buf, size_t buf_sz);
+char* aloe_sigstr(int sig, char *buf, size_t buf_sz);
+int aloe_errnostr_val(const char *str);
+int aloe_sigstr_val(const char *str);
+
 /** @} ALOE_LINUX */
 
 #ifdef __cplusplus

@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <signal.h>
 
 #  define log_m(_lvl, _msg, _args...) do { \
 	struct timespec ts; \
@@ -360,4 +361,126 @@ void aloe_munmap(aloe_mmap_t *mm) {
 		}
 		aloe_mmap_reset(mm);
 	}
+}
+
+extern "C"
+char* aloe_errnostr(int eno, char *buf, size_t buf_sz) {
+	strerror_r(eno, (char*)buf, buf_sz);
+	buf[buf_sz = 1] = '\0';
+	return buf;
+}
+
+extern "C"
+char* aloe_sigstr(int sig, char *buf, size_t buf_sz) {
+	const char *str = sigabbrev_np(sig); // INT, TERM ...
+	int len = str ? strlen(str) : 0;
+	if (len >= buf_sz) len = buf_sz - 1;
+	memcpy(buf, str, len);
+	buf[len] = '\0';
+	return buf;
+}
+
+static struct {
+	int eno;
+	const char *name;
+} aloe_enolut[] = {
+#define enolut_decl(_s) { _s, #_s }
+       enolut_decl(E2BIG), enolut_decl(EACCES), enolut_decl(EADDRINUSE),
+       enolut_decl(EADDRNOTAVAIL), enolut_decl(EAFNOSUPPORT), enolut_decl(EAGAIN),
+       enolut_decl(EALREADY), enolut_decl(EBADE), enolut_decl(EBADF),
+       enolut_decl(EBADFD), enolut_decl(EBADMSG), enolut_decl(EBADR),
+       enolut_decl(EBADRQC), enolut_decl(EBADSLT), enolut_decl(EBUSY),
+       enolut_decl(ECANCELED), enolut_decl(ECHILD), enolut_decl(ECHRNG),
+       enolut_decl(ECOMM), enolut_decl(ECONNABORTED), enolut_decl(ECONNREFUSED),
+       enolut_decl(ECONNRESET), enolut_decl(EDEADLK), enolut_decl(EDEADLOCK),
+       enolut_decl(EDESTADDRREQ), enolut_decl(EDOM), enolut_decl(EDQUOT),
+       enolut_decl(EEXIST), enolut_decl(EFAULT), enolut_decl(EFBIG),
+       enolut_decl(EHOSTDOWN), enolut_decl(EHOSTUNREACH), enolut_decl(EHWPOISON),
+       enolut_decl(EIDRM), enolut_decl(EILSEQ), enolut_decl(EINPROGRESS),
+       enolut_decl(EINTR), enolut_decl(EINVAL), enolut_decl(EIO),
+       enolut_decl(EISCONN), enolut_decl(EISDIR), enolut_decl(EISNAM),
+       enolut_decl(EKEYEXPIRED), enolut_decl(EKEYREJECTED), enolut_decl(EKEYREVOKED),
+       enolut_decl(EL2HLT), enolut_decl(EL2NSYNC), enolut_decl(EL3HLT),
+       enolut_decl(EL3RST), enolut_decl(ELIBACC), enolut_decl(ELIBBAD),
+       enolut_decl(ELIBMAX), enolut_decl(ELIBSCN), enolut_decl(ELIBEXEC),
+       enolut_decl(ELNRNG), enolut_decl(ELOOP), enolut_decl(EMEDIUMTYPE),
+       enolut_decl(EMFILE), enolut_decl(EMLINK), enolut_decl(EMSGSIZE),
+       enolut_decl(EMULTIHOP), enolut_decl(ENAMETOOLONG), enolut_decl(ENETDOWN),
+       enolut_decl(ENETRESET), enolut_decl(ENETUNREACH), enolut_decl(ENFILE),
+       enolut_decl(ENOANO), enolut_decl(ENOBUFS), enolut_decl(ENODATA),
+       enolut_decl(ENODEV), enolut_decl(ENOENT), enolut_decl(ENOEXEC),
+       enolut_decl(ENOKEY), enolut_decl(ENOLCK), enolut_decl(ENOLINK),
+       enolut_decl(ENOMEDIUM), enolut_decl(ENOMEM), enolut_decl(ENOMSG),
+       enolut_decl(ENONET), enolut_decl(ENOPKG), enolut_decl(ENOPROTOOPT),
+       enolut_decl(ENOSPC), enolut_decl(ENOSR), enolut_decl(ENOSTR),
+       enolut_decl(ENOSYS), enolut_decl(ENOTBLK), enolut_decl(ENOTCONN),
+       enolut_decl(ENOTDIR), enolut_decl(ENOTEMPTY), enolut_decl(ENOTRECOVERABLE),
+       enolut_decl(ENOTSOCK), enolut_decl(ENOTSUP), enolut_decl(ENOTTY),
+       enolut_decl(ENOTUNIQ), enolut_decl(ENXIO), enolut_decl(EOPNOTSUPP),
+       enolut_decl(EOVERFLOW), enolut_decl(EOWNERDEAD), enolut_decl(EPERM),
+       enolut_decl(EPFNOSUPPORT), enolut_decl(EPIPE), enolut_decl(EPROTO),
+       enolut_decl(EPROTONOSUPPORT), enolut_decl(EPROTOTYPE), enolut_decl(ERANGE),
+       enolut_decl(EREMCHG), enolut_decl(EREMOTE), enolut_decl(EREMOTEIO),
+       enolut_decl(ERESTART), enolut_decl(ERFKILL), enolut_decl(EROFS),
+       enolut_decl(ESHUTDOWN), enolut_decl(ESPIPE), enolut_decl(ESOCKTNOSUPPORT),
+       enolut_decl(ESRCH), enolut_decl(ESTALE), enolut_decl(ESTRPIPE),
+       enolut_decl(ETIME), enolut_decl(ETIMEDOUT), enolut_decl(ETOOMANYREFS),
+       enolut_decl(ETXTBSY), enolut_decl(EUCLEAN), enolut_decl(EUNATCH),
+       enolut_decl(EUSERS), enolut_decl(EWOULDBLOCK), enolut_decl(EXDEV),
+       enolut_decl(EXFULL),
+};
+
+extern "C"
+int aloe_errnostr_val(const char *str) {
+	int cnt = aloe_arraysize(aloe_enolut);
+
+	for (int i = 0; i < cnt; i++) {
+		if (strcasecmp(str, &aloe_enolut[i].name[3]) == 0)
+			return aloe_enolut[i].eno;
+	}
+	return -1;
+}
+
+static struct {
+	int sig;
+	const char *name;
+} aloe_siglut[] = {
+#define siglut_decl(_s) { _s, #_s }
+	siglut_decl(SIGHUP), siglut_decl(SIGINT), siglut_decl(SIGQUIT), 
+	siglut_decl(SIGILL), siglut_decl(SIGTRAP), siglut_decl(SIGABRT), 
+	siglut_decl(SIGIOT), siglut_decl(SIGBUS),
+#ifdef SIGEMT
+	siglut_decl(SIGEMT),
+#endif
+	siglut_decl(SIGFPE), siglut_decl(SIGKILL), siglut_decl(SIGUSR1), 
+	siglut_decl(SIGSEGV), siglut_decl(SIGUSR2), siglut_decl(SIGPIPE), 
+	siglut_decl(SIGALRM), siglut_decl(SIGTERM), siglut_decl(SIGSTKFLT), 
+	siglut_decl(SIGCHLD), siglut_decl(SIGCLD), siglut_decl(SIGCONT), 
+	siglut_decl(SIGSTOP), siglut_decl(SIGTSTP), siglut_decl(SIGTTIN), 
+	siglut_decl(SIGTTOU), siglut_decl(SIGURG), siglut_decl(SIGXCPU), 
+	siglut_decl(SIGXFSZ), siglut_decl(SIGVTALRM), siglut_decl(SIGPROF), 
+	siglut_decl(SIGWINCH), siglut_decl(SIGIO), siglut_decl(SIGPOLL), 
+	siglut_decl(SIGPWR),
+#ifdef SIGINFO
+	siglut_decl(SIGINFO),
+#endif
+#ifdef SIGLOST
+	siglut_decl(SIGLOST),
+#endif
+	siglut_decl(SIGSYS),
+#ifdef SIGLOST
+	siglut_decl(SIGUNUSED),
+#endif
+};
+
+extern "C"
+int aloe_sigstr_val(const char *str) {
+	int cnt = aloe_arraysize(aloe_siglut);
+
+	if (strncasecmp(str, "sig", 3) == 0) str += 3;
+	for (int i = 0; i < cnt; i++) {
+		if (strcasecmp(str, &aloe_siglut[i].name[3]) == 0)
+			return aloe_siglut[i].sig;
+	}
+	return -1;
 }
