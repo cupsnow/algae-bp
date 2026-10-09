@@ -464,7 +464,7 @@ void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
 #if !defined(ALOE_RG10_V6_SCALAR) && (defined(ALOE_HAVE_NEON) || defined(ALOE_HAVE_SSE2))
 		for (; x + 8 <= out_w; x += 8) {
 			uint8_t r[8], g[8], b[8];
-#if defined(ALOE_HAVE_NEON)
+#  if defined(ALOE_HAVE_NEON)
 			const uint16x8x4_t top = vld4q_u16(row0 + x * 4);
 			const uint16x8x4_t bottom = vld4q_u16(row1 + x * 4);
 			uint8x8x3_t channels;
@@ -481,7 +481,7 @@ void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
 					vst1_u8(r, channels.val[0]); vst1_u8(g, channels.val[1]); vst1_u8(b, channels.val[2]);
 				}
 			}
-#else
+#  else
 			const __m128i top0 = rg10_v6_pairs(row0 + x * 4), top1 = rg10_v6_pairs(row0 + x * 4 + 16);
 			const __m128i bot0 = rg10_v6_pairs(row1 + x * 4), bot1 = rg10_v6_pairs(row1 + x * 4 + 16);
 			_mm_storel_epi64((__m128i *)(void *)r, rg10_v6_channel(top0, top1, 2));
@@ -491,7 +491,7 @@ void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
 				dst[(x + i) * 3] = r[i]; dst[(x + i) * 3 + 1] = g[i]; dst[(x + i) * 3 + 2] = b[i];
 			}
 			if (yd) rgb_y_sse2_8(yd + x, r, g, b);
-#endif
+#  endif
 			if (yd && (y & 1)) for (int i = 1; i < 8; i += 2) {
 				/* Signed division must truncate toward zero, as in v5. */
 				ud[(x + i) / 2] = (-38 * r[i] - 74 * g[i] + 112 * b[i] + 128) / 256 + 128;

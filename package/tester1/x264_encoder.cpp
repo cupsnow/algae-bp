@@ -5,10 +5,11 @@
 X264Encoder::X264Encoder(uint32_t width,
                          uint32_t height,
                          int fps,
-                         int bitrateKbps)
+                         int bitrateKbps, int gopFrames)
     : m_width(width),
       m_height(height),
       m_fps(fps),
+      m_gopFrames(gopFrames > 0 ? gopFrames : fps),
       m_bitrateKbps(bitrateKbps)
 {
     memset(&m_param, 0, sizeof(m_param));
@@ -39,8 +40,8 @@ bool X264Encoder::configureParams()
     m_param.i_fps_num = m_fps;
     m_param.i_fps_den = 1;
 
-    m_param.i_keyint_max = m_fps;
-    m_param.i_keyint_min = m_fps;
+    m_param.i_keyint_max = m_gopFrames;
+    m_param.i_keyint_min = m_gopFrames;
 
     m_param.i_threads = 1;
 

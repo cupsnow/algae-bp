@@ -49,7 +49,7 @@ loadkern=fatload ${bootsetdev} ${loadaddr} ${kernpath}
 loadfdt=fatload ${bootsetdev} ${fdtaddr} ${dtbpath}
 loadfit=fatload ${bootsetdev} ${addr_fit} ${fitpath}
 
-# #conf-2
+# #conf-imx219; remember to add the leading sign sharp
 # fitext=
 
 sdboot=run importenv; run initbootset${bootset} && run loadkern && run loadfdt && run loadbootargs && booti ${loadaddr} - ${fdtaddr}

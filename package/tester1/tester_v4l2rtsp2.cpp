@@ -48,6 +48,7 @@ static int vcap_height = 1080;
 static int vcap_fps = 30;
 static uint32_t vcap_pixelformat = fourcc_yu12;
 static int venc_kbps = 2000;
+static int venc_gop = 0; // Default: one second.
 static int rtsp_port = 8554;
 static int verbose_level = VERBOSE_LEVEL_INFO;
 
@@ -131,7 +132,7 @@ struct V4l2RtspPipeline {
 				venc_scale);
 
 		encoder = new X264Encoder(this->m_venc_w, this->m_venc_h, fps,
-				bitrateKbps);
+				bitrateKbps, venc_gop);
 		if (!encoder->init()) {
 			log_e("Failed init encoder\n");
 			delete encoder;
@@ -171,7 +172,7 @@ public:
 protected:
 	V4l2H264FramedSource(UsageEnvironment &env) : FramedSource(env),
 			fHaveStartedReading(False) {
-		gettimeofday(&fNextPresentTime, nullptr);
+		fFramePresentTime = {};
 	}
 
 	virtual ~V4l2H264FramedSource() {
@@ -190,6 +191,8 @@ private:
 			return;
 		}
 
+		if (deliverQueuedNal()) return;
+
 		if (!fHaveStartedReading) {
 			envir().taskScheduler().turnOnBackgroundReadHandling(
 					gPipeline->capture.m_fd,
@@ -198,19 +201,48 @@ private:
 			fHaveStartedReading = True;
 		}
 
-		if (!deliverQueuedNal()) {
-			// Wait for v4l2ReadableHandler to call doGetNextFrame again.
-		}
+	}
+
+	virtual void doStopGettingFrames() {
+		envir().taskScheduler().turnOffBackgroundReadHandling(gPipeline->capture.m_fd);
+		fHaveStartedReading = False;
+		gPipeline->nalQueue.clear();
 	}
 
 	std::vector<uint8_t> i420_buf;
 
 	static void v4l2ReadableHandler(V4l2H264FramedSource *source,
 			int /*mask*/) {
-		if (!gPipeline || !gPipeline->streaming) return;
+		if (!gPipeline || !gPipeline->streaming || !source->isCurrentlyAwaitingData()) return;
 
 		int bufIndex = -1;
 		if (!gPipeline->capture.dequeueBuffer(bufIndex)) return;
+
+		// Prefer the newest completed camera frame. Hold dequeued buffers
+		// until the drain finishes so they cannot refill during this loop.
+		// The buffer count also bounds work if the camera stays readable.
+		std::vector<int> staleBuffers;
+		const size_t bufferCount = gPipeline->capture.buffers().size();
+		for (size_t n = 1; n < bufferCount; ++n) {
+			int nextIndex = -1;
+			if (!gPipeline->capture.dequeueBuffer(nextIndex)) break;
+			staleBuffers.push_back(bufIndex);
+			bufIndex = nextIndex;
+		}
+		for (int staleIndex : staleBuffers) {
+			if (!gPipeline->capture.enqueueBuffer(staleIndex)) {
+				log_e("Failed to requeue stale capture buffer: %s\n", strerror(errno));
+			}
+		}
+		if (!staleBuffers.empty()) {
+			log_d("discarded %zu stale camera frames before encoding\n", staleBuffers.size());
+		}
+
+		// Encode only on downstream demand. Leave the camera buffers queued
+		// while Live555 sends this access unit and waits for its next deadline.
+		source->envir().taskScheduler().turnOffBackgroundReadHandling(gPipeline->capture.m_fd);
+		source->fHaveStartedReading = False;
+		gettimeofday(&source->fFramePresentTime, nullptr);
 
 		const auto &buffers = gPipeline->capture.buffers();
 		const V4L2Buffer &buf = buffers[bufIndex];
@@ -254,6 +286,7 @@ private:
 			if (buf.length < srcsz) {
 				log_e("unexpect size\n");
 				gPipeline->capture.enqueueBuffer(bufIndex);
+				source->doGetNextFrame();
 				return;
 			}
 			std::vector<uint8_t> &i420_buf = source->i420_buf;
@@ -265,7 +298,7 @@ private:
 			const uint16_t *rg10 = static_cast<const uint16_t*>(buf.start);
 			t1 = std::chrono::steady_clock::now();
 			if (encWidth == width / 4 && encHeight == height / 4) {
-				aloe_rg10_rgb8_i420_v5(width, height, stride, rg10, NULL,
+				aloe_rg10_rgb8_i420_v6(width, height, stride, rg10, NULL,
 						i420_buf.data());
 			} else if (encWidth == width / 2 && encHeight == height / 2) {
 				aloe_rg10_rgb8_i420_v4(width, height, stride, rg10, NULL,
@@ -308,14 +341,6 @@ private:
 							nal.size();
 					gPipeline->nalQueue.push_back(std::move(nal));
 				}
-				int drain_cnt = 0;
-				while (gPipeline->nalQueue.size() > 120) {
-					drain_cnt++;
-					gPipeline->nalQueue.pop_front();
-				}
-				if (drain_cnt > 0) {
-					log_d("drain_cnt: %d\n", drain_cnt);
-				}
 			}
 		} else {
 			gPipeline->capture.enqueueBuffer(bufIndex);
@@ -344,11 +369,11 @@ private:
 
 		memmove(fTo, nal.data(), fFrameSize);
 
-		fPresentationTime = fNextPresentTime;
-		fDurationInMicroseconds = gPipeline->frameDurationUs;
-		fNextPresentTime.tv_usec += gPipeline->frameDurationUs;
-		fNextPresentTime.tv_sec += fNextPresentTime.tv_usec / 1000000;
-		fNextPresentTime.tv_usec %= 1000000;
+		// All NALs from one encoded image share an RTP timestamp. Charge
+		// the frame interval only once, after the final NAL of that image.
+		fPresentationTime = fFramePresentTime;
+		fDurationInMicroseconds = gPipeline->nalQueue.empty()
+				? gPipeline->frameDurationUs : 0;
 
 		FramedSource::afterGetting(this);
 		return True;
@@ -356,7 +381,7 @@ private:
 
 private:
 	Boolean fHaveStartedReading;
-	struct timeval fNextPresentTime;
+	struct timeval fFramePresentTime;
 };
 
 // ---------------------------------------------------------------------------
@@ -468,6 +493,7 @@ enum {
 	opt_key_vcap_pixelformat,
 	opt_key_vcap_fps,
 	opt_key_venc_kbps,
+	opt_key_venc_gop,
 	opt_key_rtsp_port,
 	opt_key_app_preset,
 	opt_key_max
@@ -481,6 +507,7 @@ static struct option opt_long[] = {
 	{"height", required_argument, NULL, opt_key_vcap_height},
 	{"pixelformat", required_argument, NULL, opt_key_vcap_pixelformat},
 	{"fps", required_argument, NULL, opt_key_vcap_fps},
+	{"gop", required_argument, NULL, opt_key_venc_gop},
 	{"kbps", required_argument, NULL, opt_key_venc_kbps},
 	{"port", required_argument, NULL, opt_key_rtsp_port},
 	{"preset", required_argument, NULL, opt_key_app_preset},
@@ -504,6 +531,7 @@ static void help(int argc, const char **argv) {
 "    --height=<HEIGHT>   Video capture height (default: %d)\n"
 "    --fps=<FPS>         Video capture fps (default: %d)\n"
 "    --pixelformat=<4CC> Video capture pixel format (default: %s)\n"
+"    --gop=<FRAMES>     Maximum keyframe interval (default: fps)\n"
 "    --kbps=<BITRATE>    Video encoder kbps (default: %d)\n"
 "    --port=<PORT>       RTSP port (default: %d)\n"
 "    --preset=<PRESET>   Preset (default: None)\n"
@@ -512,7 +540,8 @@ static void help(int argc, const char **argv) {
 			aloe_fourcc_str(fourcc_str, sizeof(fourcc_str), vcap_pixelformat),
 			venc_kbps, rtsp_port);
 
-	if (verbose_level >= VERBOSE_LEVEL_DEBUG) {
+//	if (verbose_level >= VERBOSE_LEVEL_DEBUG)
+	{
 		fprintf(stdout,
 "Description:\n"
 "    Preset: imx219\n"
@@ -576,6 +605,11 @@ static int live555_main(int argc, char** argv) {
 			vcap_pixelformat = aloe_fourcc_val(optarg);
 			continue;
 		}
+		if (opt_op == opt_key_venc_gop) {
+			venc_gop = strtol(optarg, NULL, 0);
+			if (venc_gop <= 0) return 1;
+			continue;
+		}
 		if (opt_op == opt_key_venc_kbps) {
 			venc_kbps = strtol(optarg, NULL, 0);
 			continue;
@@ -584,7 +618,10 @@ static int live555_main(int argc, char** argv) {
 			rtsp_port = strtol(optarg, NULL, 0);
 			continue;
 		}
+		return 1; // Reject unknown options.
 	}
+
+	if (vcap_fps <= 0 || vcap_fps > 1000000) return 1;
 
 //	if (optind < argc) dump_argv(argc - optind, &argv[optind]);
 	if (opts.opt_help) {

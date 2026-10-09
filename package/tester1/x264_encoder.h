@@ -8,7 +8,7 @@
 
 class X264Encoder {
 public:
-  X264Encoder(uint32_t width, uint32_t height, int fps, int bitrateKbps);
+  X264Encoder(uint32_t width, uint32_t height, int fps, int bitrateKbps, int gopFrames = 0);
   ~X264Encoder();
 
   bool init();
@@ -35,6 +35,7 @@ private:
   uint32_t m_width;
   uint32_t m_height;
   int m_fps;
+  int m_gopFrames;
   int m_bitrateKbps;
 
   x264_param_t m_param;

@@ -122,7 +122,7 @@ get_ip () {
     # QEMU
     _lo_candi="10.0.2.2"
   else
-    _lo_candi="192.168.234.16 192.168.50.123"
+    _lo_candi="192.168.234.16 192.168.50.123 192.168.16.6"
   fi
   for i in $_lo_candi; do
     if cmd_run eval "ping -c 1 -W 1 ${i} >/dev/null 2>&1" >/dev/null 2>&1; then

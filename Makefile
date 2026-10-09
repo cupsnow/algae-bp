@@ -3,7 +3,7 @@
 include builder/proj.mk
 -include site.mk
 
-# export SHELL=/bin/bash
+export SHELL=/bin/bash
 
 ifeq ("$(MAKELEVEL)","20")
 $(error Maybe endless loop, MAKELEVEL: $(MAKELEVEL))
@@ -124,6 +124,9 @@ BUILD_PKGCFG_LIBDIR+=$(BUILD_PKGCFG_LIBDIR_POST2)
 BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR) $(PKG_CONFIG_LIBDIR))" \
     PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)"
 endif
+
+BUILD_PKGCFG_LIBDIR_HOST+=$(PROJDIR)/tool/lib/pkgconfig
+BUILD_PKGCFG_ENV_HOST+=PKG_CONFIG_PATH="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR_HOST) $(PKG_CONFIG_LIBDIR))"
 
 # Push host executable search path
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
@@ -3563,7 +3566,7 @@ libconfuse_host_%:
 
 libconfuse_defconfig $(libconfuse_BUILDDIR)/Makefile: | $(libconfuse_DIR)/configure $(libconfuse_BUILDDIR)
 	cd $(libconfuse_BUILDDIR) \
-	  && $(call BUILD_PKGCFG_ENV,$(PROJDIR)/tool) $(libconfuse_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV_HOST) $(libconfuse_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 	      $(libconfuse_ACARGS_$(APP_PLATFORM))
 
@@ -3593,15 +3596,19 @@ genimage_host_install: DESTDIR=$(PROJDIR)/tool
 genimage_host_install: 
 	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) genimage_install
 
-genimage_host:
-	$(MAKE) APP_PLATFORM=ub20 genimage
+# genimage_host:
+# 	$(MAKE) APP_PLATFORM=ub20 genimage
+
+genimage_host $(PROJDIR)/tool/bin/genimage:
+	$(MAKE) libconfuse_host_install
+	$(MAKE) genimage_host_install
 
 genimage_host_%:
 	$(MAKE) APP_PLATFORM=ub20 genimage_$(*)
 
 genimage_defconfig $(genimage_BUILDDIR)/Makefile: | $(genimage_DIR)/configure $(genimage_BUILDDIR)
 	cd $(genimage_BUILDDIR) \
-	  && $(call BUILD_PKGCFG_ENV,$(PROJDIR)/tool) $(genimage_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV_HOST) $(genimage_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 	      $(genimage_ACARGS_$(APP_PLATFORM))
 
@@ -3614,10 +3621,6 @@ genimage: | $(genimage_BUILDDIR)/Makefile
 
 genimage_%: | $(genimage_BUILDDIR)/Makefile
 	$(genimage_MAKE) $(PARALLEL_BUILD) $*
-
-$(PROJDIR)/tool/bin/genimage:
-	$(MAKE) libconfuse_host_install
-	$(MAKE) genimage_host_install
 
 #------------------------------------
 #
@@ -3969,10 +3972,10 @@ dist-bp_phase2_boot: dist-bp_phase2_dtb
 	  -e "s/\$$\$$(KERNEL_LOAD_ADDR)/$(dist-bp_itb_loadaddr)/g" \
 	  -e "s/\$$\$$(KERNEL_ENTRY_ADDR)/$(dist-bp_itb_loadaddr)/g" \
 	  -e "s/\$$\$$(FDT_DATA_FILE)/$(subst /,\/,$(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay.dtb)/g" \
-	  -e "s/\$$\$$(FDT2_DATA_FILE)/$(subst /,\/,$(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay-csi2-imx219.dtbo)/g" \
+	  -e "s/\$$\$$(FDT_IMX219_DATA_FILE)/$(subst /,\/,$(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay-csi2-imx219.dtbo)/g" \
 	  -e "s/\$$\$$(FDT_LOAD_ADDR)/$(dist-bp_itb_fdtaddr)/g" \
 	  -e "s/\$$\$$(SIGNATURE_KEY_NAME)/$(ubsignkey)/g" \
-	  $(PROJDIR)/linux-$(APP_PLATFORM).its | tee $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its
+	  $(PROJDIR)/uboot_fit-$(APP_PLATFORM).its | tee $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its
 	$(PROJDIR)/tool/bin/mkimage $(if $(dist-bp_mkimage_dtcargs),-D "$(dist-bp_mkimage_dtcargs)") \
 	  -f $(dist_DIR)/$(APP_PLATFORM)/boot/linux.its \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/linux.itb
@@ -4038,6 +4041,7 @@ dist-bp_phase3:
 	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot-redund.env \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/Image.gz \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay.dtb \
+	  $(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/linux.itb \
 	  $(BUILDDIR)/genimage_work/
 	cp -v $(dist_DIR)/$(APP_PLATFORM)/rootfs.img \

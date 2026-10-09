@@ -213,7 +213,7 @@ command
     modprobe j721e-csi2rx
     modprobe imx219
 
-    setenv fitext "#conf-2"
+    setenv fitext "#conf-imx219"
 
     root@algae:~# i2ctransfer -y 4 w2@0x10 0x00 0x00 r2
     0x02 0x19
@@ -233,6 +233,15 @@ command
 
     v4l2-ctl -d /dev/v4l-subdev1 --list-ctrls
     v4l2-ctl -d /dev/v4l-subdev1 --set-ctrl=analogue_gain=100
+
+boot with imx219
+----
+    designed to load fit image with `bootm ${addr_fit}#conf-imx219`
+    after boot run `/etc/init.d/imx219 start`
+
+pc run mpv with short lag
+
+    mpv --profile=low-latency --cache=no --untimed rtsp://192.168.16.26:8554/h264
 
 ffmpeg decode with hardware acceleration
 ----
