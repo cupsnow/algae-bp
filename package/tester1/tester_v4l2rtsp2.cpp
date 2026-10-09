@@ -17,6 +17,7 @@
 #include <deque>
 #include <vector>
 #include <chrono>
+#include <cerrno>
 
 #include <getopt.h>
 
@@ -47,6 +48,7 @@ static int vcap_width = 1920;
 static int vcap_height = 1080;
 static int vcap_fps = 30;
 static uint32_t vcap_pixelformat = fourcc_yu12;
+static float r_gain = 1.0f, g_gain = 1.0f, b_gain = 1.0f;
 static int venc_kbps = 2000;
 static int venc_gop = 0; // Default: one second.
 static int rtsp_port = 8554;
@@ -299,7 +301,7 @@ private:
 			t1 = std::chrono::steady_clock::now();
 			if (encWidth == width / 4 && encHeight == height / 4) {
 				aloe_rg10_rgb8_i420_v6(width, height, stride, rg10, NULL,
-						i420_buf.data());
+						i420_buf.data(), r_gain, g_gain, b_gain);
 			} else if (encWidth == width / 2 && encHeight == height / 2) {
 				aloe_rg10_rgb8_i420_v4(width, height, stride, rg10, NULL,
 						i420_buf.data());
@@ -496,6 +498,9 @@ enum {
 	opt_key_venc_gop,
 	opt_key_rtsp_port,
 	opt_key_app_preset,
+	opt_key_r_gain,
+	opt_key_g_gain,
+	opt_key_b_gain,
 	opt_key_max
 };
 
@@ -510,6 +515,9 @@ static struct option opt_long[] = {
 	{"gop", required_argument, NULL, opt_key_venc_gop},
 	{"kbps", required_argument, NULL, opt_key_venc_kbps},
 	{"port", required_argument, NULL, opt_key_rtsp_port},
+	{"r-gain", required_argument, NULL, opt_key_r_gain},
+	{"g-gain", required_argument, NULL, opt_key_g_gain},
+	{"b-gain", required_argument, NULL, opt_key_b_gain},
 	{"preset", required_argument, NULL, opt_key_app_preset},
 	{0},
 };
@@ -534,6 +542,9 @@ static void help(int argc, const char **argv) {
 "    --gop=<FRAMES>     Maximum keyframe interval (default: fps)\n"
 "    --kbps=<BITRATE>    Video encoder kbps (default: %d)\n"
 "    --port=<PORT>       RTSP port (default: %d)\n"
+"    --r-gain=<GAIN>     RG10 red gain, 0..16 (default: 1.0)\n"
+"    --g-gain=<GAIN>     RG10 green gain, 0..16 (default: 1.0)\n"
+"    --b-gain=<GAIN>     RG10 blue gain, 0..16 (default: 1.0)\n"
 "    --preset=<PRESET>   Preset (default: None)\n"
 "\n", ((argc > 0) && argv && argv[0] ? argv[0] : "Program"),
 			vcap_device, vcap_width, vcap_height, vcap_fps,
@@ -561,6 +572,19 @@ static int live555_main(int argc, char** argv) {
 	optind = 0;
 	while ((opt_op = getopt_long(argc, (char* const*)argv, opt_short, opt_long,
 			&opt_idx)) != -1) {
+		if (opt_op == opt_key_r_gain || opt_op == opt_key_g_gain || opt_op == opt_key_b_gain) {
+			char *end = nullptr;
+			errno = 0;
+			float gain = strtof(optarg, &end);
+			if (errno || end == optarg || *end || !(gain >= 0 && gain <= 16)) {
+				fprintf(stderr, "Invalid RGB gain '%s': expected a number in [0, 16]\n", optarg);
+				return 1;
+			}
+			if (opt_op == opt_key_r_gain) r_gain = gain;
+			else if (opt_op == opt_key_g_gain) g_gain = gain;
+			else b_gain = gain;
+			continue;
+		}
 		if (opt_op == 'h') {
 			opts.opt_help = 1;
 			continue;
@@ -646,6 +670,7 @@ static int live555_main(int argc, char** argv) {
 	printf("RG10_RGB_DOWNSCALE: %d\n", RG10_RGB_DOWNSCALE);
 #endif
 	printf("RTSP port: %u\n", rtspPort);
+	printf("RGB gains: R=%.3f G=%.3f B=%.3f\n", r_gain, g_gain, b_gain);
 
 	V4l2RtspPipeline pipeline(device, width, height, fps, bitrateKbps,
 			pixelformat);
@@ -655,6 +680,14 @@ static int live555_main(int argc, char** argv) {
 #endif
 	if (!pipeline.init(venc_scale)) {
 		fprintf(stderr, "Failed to initialize V4L2/x264 pipeline\n");
+		return 1;
+	}
+
+	if ((r_gain != 1 || g_gain != 1 || b_gain != 1) &&
+			(pipeline.capture.m_pixelformat != V4L2_PIX_FMT_SRGGB10 ||
+			pipeline.m_venc_w != (int)pipeline.capture.width() / 4 ||
+			pipeline.m_venc_h != (int)pipeline.capture.height() / 4)) {
+		fprintf(stderr, "RGB gains require RG10 capture with quarter-size v6 conversion\n");
 		return 1;
 	}
 

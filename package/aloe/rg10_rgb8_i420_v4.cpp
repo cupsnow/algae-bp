@@ -442,12 +442,25 @@ static inline __m128i rg10_v6_channel(__m128i a, __m128i b, int shift) {
  * otherwise scalar. ALOE_RG10_V6_SCALAR forces the portable path. */
 extern "C"
 void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
-		const void *rg10, void *rgb, void *i420) {
+		const void *rg10, void *rgb, void *i420, float r_gain, float g_gain, float b_gain) {
 	if (width < 8 || height < 8 || width % 8 || height % 8) {
 		aloe_log_e("invalid arguments\n");
 		return;
 	}
+	// Comparisons reject NaN and infinity as well as out-of-range gains.
+	if (!(r_gain >= 0 && r_gain <= 16) || !(g_gain >= 0 && g_gain <= 16)
+			|| !(b_gain >= 0 && b_gain <= 16)) {
+		aloe_log_e("RGB gains must be finite values in [0, 16]\n");
+		return;
+	}
 	if (!rgb && !i420) return;
+	const bool adjust = r_gain != 1 || g_gain != 1 || b_gain != 1;
+	uint8_t gain_lut[3][256];
+	if (adjust) for (int i = 0; i < 256; ++i) {
+		gain_lut[0][i] = clamp_u8((int)(i * r_gain + 0.5f));
+		gain_lut[1][i] = clamp_u8((int)(i * g_gain + 0.5f));
+		gain_lut[2][i] = clamp_u8((int)(i * b_gain + 0.5f));
+	}
 	const int out_w = width / 4, out_h = height / 4;
 	const size_t y_size = (size_t)out_w * out_h;
 	uint8_t *const yp = (uint8_t *)i420;
@@ -471,6 +484,13 @@ void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
 			channels.val[0] = vmovn_u16(vshrq_n_u16(top.val[0], 2));
 			channels.val[1] = vmovn_u16(vshrq_n_u16(top.val[1], 2));
 			channels.val[2] = vmovn_u16(vshrq_n_u16(bottom.val[1], 2));
+			if (adjust) {
+				vst1_u8(r, channels.val[0]); vst1_u8(g, channels.val[1]); vst1_u8(b, channels.val[2]);
+				for (int i = 0; i < 8; ++i) {
+					r[i] = gain_lut[0][r[i]]; g[i] = gain_lut[1][g[i]]; b[i] = gain_lut[2][b[i]];
+				}
+				channels.val[0] = vld1_u8(r); channels.val[1] = vld1_u8(g); channels.val[2] = vld1_u8(b);
+			}
 			if (dst) vst3_u8(dst + x * 3, channels);
 			if (yd) {
 				uint16x8_t sum = vmull_u8(channels.val[0], vdup_n_u8(66));
@@ -487,6 +507,9 @@ void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
 			_mm_storel_epi64((__m128i *)(void *)r, rg10_v6_channel(top0, top1, 2));
 			_mm_storel_epi64((__m128i *)(void *)g, rg10_v6_channel(top0, top1, 18));
 			_mm_storel_epi64((__m128i *)(void *)b, rg10_v6_channel(bot0, bot1, 18));
+			if (adjust) for (int i = 0; i < 8; ++i) {
+				r[i] = gain_lut[0][r[i]]; g[i] = gain_lut[1][g[i]]; b[i] = gain_lut[2][b[i]];
+			}
 			if (dst) for (int i = 0; i < 8; ++i) {
 				dst[(x + i) * 3] = r[i]; dst[(x + i) * 3 + 1] = g[i]; dst[(x + i) * 3 + 2] = b[i];
 			}
@@ -500,7 +523,8 @@ void aloe_rg10_rgb8_i420_v6(int width, int height, int stride,
 		}
 #endif
 		for (; x < out_w; ++x) {
-			const uint8_t r = rg10_u8(row0[x * 4]), g = rg10_u8(row0[x * 4 + 1]), b = rg10_u8(row1[x * 4 + 1]);
+			uint8_t r = rg10_u8(row0[x * 4]), g = rg10_u8(row0[x * 4 + 1]), b = rg10_u8(row1[x * 4 + 1]);
+			if (adjust) { r = gain_lut[0][r]; g = gain_lut[1][g]; b = gain_lut[2][b]; }
 			if (dst) { dst[x * 3] = r; dst[x * 3 + 1] = g; dst[x * 3 + 2] = b; }
 			if (yd) {
 				yd[x] = (66 * r + 129 * g + 25 * b + 128) / 256 + 16;

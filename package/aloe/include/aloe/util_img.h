@@ -40,9 +40,13 @@ void aloe_i420_rgb8(int width, int height, const void *i420, void *rgb);
 void aloe_rg10_rgb8_i420_v5(int width, int height, int stride, const void *rg10, 
 		void *rgb, void *i420);
 
-/* v5-compatible quarter-size RGB888 / I420; either output may be NULL. */
+/* Quarter-size RGB888 / I420; either output may be NULL.
+ * RGB gains multiply extracted 8-bit channels before YUV conversion, with
+ * rounding and saturation to [0, 255]. Each gain must be finite in [0, 16].
+ * Invalid gains leave outputs untouched. Use 1.0f for v5-compatible output.
+ * Signature changed: callers must supply all three gains and rebuild. */
 void aloe_rg10_rgb8_i420_v6(int width, int height, int stride, const void *rg10,
-		void *rgb, void *i420);
+		void *rgb, void *i420, float r_gain, float g_gain, float b_gain);
 
 #ifdef __cplusplus
 } /* extern "C" */
