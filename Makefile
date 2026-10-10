@@ -1582,6 +1582,40 @@ libffi_%: | $(libffi_BUILDDIR)/Makefile
 	$(libffi_MAKE) $(PARALLEL_BUILD) $(@:libffi_%=%)
 
 #------------------------------------
+# try the released source package, not git
+#
+libasound_DIR?=$(PKGDIR2)/alsa-lib
+libasound_BUILDDIR?=$(BUILDDIR2)/libasound-$(APP_BUILD)
+libasound_MAKE=$(MAKE) -C $(libasound_BUILDDIR)
+
+GENDIR+=$(libasound_BUILDDIR)
+
+libasound_defconfig $(libasound_BUILDDIR)/Makefile: | $(libasound_DIR)/configure $(libasound_BUILDDIR)
+	cd $(libasound_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(libasound_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(libasound_ACARGS_$(APP_PLATFORM))
+
+libasound_install: DESTDIR=$(BUILD_SYSROOT)
+libasound_install: | $(libasound_BUILDDIR)/Makefile
+	$(libasound_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib64,libasound)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,libasound)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,libasound))
+
+libasound: | $(libasound_BUILDDIR)/Makefile
+	$(libasound_MAKE) $(PARALLEL_BUILD)
+
+libasound_%: | $(libasound_BUILDDIR)/Makefile
+	$(libasound_MAKE) $(PARALLEL_BUILD) $(@:libasound_%=%)
+
+#------------------------------------
 # WIP
 # patch configure.ac
 #   marked AC_TRY_RUN
@@ -2557,6 +2591,9 @@ $(utilinux_DIR)/configure: | $(utilinux_DIR)/autogen.sh
 
 GENDIR+=$(utilinux_BUILDDIR)
 
+# tools/all_syscalls uses CC and CFLAGS, but omits CPPFLAGS. Keep the
+# target include paths in CFLAGS so generation and compilation agree.
+
 utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(utilinux_BUILDDIR)
 	cd $(utilinux_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(utilinux_DIR)/configure \
@@ -2564,7 +2601,7 @@ utilinux_defconfig $(utilinux_BUILDDIR)/Makefile: | $(utilinux_DIR)/configure $(
 	      --disable-liblastlog2 --without-python \
 	      --disable-makeinstall-chown --disable-makeinstall-setuid \
 	      CPPFLAGS="$(addprefix -I,$(utilinux_INCDIR)) $(utilinux_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
-	      CFLAGS="$(utilinux_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(addprefix -I,$(utilinux_INCDIR)) $(utilinux_ACARGS_CFLAGS_$(APP_PLATFORM))" \
 	      LDFLAGS="$(addprefix -L,$(utilinux_LIBDIR)) $(utilinux_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
 		  LIBS="$(addprefix -l,$(utilinux_LIBS)) $(utilinux_ACARGS_LIBS_$(APP_PLATFORM))" \
 	      $(utilinux_ACARGS_$(APP_PLATFORM))
@@ -2652,9 +2689,50 @@ elfutils_%: | $(elfutils_BUILDDIR)/Makefile
 	$(elfutils_MAKE) $(PARALLEL_BUILD) $(@:elfutils_%=%)
 
 #------------------------------------
-# https://download.gnome.org/sources/glib/2.82/glib-2.82.1.tar.xz
 #
-include builder/glib2.mk
+glib_DEP?=pcre2 utilinux libffi iconvgettext
+glib_DIR=$(PKGDIR2)/glib
+glib_BUILDDIR?=$(BUILDDIR2)/glib-$(APP_PLATFORM)
+glib_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
+glib_NINJA=. $(PYVENVDIR)/bin/activate && $(1) ninja
+
+glib_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+glib_CROSSFILE_qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
+
+glib_INCDIR=$(BUILD_INCDIR)
+glib_LIBDIR=$(BUILD_LIBDIR)
+
+# meson setup check by c++, but glib build by c -> set both c and cpp args
+# need -rpath-link to link the dependent of linked libraries (iconv, ...)
+# 
+# 
+# 
+
+glib_setup $(glib_BUILDDIR): | $(PYVENVDIR) $(glib_CROSSFILE_$(APP_PLATFORM))
+	$(call glib_MESON,$(BUILD_PKGCFG_ENV)) setup \
+	    $(glib_CROSSFILE_$(APP_PLATFORM):%=--cross-file=%) \
+	    --prefix=/ \
+	    --libdir=lib \
+		-Dc_args="$(glib_INCDIR:%=-I%)" \
+		-Dcpp_args="$(glib_INCDIR:%=-I%)" \
+		-Dc_link_args="$(glib_LIBDIR:%=-L%) $(glib_LIBDIR:%=-Wl,-rpath-link=%)" \
+		-Dcpp_link_args="$(glib_LIBDIR:%=-L%) $(glib_LIBDIR:%=-Wl,-rpath-link=%)" \
+	    -Dinstalled_tests=false \
+	    -Dselinux=disabled \
+	    -Db_coverage=false \
+		$(glib_BUILDDIR) $(glib_DIR)
+
+glib_install: DESTDIR=$(BUILD_SYSROOT)
+glib_install: | $(glib_BUILDDIR)
+glib_install:
+	DESTDIR=$(DESTDIR) \
+	    $(glib_NINJA) -C $(glib_BUILDDIR) $(@:glib_%=%)
+
+$(eval $(call DEF_DESTDEP,glib))
+
+glib: | $(glib_BUILDDIR)
+glib:
+	$(glib_NINJA) -C $(glib_BUILDDIR)
 
 #------------------------------------
 #
@@ -2987,6 +3065,7 @@ v4lutils: | $(v4lutils_BUILDDIR)/build.ninja
 include builder/libdrm2.mk
 
 #------------------------------------
+# apt install gperf
 #
 systemd_DEP=libcap utilinux
 # systemd_DEP+=libxcrypt
@@ -3015,14 +3094,18 @@ GENPYVENV+=meson ninja
 
 GENDIR+=$(systemd_BUILDDIR)
 
+# Systemd have compatibility/UAPI headers which must precede provided headers.
+# here use -idirafter to force the order
+# The -idirafter option is supported by GCC and Clang.
+
 systemd_defconfig $(systemd_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 	. $(PYVENVDIR)/bin/activate \
-	  && $(BUILD_PKGCFG_ENV) meson setup \
+	  && $(BUILD_PKGCFG_ENV) meson setup $(if $(wildcard $(systemd_BUILDDIR)/build.ninja),--reconfigure) \
 	      -Dprefix=/ \
-	      -Dc_args="$(addsufix -I,$(systemd_INCDIR)) $(libevent_MESONARGS_CFLAGS_$(APP_PLATFORM))" \
-	      -Dc_link_args="$(addsufix -L,$(systemd_LIBDIR)) $(libevent_MESONARGS_LDFLAGS_$(APP_PLATFORM))" \
-	      -Dcpp_args="$(addsufix -I,$(systemd_INCDIR)) $(libevent_MESONARGS_CFLAGS_$(APP_PLATFORM))" \
-	      -Dcpp_link_args="$(addsufix -L,$(systemd_LIBDIR)) $(libevent_MESONARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      -Dc_args="$(systemd_INCDIR:%=-idirafter %) $(systemd_MESONARGS_CFLAGS_$(APP_PLATFORM))" \
+	      -Dc_link_args="$(systemd_LIBDIR:%=-L%) $(systemd_MESONARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      -Dcpp_args="$(systemd_INCDIR:%=-idirafter %) $(systemd_MESONARGS_CFLAGS_$(APP_PLATFORM))" \
+	      -Dcpp_link_args="$(systemd_LIBDIR:%=-L%) $(systemd_MESONARGS_LDFLAGS_$(APP_PLATFORM))" \
 	      -Dpkg_config_path="$(subst $(SPACE),:,$(systemd_PKGCFGDIR))" \
 	      -Dtests=false -Dinstall-tests=false -Dselinux=disabled \
 	      $(systemd_ACARGS_$(APP_PLATFORM)) \
@@ -3220,7 +3303,9 @@ libical_install: | $(libical_cross_cmake_$(APP_BUILD))
 	  && cmake \
 	      $(libical_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
 		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
-		  $(libical_DIR)
+	      -DLIBICAL_JAVA_BINDINGS=False -DLIBICAL_GOBJECT_INTROSPECTION=False \
+	      $(libical_CMAKEARGS_$(APP_PLATFORM)) $(libical_CMAKEARGS) \
+	      $(libical_DIR)
 	$(libical_MAKE) DESTDIR= install
 ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
@@ -3255,16 +3340,24 @@ libical: | $(libical_BUILDDIR)/Makefile
 #     ICAL_LIBS="-L$(DESTDIR)/lib -lical -licalss -licalvcal -lpthread" \
 #     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include" \
 #     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib -lncurses"
-bluez_DEP=utilinux dbus glib libical readline
+bluez_DEP=utilinux dbus glib libical readline systemd lilbasound
 bluez_DIR=$(PKGDIR2)/bluez
 bluez_BUILDDIR=$(BUILDDIR2)/bluez-$(APP_PLATFORM)
 
 bluez_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/ncursesw
 bluez_LIBDIR+=$(BUILD_LIBDIR)
-bluez_LIBS+=tinfow # pcre2-8
+bluez_LIBS+=tinfow pcre2-8 iconv
 
 bluez_ACARGS+=--disable-obex --disable-manpages --disable-cups \
     --enable-midi
+# pkg-config directory queries can include the host sysroot. Installation
+# paths must be target paths; make install adds DESTDIR separately.
+bluez_ACARGS+=--with-dbusconfdir=/share \
+    --with-dbussystembusdir=/share/dbus-1/system-services \
+    --with-dbussessionbusdir=/share/dbus-1/services \
+    --with-systemdsystemunitdir=/lib/systemd/system \
+    --with-systemduserunitdir=/lib/systemd/user \
+    --with-udevdir=/lib/udev
 
 bluez_MAKE=$(MAKE) -C $(bluez_BUILDDIR)
 
@@ -3283,10 +3376,10 @@ bluez_defconfig $(bluez_BUILDDIR)/Makefile: | $(bluez_BUILDDIR) $(bluez_DIR)/con
 	cd $(bluez_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(bluez_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      CPPFLAGS="$(addprefix -I,$(bluez_INCDIR)) $(bluez_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
-	      CFLAGS="$(bluez_ACARGS_CFLAGS_$(APP_PLATFORM))" \
-	      LDFLAGS="$(addprefix -L,$(bluez_LIBDIR)) $(bluez_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
-		  LIBS="$(addprefix -l,$(bluez_LIBS)) $(bluez_ACARGS_LIBS_$(APP_PLATFORM))" \
+	      CPPFLAGS="$(bluez_INCDIR:%=-I%) $(bluez_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CFLAGS="$(bluez_INCDIR:%=-I%) $(bluez_ACARGS_CFLAGS_$(APP_PLATFORM))" \
+	      LDFLAGS="$(bluez_LIBDIR:%=-L%) $(bluez_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
+		  LIBS="$(bluez_LIBS:%=-l%) $(bluez_ACARGS_LIBS_$(APP_PLATFORM))" \
 	      $(bluez_ACARGS_$(APP_PLATFORM)) $(bluez_ACARGS)
 
 bluez_install: DESTDIR=$(BUILD_SYSROOT)
