@@ -39,6 +39,11 @@ Format emmc
     -,-,linux,-
     EOSFDISK
 
+imx219
+====
+
+[bp-imx219.md](bp-imx219.md)
+
 U-Boot
 ====
 
@@ -233,11 +238,6 @@ command
 
     v4l2-ctl -d /dev/v4l-subdev1 --list-ctrls
     v4l2-ctl -d /dev/v4l-subdev1 --set-ctrl=analogue_gain=100
-
-boot with imx219
-----
-    designed to load fit image with `bootm ${addr_fit}#conf-imx219`
-    after boot run `/etc/init.d/imx219 start`
 
 pc run mpv with short lag
 

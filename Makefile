@@ -367,7 +367,7 @@ CMD_UENV=$(PROJDIR)/tool/bin/mkenvimage \
 ifneq ($(strip $(filter bp,$(APP_PLATFORM))),)
 # bp runs uboot for 2 different core, pass APP_PLATFORM for specified core to else
 #
-$(addprefix uboot_,menuconfig htmldocs tools tools_install envtools envtools_install):
+$(addprefix uboot_,menuconfig htmldocs tools tools_install envtools):
 	$(MAKE) APP_PLATFORM=bp-a53 atf_BUILDDIR=$(atf_BUILDDIR) \
 	    optee_BUILDDIR=$(optee_BUILDDIR) uboot_$(@:uboot_%=%)
 
@@ -378,6 +378,13 @@ ubootenv:
 	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53-emmc.env
 	$(MAKE) APP_PLATFORM=bp-a53 $@
 	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53.env
+
+uboot_envtools_install: DESTDIR=$(BUILD_SYSROOT)
+uboot_envtools_install: uboot_envtools
+	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
+	rsync -a $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tools/env/fw_printenv \
+	  $(DESTDIR)/sbin/
+	ln -sfn fw_printenv $(DESTDIR)/sbin/fw_setenv
 
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
@@ -430,9 +437,9 @@ uboot_tools_install: uboot_tools
 uboot_envtools_install: DESTDIR=$(BUILD_SYSROOT)
 uboot_envtools_install: uboot_envtools
 	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
-	rsync -a $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tools/env/fw_printenv
-	  $(DESTDIR)/bin/
-	ln -sfn fw_printenv $(DESTDIR)/bin/fw_setenv
+	rsync -a $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/tools/env/fw_printenv \
+	  $(DESTDIR)/sbin/
+	ln -sfn fw_printenv $(DESTDIR)/sbin/fw_setenv
 
 $(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
@@ -2260,6 +2267,11 @@ wl18xx_install: wl18xx
 	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin-wl18xx_fw
 	ln -sf wl18xx-fw-4.bin-wl18xx_fw \
 	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin
+	rsync -a $(RSYNC_VERBOSE) \
+	    $(ti-linux-fw_DIR)/ti-connectivity/wl127x-nvs.bin \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/wl127x-nvs.bin-ti-linux-fw
+	ln -sf wl127x-nvs.bin-ti-linux-fw \
+	    $(DESTDIR)/lib/firmware/ti-connectivity/wl1271-nvs.bin
 
 $(eval $(call DEF_DESTDEP,wl18xx))
 
