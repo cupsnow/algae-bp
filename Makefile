@@ -1267,45 +1267,6 @@ procps_%: | $(procps_BUILDDIR)/Makefile
 #
 readline_DEP=ncursesw
 readline_DIR=$(PKGDIR2)/readline
-# readline_MAKE=$(MAKE) DESTDIR=$(DESTDIR) SHLIB_LIBS=-lncurses -C $(readline_DIR)
-# readline_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-#     bash_cv_wcwidth_broken=yes \
-#     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
-#     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-
-# readline: readline_;
-
-# readline_dir:
-# 	cd $(dir $(readline_DIR)) && \
-# 	wget http://ftp.gnu.org/gnu/readline/readline-6.3.tar.gz && \
-# 	    tar -zxvf readline-6.3.tar.gz && \
-# 	    ln -sf readline-6.3 readline
-
-# readline_clean readline_distclean:
-# 	if [ -e $(readline_DIR)/Makefile ]; then \
-# 	  $(readline_MAKE) $(patsubst _%,%,$(@:readline%=%)); \
-# 	fi
-
-# readline_makefile:
-# 	echo "Makefile *** Generate Makefile by configure..."
-# 	cd $(readline_DIR) && ./configure $(readline_CFGPARAM)
-
-# readline%:
-# 	if [ ! -d $(readline_DIR) ]; then \
-# 	  $(MAKE) readline_dir; \
-# 	fi
-# 	if [ ! -e $(readline_DIR)/Makefile ]; then \
-# 	  $(MAKE) readline_makefile; \
-# 	fi
-# 	$(readline_MAKE) $(patsubst _%,%,$(@:readline%=%))
-# 	if [ "$(patsubst _%,%,$(@:readline%=%))" = "install" ]; then \
-# 	  for i in libhistory.old libhistory.so.6.3.old \
-# 	      libreadline.old libreadline.so.6.3.old; do \
-# 	    $(RM) $(DESTDIR)/lib/$$i; \
-# 	  done; \
-# 	fi
-
-# CLEAN += readline
 readline_BUILDDIR=$(BUILDDIR2)/readline-$(APP_PLATFORM)
 readline_INCDIR+=$(BUILD_INCDIR)
 readline_LIBDIR+=$(BUILD_LIBDIR)
@@ -1986,6 +1947,10 @@ dbus_defconfig $(dbus_BUILDDIR)/build.ninja: | $(dbus_BUILDDIR) $(PYVENVDIR) $(d
 	    $(dbus_CROSSFILE-$(APP_PLATFORM):%=--cross-file %) \
 	    --prefix=/ \
 	    --libdir=lib \
+		-Dc_args="$(glib_INCDIR:%=-I%)" \
+		-Dcpp_args="$(glib_INCDIR:%=-I%)" \
+		-Dc_link_args="$(glib_LIBDIR:%=-L%) $(glib_LIBDIR:%=-Wl,-rpath-link=%)" \
+		-Dcpp_link_args="$(glib_LIBDIR:%=-L%) $(glib_LIBDIR:%=-Wl,-rpath-link=%)" \
 	    $(dbus_BUILDDIR) $(dbus_DIR)
 
 dbus_install: DESTDIR=$(BUILD_SYSROOT)
@@ -3374,97 +3339,39 @@ bluez_%: | $(bluez_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-# python_DIR = $(PROJDIR)/package/python
-# python_MAKE = $(MAKE) DESTDIR=$(DESTDIR) \
-#     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
-#     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib" \
-#     -C $(python_DIR)
-# python_CFGPARAM = --prefix= --host=`$(CC) -dumpmachine` \
-#     --build=`gcc -dumpmachine` --disable-ipv6 ac_cv_file__dev_ptmx=yes \
-#     ac_cv_file__dev_ptc=no \
-#     CFLAGS="$(PLATFORM_CFLAGS) -I$(DESTDIR)/include -fPIC" \
-#     LDFLAGS="$(PLATFORM_LDFLAGS) -L$(DESTDIR)/lib"
-
-# python: python_;
-
-# $(addprefix python_,clean distclean): ;
-# 	if [ -e $(python_DIR)/Makefile ]; then \
-# 	  $(python_MAKE) $(patsubst _%,%,$(@:python%=%)); \
-# 	fi
-
-# python_dir: ;
-# 	cd $(dir $(python_DIR)) && \
-# 	  wget https://www.python.org/ftp/python/3.5.1/Python-3.5.1.tar.xz && \
-# 	  tar -Jxvf Python-3.5.1.tar.xz && \
-# 	  ln -sf Python-3.5.1 $(notdir $(python_DIR))
-
-# python_makefile:
-# 	$(CP) $(PROJDIR)/config/python/Makefile.pre.in $(python_DIR)/
-# 	cd $(python_DIR) && \
-# 	  $(python_CFGENV) ./configure $(python_CFGPARAM)
-
-# python-host = $(PROJDIR)/tool/bin/python $(PROJDIR)/tool/bin/pgen \
-#     $(PROJDIR)/tool/bin/_freeze_importlib
-
-# python-host: $(python-host);
-
-# $(python-host):
-# 	if [ ! -d $(python_DIR) ]; then \
-# 	  $(MAKE) python_dir; \
-# 	fi
-# 	if [ -e $(python_DIR)/Makefile ]; then \
-# 	  $(MAKE) -C $(python_DIR) distclean; \
-# 	fi
-# 	cd $(python_DIR) && ./configure --prefix=
-# 	$(MAKE) DESTDIR=$(PWD)/tool -C $(python_DIR) Parser/pgen \
-# 	    Programs/_freeze_importlib install
-# 	$(MAKE) CROSS_COMPILE= SRCFILE="pgen" SRCDIR="$(python_DIR)/Parser" \
-# 	    DESTDIR=$(PROJDIR)/tool/bin dist-cp
-# 	$(MAKE) CROSS_COMPILE= SRCDIR="$(python_DIR)/Programs" \
-# 	    SRCFILE="_freeze_importlib _testembed" \
-# 	    DESTDIR=$(PROJDIR)/tool/bin dist-cp
-# 	ln -sf python3 $(PROJDIR)/tool/bin/python
-# 	$(MAKE) -C $(python_DIR) distclean
-
-# python%: $(python-host)
-# 	echo "in python"
-# 	if [ ! -d $(python_DIR) ]; then \
-# 	  $(MAKE) python_dir; \
-# 	fi
-# 	if [ ! -f $(python_DIR)/Makefile ]; then \
-# 	  $(MAKE) python_makefile; \
-# 	fi
-# 	$(python_MAKE) PGEN=$(PWD)/tool/bin/pgen \
-# 	    PFRZIMP=$(PWD)/tool/bin/_freeze_importlib \
-# 	    $(patsubst _%,%,$(@:python%=%))
-
-# CLEAN += python
-
 cpython_DIR=$(PKGDIR2)/cpython
 cpython_BUILDDIR=$(BUILDDIR2)/cpython-$(APP_PLATFORM)
 cpython_MAKE=$(MAKE) -C $(cpython_BUILDDIR)
 
-cpython_host=$(PROJDIR)/tool/cpython-host
+cpython_host_PATH=$(PROJDIR)/tool/cpython-host
+cpython_host_python=$(cpython_host_PATH)/usr/bin/python3.16
 
-cpython_ACARGS_ub20+=--with-ensurepip=no
+cpython_ACENV+=CPPFLAGS="$(BUILD_INCDIR:%=-I%)"
+cpython_ACENV+=LDFLAGS="$(BUILD_LIBDIR:%=-L%)"
 
-cpython_ACENV_bp+=$(BUILD_PKGCFG_ENV)
 cpython_ACENV_bp+=ac_cv_file__dev_ptmx=yes ac_cv_file__dev_ptc=no
+
 # The glibc target has working getaddrinfo; configure cannot run its probe
 # while cross-compiling and otherwise assumes the function is buggy.
 cpython_ACENV_bp+=ac_cv_buggy_getaddrinfo=no
-cpython_ACARGS_bp+=--with-ensurepip=no
-cpython_ACARGS_bp+=--with-build-python=$(cpython_host)/usr/bin/python3.16
+
+cpython_ACARGS_bp+=--host=`$(CC) -dumpmachine` --build=`$(cpython_DIR)/config.guess`
+cpython_ACARGS_bp+=--with-build-python=$(cpython_host_python)
+cpython_ACARGS_bp+=--enable-shared
 
 GENDIR+=$(cpython_BUILDDIR)
 
 # CPython requires a nonempty runtime prefix; DESTDIR supplies staging.
 
+ifneq ($(strip $(filter-out ub20,$(APP_PLATFORM))),)
+cpython_defconfig $(cpython_BUILDDIR)/Makefile: | $(cpython_host_python)
+endif
 cpython_defconfig $(cpython_BUILDDIR)/Makefile: | $(cpython_BUILDDIR)
 	cd $(cpython_BUILDDIR) \
-	  && $(cpython_ACENV_$(APP_PLATFORM)) $(cpython_DIR)/configure \
-	      --host=`$(CC) -dumpmachine` --build=`$(cpython_DIR)/config.guess` \
-		  --prefix=/usr $(cpython_ACARGS_$(APP_PLATFORM))
+	  && $(BUILD_PKGCFG_ENV) $(cpython_ACENV) $(cpython_ACENV_$(APP_PLATFORM)) $(cpython_DIR)/configure \
+		  --prefix=/usr \
+		  --with-ensurepip=no \
+		  $(cpython_ACARGS) $(cpython_ACARGS_$(APP_PLATFORM))
 
 cpython_install: DESTDIR=$(BUILD_SYSROOT)
 cpython_install: | $(cpython_BUILDDIR)/Makefile
@@ -3478,10 +3385,11 @@ cpython: | $(cpython_BUILDDIR)/Makefile
 cpython_%: | $(cpython_BUILDDIR)/Makefile
 	 $(cpython_MAKE) DESTDIR=$(DESTDIR) $(@:cpython_%=%)
 
-cpython_host_install: DESTDIR=$(cpython_host)
-cpython_host_install:
-	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) cpython_destpkg_install
+# cpython cross compile using the cpython host, here cpython host default use static link
 
+cpython_host_install: DESTDIR=$(cpython_host_PATH)
+cpython_host_install $(cpython_host_python):
+	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) cpython_destpkg_install
 
 #------------------------------------
 #
