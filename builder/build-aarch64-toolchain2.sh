@@ -2,14 +2,50 @@
 
 # ubuntu required package: texinfo gawk
 
-set -euo pipefail
+_lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
+if [ "$_lo_free_mem" -ge 20 ]; then
+  _pri_memory_max=15G
+  _pri_cpu_quota=1400%
+  _pri_parallel="15"
+elif [ "$_lo_free_mem" -ge 8 ]; then
+  _pri_memory_max=4G
+  _pri_cpu_quota=480%
+  _pri_parallel="4"
+else 
+  _pri_memory_max=2G
+  _pri_cpu_quota=190%
+  _pri_parallel="2"
+fi
+
+# prevent low memeory ub26.04 out of memory (oom)
+_pri_runner="systemd-run --user --scope \
+  ${_pri_memory_max:+-p MemoryMax=$_pri_memory_max} \
+  ${_pri_cpu_quota:+-p CPUQuota=$_pri_cpu_quota}"
+
+log_ts() {
+  date "+%y%m%d %H:%M:%S"
+}
 
 log_d() {
-  echo "[Debug] $*"
+  _lo_ts="$(log_ts)"
+  echo "${_lo_ts:+[${_lo_ts}]}[Debug] $*"
 }
 
 log_e() {
-  echo "[ERROR] $*"
+  _lo_ts="$(log_ts)"
+  echo "${_lo_ts:+[${_lo_ts}]}[Error] $*" >&2
+}
+
+cmd_run() {
+  # echo "================================"
+  log_d "Execute: $*"
+  echo ""
+  "$@"
+  _lo_ret=$?
+  echo ""
+  log_d "Exit code $_lo_ret ($1 $2 $3 ...)"
+  echo ""
+  return $_lo_ret
 }
 
 # === Configuration ===
@@ -73,10 +109,6 @@ download_source() {
   (cd gcc-$GCC_VER && ./contrib/download_prerequisites)
 }
 
-download_source
-
-export PATH=$PREFIX/bin:$PATH
-
 # === 1. Build binutils ===
 build_binutils() {
   cd "$SRC"
@@ -91,8 +123,6 @@ build_binutils() {
   cd ..
 }
 
-build_binutils
-
 # === 2. Install Linux headers ===
 install_linux_header() {
   cd "$SRC"
@@ -101,8 +131,6 @@ install_linux_header() {
   make ARCH=arm64 INSTALL_HDR_PATH=$SYSROOT/usr headers_install
   cd ..
 }
-
-install_linux_header
 
 # === 3. Build GCC stage1 (C only, no libc) ===
 build_gcc_stage1() {
@@ -119,8 +147,6 @@ build_gcc_stage1() {
   make install-gcc
   cd ..
 }
-
-build_gcc_stage1
 
 # === 4. Install glibc headers and startup files ===
 build_glibc_stage1() {
@@ -142,8 +168,6 @@ build_glibc_stage1() {
   touch $SYSROOT/usr/include/gnu/stubs.h
   cd ..
 }
-
-build_glibc_stage1
 
 # === 5. Build full GCC (C & C++) ===
 build_gcc_stage2() {
@@ -168,8 +192,6 @@ build_gcc_stage2() {
   cd ..
 }
 
-build_gcc_stage2
-
 # === 6. Build full glibc ===
 build_glibc_stage2() {
   cd "$SRC"
@@ -192,8 +214,6 @@ build_glibc_stage2() {
   make install install_root=$SYSROOT
   cd ..
 }
-
-build_glibc_stage2
 
 # === 7. Build target libraries that require glibc ===
 build_target_library_stdcxx() {
@@ -224,8 +244,6 @@ build_target_library_stdcxx() {
   cd ..
 }
 
-build_target_library_stdcxx
-
 # === 8. Build the host debugger and target gdbserver ===
 # Host GDB runs on the PC and debugs aarch64-linux-gnu over TCP.
 build_gdb() {
@@ -252,8 +270,6 @@ build_gdb() {
   cd ..
 }
 
-# build_gdb()
-
 # === 9. Package the toolchain ===
 package_dist() {
   cd "$SRC"
@@ -266,4 +282,43 @@ package_dist() {
   echo "Add to PATH: export PATH=\${BUILDDIR}/$TARGET/bin:\$PATH"
 }
 
-package_dist
+build_cross() {
+  download_source
+  export PATH=$PREFIX/bin:$PATH
+  build_binutils
+  install_linux_header
+  build_gcc_stage1
+  build_glibc_stage1
+  build_gcc_stage2
+  build_glibc_stage2
+  build_target_library_stdcxx
+  # build_gdb()
+  package_dist
+}
+
+show_help() {
+  cat <<EOHELP
+Usage: $(basename "$0") <COMMAND> [ARGUMENTS]
+EOHELP
+}
+
+dispatch() {
+  _lo_command="${1:-help}"
+  [ "$#" -eq 0 ] || shift
+
+  case "$_lo_command" in
+  build_cross)
+    "$_lo_command" "$@"
+    ;;
+  help|-h|--help)
+    show_help
+    ;;
+  *)
+    log_e "Unknown command: $_lo_command"
+    show_help >&2
+    return 2
+    ;;
+  esac
+}
+
+dispatch "$@"

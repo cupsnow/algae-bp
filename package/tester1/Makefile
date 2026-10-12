@@ -19,6 +19,11 @@ BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
 BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 lib64 usr/lib lib)
 endif
 
+ifneq ($(strip $(BUILD_STAGINGROOT)),)
+BUILD_INCDIR+=$(addprefix $(BUILD_STAGINGROOT)/,usr/include include)
+BUILD_LIBDIR+=$(addprefix $(BUILD_STAGINGROOT)/,usr/lib64 lib64 usr/lib lib)
+endif
+
 CPPFLAGS+=$(BUILD_INCDIR:%=-I%)
 CFLAGS+=-g -pthread
 CXXFLAGS+=-g -pthread
@@ -33,9 +38,7 @@ ARTIFACT_DOXYGEN:=
 
 .DEFAULT_GOAL:=artifact
 
-ifneq ($(filter sa7715,$(APP_PLATFORM)),)
-SA7715_SYSROOT=$(HOME)/02_dev/eveplay-ws/build/sysroot-sa7715
-# end of sa7715
+ifneq ($(filter air192,$(APP_PLATFORM)),)
 else ifneq ($(filter esh,$(APP_PLATFORM)),)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 ESH_SYSROOT=$(HOME)/02_exdev2/agt-ws/esghub/buildroot/output/staging
@@ -58,7 +61,7 @@ ifneq ($(filter bp qemuarm64,$(APP_PLATFORM)),)
 ARCH_CFLAGS+=-march=armv8-a+simd -O3
 ARCH_CXXFLAGS+=-march=armv8-a+simd -O3
 ARCH_LDFLAGS+=-march=armv8-a+simd -O3
-else ifneq ($(filter bb 192,$(APP_PLATFORM)),)
+else ifneq ($(filter bb air192,$(APP_PLATFORM)),)
 ARCH_CFLAGS+=-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
 ARCH_CXXFLAGS+=-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
 ARCH_LDFLAGS+=-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard 
@@ -162,7 +165,7 @@ $(eval $(call TESTER1_APP2,tester_cli2, \
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB
+tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB USE_BT
 ifneq ($(strip $(wildcard $(BUILD_SYSROOT)/lib/libwpa_client.a)),)
 tester_ev3_ATTR+=USE_WPASUPCLIENT
 endif
@@ -203,6 +206,12 @@ ifneq ($(filter USE_USB,$(tester_ev3_ATTR)),)
 tester_ev3_SRCS+=usb.cpp
 tester_ev3_CPPFLAGS+=-DUSE_USB=1
 # end of USE_USB
+endif
+
+ifneq ($(filter USE_BT,$(tester_ev3_ATTR)),)
+tester_ev3_SRCS+=tester_btrfcomm.cpp tester_blegatt.cpp
+tester_ev3_CPPFLAGS+=-DUSE_BT=1
+# end of USE_BT
 endif
 
 tester_ev3_CPPFLAGS+=$(CPPFLAGS)
@@ -371,8 +380,10 @@ tester_spi2_dism: $(tester_spi2_BUILDDIR)/$(tester_spi2_BIN)
 	$(OBJDUMP) -dS $(tester_spi2_BUILDDIR)/$(tester_spi2_BIN) \
 	  >$(tester_spi2_BUILDDIR)/objs/$(tester_spi2_BIN).dism
 
+ifneq ($(filter air192,$(APP_PLATFORM)),)
+else
 ARTIFACT+=$(tester_spi2_BIN)
-
+endif
 #------------------------------------
 #
 #ARTIFACT+=ARTIFACT_EGL

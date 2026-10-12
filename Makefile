@@ -3689,7 +3689,7 @@ define SIMPLE_APP1
 $(1)_DIR=$(or $(2),$(firstword $(wildcard $(PKGDIR)/$(1) $(PKGDIR2)/$(1))))
 $(1)_MAKE=$$(MAKE) $(foreach var, \
     PROJDIR CROSS_COMPILE APP_BUILD APP_PLATFORM APP_ATTR BUILD_SYSROOT \
-    TOOLCHAIN_SYSROOT, \
+    TOOLCHAIN_SYSROOT BUILD_STAGINGROOT, \
     $(var)="$$($(var))") -C $$($(1)_DIR)
 
 $(1):

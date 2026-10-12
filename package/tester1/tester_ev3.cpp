@@ -30,6 +30,10 @@
 #ifdef USE_USB
 #  include "usb.h"
 #endif
+#ifdef USE_BT
+#  include "bt.h"
+#  include "blegatt.h"
+#endif
 
 static struct {
 	void *ev_ctx;
@@ -483,6 +487,15 @@ int main(int argc, const char **argv) {
 	cli1_cmd_add(cli_global, "usb", &cli_cmd_usb, NULL, "usb manager");
 #endif
 
+#ifdef USE_BT
+	bt_global = bt_init(impl.ev_ctx);
+	cli1_cmd_add(cli_global, "btrfcomm", &cli_cmd_btrfcomm, NULL,
+			"btrfcomm up | discoverable on|off | listen [ch] | connect <bdaddr> [ch] | send <text> | close");
+	blegatt_global = blegatt_init(impl.ev_ctx);
+	cli1_cmd_add(cli_global, "blegatt", &cli_cmd_blegatt, NULL,
+			"blegatt up | advertise on|off | notify <text> | close");
+#endif
+
 	while (!impl.quit) {
 		aloe_evb2_run_once(impl.ev_ctx, ALOE_EVB2_INFINITE);
 	}
@@ -496,6 +509,10 @@ finally:
 #endif
 #ifdef USE_USB
 	if (usb_global) usb_destroy(usb_global);
+#endif
+#ifdef USE_BT
+	if (bt_global) bt_destroy(bt_global);
+	if (blegatt_global) blegatt_destroy(blegatt_global);
 #endif
 	if (impl.ev_ctx) {
 		aloe_evb2_destroy(impl.ev_ctx);
