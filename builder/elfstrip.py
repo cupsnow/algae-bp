@@ -3,33 +3,61 @@ import sys, os, logging, argparse, asyncio, pathlib, subprocess
 import fnmatch
 
 # level=logging.INFO,
-logging.basicConfig(format="[%(asctime)s][%(levelname)s][%(name)s][%(funcName)s][#%(lineno)d]%(message)s")
+logger_fmt = '[%(asctime)s][%(levelname)s][%(funcName)s][#%(lineno)d]%(message)s'
 
-logger = logging.getLogger("elfstrip")
-logger_level = logging.INFO
-logger.setLevel(logger_level)
+def logger_init(filename="privpriv1234566.log", level=logging.DEBUG):
+    if filename == "privpriv1234566.log":
+        filename = f"{os.path.splitext(__file__)[0]}.log"
+    logging.basicConfig(level=level, filename=filename, format=logger_fmt)
+
+def logger_get(name, level=logging.INFO, format=logger_fmt):
+    logger = logging.getLogger(name)
+    # For capture all levels to file
+    logger.setLevel(logging.DEBUG)
+    
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        if format:
+            console_formatter = logging.Formatter(format)
+            console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+        # retrive consoleHandler to apply level latter
+        logger.consoleHandler = console_handler
+    return logger
+
+def logger_getLevel(logger):
+    if hasattr(logger, "consoleHandler"):
+        return logger.consoleHandler.level
+    return logger.level
+
+def logger_setLevel(logger, level):
+    if hasattr(logger, "consoleHandler"):
+        logger.consoleHandler.setLevel(level)
+    else:
+        logger.setLevel(level)
+    return logger
+
+def logger_verbose(logger, inc):
+    lut = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO,
+            logging.DEBUG]
+    logger_level_index = logger_getLevel(logger)
+    lut_idx = lut.index(logger_level_index)
+    lut_idx += inc
+    if lut_idx < 0:
+        lut_idx = 0
+    elif lut_idx >= len(lut):
+        lut_idx = len(lut) - 1
+    logger_setLevel(logger, lut[lut_idx])
+    return logger
+
+logger_init()
+logger = logger_get("elfstrip", level=logging.DEBUG)
 
 app_cfg = {
     "dest": [],
     "du_yield": 0
 }
-
-def logger_level_verbose(noiser=1, base=None):
-    global logger_level
-    lvl = base or logger_level
-    lut = [logging.NOTSET, logging.DEBUG, logging.INFO, logging.WARNING,
-            logging.ERROR, logging.CRITICAL]
-    idx = lut.index(lvl) - noiser
-    if idx < 0:
-        lvl = lut[0]
-    elif idx >= len(lut):
-        lvl = lut[-1]
-    else:
-        lvl = lut[idx]
-    if base is None:
-        logger_level = lvl
-        logger.setLevel(logger_level)
-    return lvl
 
 def filesave(data, fn, wmod="w"):
     '''
@@ -73,9 +101,6 @@ def do_strip_elf(p):
         raise err
         return 1
     do_strip_log(f"Strip {p}")
-    # global logger_level
-    # if logger_level >= logging.INFO:
-    #     logger.info(f"Strip {p}")
     return 0
 
 def do_test_elf(p):
@@ -156,13 +181,14 @@ def do_strip(tgt, symlink=False):
 
 async def main(argv):
     logger.debug(f"argv: {argv}")
+    logger_setLevel(logger, logging.INFO)
     argparser = argparse.ArgumentParser(prog=argv[0], description=(f"strip executable"),
             formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     argparser.add_argument("-h", "--help", action="store_true", help="Show this help")
     argparser.add_argument("-v", "--verbose", action="count", default=0, help="More message output")
     argparser.add_argument("-l", "--log", help="Log file path")
     argparser.add_argument("--strip", default="strip", help="Program used to strip executable")
-    argparser.add_argument("--kostrip", help="Program used to strip kernel module")
+    argparser.add_argument("--kostrip", help="Program used to strip kernel module (default: apply -g on the strip executable)")
     argparser.add_argument("--bound", help="Strip target must under the directory")
     argparser.add_argument("--exclude", action="append", help="Exclude glob")
     argparser.add_argument("input", nargs="*", help="Input path")
@@ -171,7 +197,7 @@ async def main(argv):
     app_cfg.update({"cli_args": cli_args})
 
     if cli_args.verbose != 0:
-        logger_level_verbose(cli_args.verbose)
+        logger_verbose(logger, cli_args.verbose)
 
     if cli_args.help:
         argparser.print_help()
@@ -210,8 +236,6 @@ if __name__ == "__main__":
     elif True:
         asyncio.run(main(["elfstrip.py",
                 *"-v -l elfstrip.log".split(),
-                *"--strip=algae-bp/tool/gcc-aarch64/bin/aarch64-unknown-linux-gnu-strip".split(),
-                *"--bound=algae-bp/destdir/bp/rootfs".split(),
-                "algae-bp/tic",
-                "algae-bp/destdir/bp/rootfs",
-                "algae-bp/destdir/bp/rootfs"]))
+                *"--strip=/home/joelai/02_dev/eveplay-ws/air192/tool/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-strip".split(),
+                *"--bound=/home/joelai/02_dev/algae-ws/build/sysroot-air192".split(),
+                *"/home/joelai/02_dev/algae-ws/build/sysroot-air192".split()]))
