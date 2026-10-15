@@ -1,0 +1,105 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="usb-initd"
+
+log_d "$0 $*"
+
+ts_dt() {
+  date "+%y-%m-%d %H:%M:%S"
+}
+
+log_d() {
+  _lo_ret=$?
+  # func_rel && return
+  echo "[$(ts_dt)][Debug]${_pri_tag:+"[$_pri_tag]"} $*"
+  return $_lo_ret
+}
+
+log_e() {
+  _lo_ret=$?
+  echo "[$(ts_dt)][ERROR]${_pri_tag:+"[$_pri_tag]"} $*" >&2
+  return $_lo_ret
+}
+
+cmd_run() {
+  # echo "================================"
+  log_d "Execute: $*"
+  echo ""
+  "$@"
+  _lo_ret=$?
+  echo ""
+  log_d "Exit code $_lo_ret ($1 $2 $3 ...)"
+  echo ""
+  return $_lo_ret
+}
+
+# ko_find2 ehci_ "ehci[_-]atmel" || { log_e "missing ehci_atmel.ko"; return 1; }
+# echo "ehci_root: ${ehci_root}; ehci_ko: ${ehci_ko}"
+ko_find2() {
+  _lo_perfix=
+  if [ -n "$2" ]; then
+    _lo_perfix=$1
+    _lo_mod=$2
+  elif [ -n "$1" ]; then
+    _lo_mod=$1
+  else
+    # log_e "invalid argument"
+    return 1
+  fi
+  ko_root="/lib/modules/`uname -r`"
+  for _lo_ext in updates extra kernel; do
+    _lo_root="${ko_root}/${_lo_ext}"
+    # log_d "find ${_lo_root} -iname ${_lo_mod}.ko"
+    _lo_ko="`find ${_lo_root} -iname ${_lo_mod}.ko 2>/dev/null`"
+    if [ -e "${_lo_ko}" ]; then
+      eval "${_lo_perfix}root=${_lo_root}"
+      eval "${_lo_perfix}ko=${_lo_ko}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+usb_initd_stop () {
+  for i in ehci_atmel; do
+    [ ! -e "/sys/module/$i" ] || rmmod $i
+  done
+}
+
+usb_initd_start () {
+  ehci_root=
+  ehci_ko=
+  ko_find2 ehci_ "ehci[_-]atmel" || { log_e "missing ehci_atmel.ko"; return 1; }
+  # log_d "ehci_root: ${ehci_root}; ehci_ko: ${ehci_ko}"
+  if [ -e "$ehci_ko" ]; then
+    modprobe $(basename $ehci_ko)
+  fi
+}
+
+case "$1" in
+start)
+  shift
+  usb_initd_start || { log_se "Failed load usb"; exit 1; }
+  ;;
+stop)
+  shift
+  usb_initd_stop
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    `basename $0` [start | stop]
+
+OPTIONS
+    start  Start service
+    stop   Stop service
+
+EOHERE
+  ;;
+esac

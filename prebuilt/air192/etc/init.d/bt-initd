@@ -1,0 +1,187 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="bt-initd"
+_pri_dbus_socket="/var/run/dbus/system_bus_socket"
+
+log_d "$0 $*"
+
+ts_dt() {
+  date "+%y-%m-%d %H:%M:%S"
+}
+
+log_d() {
+  _lo_ret=$?
+  echo "[$(ts_dt)][Debug]${_pri_tag:+"[$_pri_tag]"} $*"
+  return $_lo_ret
+}
+
+log_e() {
+  _lo_ret=$?
+  echo "[$(ts_dt)][ERROR]${_pri_tag:+"[$_pri_tag]"} $*" >&2
+  return $_lo_ret
+}
+
+cmd_run() {
+  log_d "Execute: $*"
+  echo ""
+  "$@"
+  _lo_ret=$?
+  echo ""
+  log_d "Exit code $_lo_ret ($1 $2 $3 ...)"
+  echo ""
+  return $_lo_ret
+}
+
+_pri_sysroot=
+sysroot_get() {
+  if [ -e "${_pri_sysroot}" ]; then
+    echo "$_pri_sysroot"
+    return 0
+  fi
+  _lo_candi="/media /mnt /run /var/run /tmp"
+  for i in $_lo_candi; do
+    _lo_root="$i/02_dev/algae-ws/build/sysroot-air192"
+    if [ -x "$_lo_root/bin/bluetoothctl" ]; then
+      _pri_sysroot=$_lo_root
+      echo "$_pri_sysroot"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_pri_eveplayws=
+_pri_eveplayws_get() {
+  if [ -e "${_pri_eveplayws}" ]; then
+    echo "$_pri_eveplayws"
+    return 0
+  fi
+  _lo_candi="/media /mnt /run /var/run /tmp"
+  for i in $_lo_candi; do
+    _lo_eveplayws="$i/02_dev/eveplay-ws"
+    if [ -d "$_lo_eveplayws/air192/package/admin" ]; then
+      _pri_eveplayws=$_lo_eveplayws
+      echo "$_pri_eveplayws"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ldpath_set() {
+  _lo_sysroot=$1
+  export LD_LIBRARY_PATH="$_lo_sysroot/lib"
+  export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$_pri_dbus_socket"
+  log_d "LD_LIBRARY_PATH=$LD_LIBRARY_PATH, DBUS_SYSTEM_BUS_ADDRESS=$DBUS_SYSTEM_BUS_ADDRESS"
+}
+
+bt_modules() {
+  for i in bluetooth hci_uart; do
+    [ -e "/sys/module/$i" ] || cmd_run modprobe "$i" || return 1
+  done
+  _lo_n=0
+  while [ ! -d /sys/class/bluetooth/hci0 ]; do
+    _lo_n=$((_lo_n + 1))
+    [ "$_lo_n" -lt 20 ] || { log_e "hci0 not registered"; return 1; }
+    sleep 0.5
+  done
+}
+
+filelist_exist() {
+  _lofilelistexist_prefix=$1
+  shift
+  _lofilelistexist_list=$*
+  for i in $_lofilelistexist_list; do
+    if [ ! -e "${_lofilelistexist_prefix}${i}" ]; then
+      echo "${i}"
+      return 1
+    fi
+  done
+  return 0
+}
+
+rtlbt_firmware() {
+  _lortlbtfirmware_fwlist="rtl8821cs_config.bin rtl8821cs_fw.bin"
+  _lortlbtfirmware_fwdir=/lib/firmware/rtl_bt
+  filelist_exist ${_lortlbtfirmware_fwdir}/ $_lortlbtfirmware_fwlist >/dev/null && { 
+    log_d "found $_lortlbtfirmware_fwlist in ${_lortlbtfirmware_fwdir}"
+    return 0
+  }
+
+  _lortlbtfirmware_eveplayws=$(_pri_eveplayws_get) || { log_e "missing eveplay-ws"; return 1; }
+  # filelist_exist ${_lortlbtfirmware_eveplayws}/ $_lortlbtfirmware_fwlist >/dev/null || { log_e "eveplay-ws missing firmware"; return 1; }
+  mkdir -p $_lortlbtfirmware_fwdir
+  for i in $_lortlbtfirmware_fwlist; do
+    cp -av ${_lortlbtfirmware_eveplayws}/air192/destdir/rootfs/lib/firmware/rtl_bt/$i $_lortlbtfirmware_fwdir/ || { log_e "Failed copy $i"; return 1; }
+  done
+  return 0
+}
+
+bt_initd_start() {
+  _lo_sysroot=$(sysroot_get) || { log_e "missing sysroot-air192"; return 1; }
+  rtlbt_firmware || return 1
+  bt_modules || return 1
+  [ -S $_pri_dbus_socket ] || /etc/init.d/dbus-initd start || return 1
+  if [ -f /var/run/bluetoothd.pid ] && kill -0 "$(cat /var/run/bluetoothd.pid)" 2>/dev/null; then
+    log_d "bluetoothd already running"
+    return 0
+  fi
+  ldpath_set "$_lo_sysroot"
+  # org.bluez.service is Exec=/bin/false, so start the daemon directly
+  "$_lo_sysroot/libexec/bluetooth/bluetoothd" -n \
+    >>/tmp/bluetoothd.log 2>&1 &
+  echo $! > /var/run/bluetoothd.pid
+  sleep 0.5
+  kill -0 "$(cat /var/run/bluetoothd.pid)" 2>/dev/null || {
+    log_e "bluetoothd exited, see /tmp/bluetoothd.log"
+    return 1
+  }
+}
+
+bt_initd_stop() {
+  if [ -f /var/run/bluetoothd.pid ]; then
+    kill "$(cat /var/run/bluetoothd.pid)" 2>/dev/null
+    rm -f /var/run/bluetoothd.pid
+  fi
+}
+
+bt_initd_show() {
+  _lo_sysroot=$(sysroot_get) || { log_e "missing sysroot-air192"; return 1; }
+  [ -S $_pri_dbus_socket ] || { log_e "system bus is down"; return 1; }
+  ldpath_set "$_lo_sysroot"
+  "$_lo_sysroot/bin/bluetoothctl" show
+}
+
+case "$1" in
+start)
+  shift
+  bt_initd_start || { log_e "Failed to start bluetooth"; exit 1; }
+  ;;
+stop)
+  shift
+  bt_initd_stop
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+show)
+  shift
+  bt_initd_show
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    $(basename "$0") [start | stop | restart | show]
+
+OPTIONS
+    start    Load hci_uart, start bluetoothd
+    stop     Stop bluetoothd
+    restart  Stop then start
+    show     bluetoothctl show
+
+EOHERE
+  ;;
+esac

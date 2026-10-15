@@ -109,8 +109,6 @@ _pri_listok=""
 _pri_listfailed=""
 
 _pri_ip=
-_pri_nfsroot=
-
 get_ip () {
   if [ -n "$_pri_ip" ]; then
     echo "${_pri_ip}"
@@ -134,6 +132,7 @@ get_ip () {
   return 1
 }
 
+_pri_nfsroot=
 get_nfsroot() {
   if [ -n "$_pri_nfsroot" ]; then
     echo "${_pri_nfsroot}"
