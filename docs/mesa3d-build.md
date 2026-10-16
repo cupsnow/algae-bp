@@ -32,6 +32,13 @@ some versions explicitly rejected in `meson.build`. LLVM 24 recommends CMake
 >=3.31. Host bindgen needs a native libclang (the host LLVM stage supplies it).
 Rust must include target standard libraries:
 
+> Ubuntu 26.04 install rust
+> 
+> ```sh
+> apt install rustup
+> rustup default stable
+> ```
+
 ```sh
 rustup target add aarch64-unknown-linux-gnu
 ```
