@@ -3424,9 +3424,7 @@ ccrcp_WEST=. $(PYVENVDIR)/bin/activate \
 
 ccrcp_defconfig $(ccrcp_BUILDDIR)/build.ninja:
 	$(ccrcp_WEST) build -p always -b beagleplay/cc1352p7 -d $(ccrcp_BUILDDIR) \
-	    --extra-conf=$(ccrcp_DIR)/overlay-rcp.conf \
-	    --extra-conf=$(ccrcp_DIR)/boards/cc1352p7_beagleplay.conf \
-	    --extra-dtc-overlay=$(ccrcp_DIR)/boards/cc1352p7_beagleplay.overlay
+	    --extra-dtc-overlay=$(ccrcp_DIR)/algae_bp.overlay
 
 ccrcp_distclean:
 	$(RMTREE) $(ccrcp_BUILDDIR)
