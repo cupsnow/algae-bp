@@ -3300,7 +3300,8 @@ bluez_ACARGS+=--with-dbusconfdir=/share \
     --with-dbussessionbusdir=/share/dbus-1/services \
     --with-systemdsystemunitdir=/lib/systemd/system \
     --with-systemduserunitdir=/lib/systemd/user \
-    --with-udevdir=/lib/udev
+    --with-udevdir=/lib/udev \
+	--enable-library
 
 bluez_MAKE=$(MAKE) -C $(bluez_BUILDDIR)
 
