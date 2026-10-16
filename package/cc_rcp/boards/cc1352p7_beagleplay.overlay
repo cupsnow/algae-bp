@@ -1,0 +1,73 @@
+/*
+ * Copyright (c) 2024 Alexandre Bailon
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	chosen {
+		zephyr,ot-uart = &uart0;
+
+		zephyr,console = &uart1;
+		zephyr,shell-uart = &uart1;
+
+		/* default dts assigned to ieee802154g (sub-1 GHz) */
+		zephyr,ieee802154 = &ieee802154;
+
+		zephyr,code-partition = &app_partition;
+		zephyr,settings-partition = &storage_partition;
+	};
+};
+
+&ieee802154 {
+	status = "okay";
+};
+
+&ieee802154g {
+	status = "disabled";
+};
+
+&uart0 {
+	current-speed = <115200>;
+    /delete-property/ hw-flow-control;
+	status = "okay";
+};
+
+&uart1 {
+	current-speed = <115200>;
+    /delete-property/ hw-flow-control;
+	status = "okay";
+	pinctrl-0 = <&uart1_rx_default &uart1_tx_default>;
+	pinctrl-names = "default";
+};
+
+&pinctrl {
+	/* default JTAG TDO */
+	uart1_tx_default: uart1_tx_default {
+		pinmux = <16 IOC_PORT_MCU_UART1_TX>;
+		bias-disable;
+	};
+
+	/* default JTAG TDI */
+	uart1_rx_default: uart1_rx_default {
+		pinmux = <17 IOC_PORT_MCU_UART1_RX>;
+		bias-disable;
+		input-enable;
+	};
+};
+
+&flash0 {
+	partitions {
+		/* about 680KiB */
+		app_partition: partition@0 {
+			label = "application";
+			reg = <0x00000 0xAA000>;
+		};
+
+		/* about 16KiB */
+		storage_partition: partition@aa000 {
+			label = "storage";
+			reg = <0xAA000 0x4000>;
+		};
+	};
+};

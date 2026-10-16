@@ -1077,7 +1077,7 @@ endif
 $(eval $(call DEF_DESTDEP,zlib))
 
 zlib_distclean:
-	$(RM) $(zlib_BUILDDIR)
+	$(RMTREE) $(zlib_BUILDDIR)
 
 zlib: | $(zlib_BUILDDIR)/configure.log
 	$(zlib_MAKE) $(PARALLEL_BUILD)
@@ -1289,7 +1289,7 @@ readline_install: | $(readline_BUILDDIR)/Makefile
 $(eval $(call DEF_DESTDEP,readline))
 
 readline_distclean:
-	$(RM) $(readline_BUILDDIR)
+	$(RMTREE) $(readline_BUILDDIR)
 
 readline: | $(readline_BUILDDIR)/Makefile
 	$(readline_MAKE) $(PARALLEL_BUILD)
@@ -1708,7 +1708,7 @@ tmux_install: | $(tmux_BUILDDIR)/Makefile
 $(eval $(call DEF_DESTDEP,tmux))
 
 tmux_distclean:
-	$(RM) $(tmux_BUILDDIR)
+	$(RMTREE) $(tmux_BUILDDIR)
 
 tmux: | $(tmux_BUILDDIR)/Makefile
 	$(tmux_MAKE) $(PARALLEL_BUILD)
@@ -3393,6 +3393,49 @@ cpython_host_install $(cpython_host_python):
 
 #------------------------------------
 #
+ccblinky_DIR=$(PKGDIR)/cc_blinky
+ccblinky_BUILDDIR=$(BUILDDIR)/cc_blinky-$(APP_PLATFORM)
+ccblinky_WEST=. $(PYVENVDIR)/bin/activate \
+  && . ~/zephyrproject/zephyr/zephyr-env.sh \
+  && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+  && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
+  && cd $(ccblinky_DIR) \
+  && west
+
+ccblinky_defconfig $(ccblinky_BUILDDIR)/build.ninja:
+	$(ccblinky_WEST) build -p always -b beagleplay/cc1352p7 -d $(ccblinky_BUILDDIR)
+
+ccblinky_distclean:
+	$(RMTREE) $(ccblinky_BUILDDIR)
+
+ccblinky: | $(ccblinky_BUILDDIR)/build.ninja
+	$(ccblinky_WEST) build -d $(ccblinky_BUILDDIR)
+
+#------------------------------------
+#
+ccrcp_DIR=$(PKGDIR)/cc_rcp
+ccrcp_BUILDDIR=$(BUILDDIR)/cc_rcp-$(APP_PLATFORM)
+ccrcp_WEST=. $(PYVENVDIR)/bin/activate \
+  && . ~/zephyrproject/zephyr/zephyr-env.sh \
+  && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+  && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
+  && cd $(ccrcp_DIR) \
+  && west
+
+ccrcp_defconfig $(ccrcp_BUILDDIR)/build.ninja:
+	$(ccrcp_WEST) build -p always -b beagleplay/cc1352p7 -d $(ccrcp_BUILDDIR) \
+	    --extra-conf=$(ccrcp_DIR)/overlay-rcp.conf \
+	    --extra-conf=$(ccrcp_DIR)/boards/cc1352p7_beagleplay.conf \
+	    --extra-dtc-overlay=$(ccrcp_DIR)/boards/cc1352p7_beagleplay.overlay
+
+ccrcp_distclean:
+	$(RMTREE) $(ccrcp_BUILDDIR)
+
+ccrcp: | $(ccrcp_BUILDDIR)/build.ninja
+	$(ccrcp_WEST) build -d $(ccrcp_BUILDDIR)
+
+#------------------------------------
+#
 lighttpd_DIR?=$(PROJDIR)/package/lighttpd
 lighttpd_BUILDDIR?=$(BUILDDIR)/lighttpd-$(APP_BUILD)
 lighttpd_MAKE=$(MAKE) -C $(lighttpd_BUILDDIR)
@@ -3858,7 +3901,7 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 	mv -v $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/* $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
-	rm -rf $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
+	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
 	ln -sf lib $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img)
