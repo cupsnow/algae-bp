@@ -8,7 +8,13 @@ logger_fmt = '[%(asctime)s][%(levelname)s][%(funcName)s][#%(lineno)d]%(message)s
 def logger_init(filename="privpriv1234566.log", level=logging.DEBUG):
     if filename == "privpriv1234566.log":
         filename = f"{os.path.splitext(__file__)[0]}.log"
-    logging.basicConfig(level=level, filename=filename, format=logger_fmt)
+    cfgs = {
+        "level": level, 
+        "format": logger_fmt
+    }
+    if filename:
+        cfgs.update({"filename": filename})
+    logging.basicConfig(**cfgs)
 
 def logger_get(name, level=logging.INFO, format=logger_fmt):
     logger = logging.getLogger(name)
@@ -51,7 +57,7 @@ def logger_verbose(logger, inc):
     logger_setLevel(logger, lut[lut_idx])
     return logger
 
-logger_init()
+logger_init(filename=None)
 logger = logger_get("elfstrip", level=logging.DEBUG)
 
 app_cfg = {

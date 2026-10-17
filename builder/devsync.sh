@@ -771,6 +771,40 @@ do_stop() {
   start-stop-daemon -K -p ${_lo_pid_file}
 }
 
+genenv() {
+  _lo_sh=setenv.sh
+  cat <<EOH >$_lo_sh
+#!/bin/sh
+
+envbase() {
+  [ ! -d "\$SYSROOT_BP" ] || { echo "Already defined SYSROOT_BP=\$SYSROOT_BP"; return 0; }
+  SYSROOT_BP=${_pri_nfsalgaews}/build/sysroot-bp
+  [ -d "\$SYSROOT_BP" ] || { echo "\$SYSROOT_BP not mount"; return 1; }
+  export LD_LIBRARY_PATH=\${SYSROOT_BP}/usr/lib64:\${SYSROOT_BP}/usr/lib:\${SYSROOT_BP}/lib64:\${SYSROOT_BP}/lib:\${SYSROOT_BP}/lib/systemd
+  export PATH=$PATH:\${SYSROOT_BP}/usr/bin:\${SYSROOT_BP}/sbin:\${SYSROOT_BP}/bin
+  export SYSROOT_BP
+  echo "SYSROOT_BP=\$SYSROOT_BP"
+}
+
+pyvenv() {
+  ! type -P deactivate || { echo "Already found deactivate"; return 0; }
+  VENVDIR=${_pri_nfsdw}/bpenv/venv
+  if [ ! -e "\$VENVDIR/bin/activate" ]; then
+    echo "\$VENVDIR/bin/activate not ready"
+    return 0
+  fi
+  . \$VENVDIR/bin/activate
+  echo "python venv ready (\$VENVDIR)"
+}
+
+envbase || exit
+pyvenv || exit
+
+
+EOH
+  chmod +x $_lo_sh
+}
+
 show_help() {
 cat <<-EOHELP
 USAGE
@@ -852,7 +886,7 @@ if [ -n "$opt_nfsmount" ]; then
   esac
 fi
 
-log_d "args: $*"
+# log_d "args: $*"
 
 while test -n "$1"; do
   opt1="$1"
@@ -870,6 +904,13 @@ while test -n "$1"; do
     ;;
   wpa_conf)
     cmd_run "$opt1" "$@"
+    exit
+    ;;
+  print_*)
+    var=${opt1##print_}
+    [ -n "$var" ] || { exit; }
+    varval=$(eval echo \$$var)
+    echo "$var=$varval"
     exit
     ;;
   esac
@@ -963,6 +1004,10 @@ while test -n "$1"; do
     fi
     sync; sync
     exit
+    ;;
+  genenv)
+    nfsmount || exit
+    genenv
     ;;
   otakernel)
     nfsmount || exit

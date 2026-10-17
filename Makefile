@@ -92,8 +92,9 @@ endif
 # Setup target sysroot, staging root path
 # ====
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
+BUILD_SYSROOT2?=$(BUILDDIR2)/sysroot2-$(or $1,$(APP_PLATFORM))
 
-BUILD_STAGINGROOT+=
+BUILD_STAGINGROOT+=$(BUILD_SYSROOT2)
 
 # Setup c/c++ header/library directory
 # ====
@@ -225,7 +226,7 @@ depgraph: DEPDOT_PKGS+=coreutils
 depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(DEPDOT_PKGS))
 depgraph: | $(BUILDDIR)
 depgraph:
-	@{ \1
+	@{ \
 	  echo "digraph $(DEPDOT_ID2) {" \
 	  && $(foreach iter,$(DEPDOT_PKGS),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT)) \
 	  echo "}"; \
@@ -1584,7 +1585,7 @@ libasound_%: | $(libasound_BUILDDIR)/Makefile
 #
 screen_DEP=ncursesw
 screen_DIR=$(PKGDIR2)/screen/src
-screen_BUILDDIR=$(BUILDDIR2)/screen-$(APP_BUILD)
+screen_BUILDDIR=$(BUILDDIR2)/screen-$(APP_PLATFORM)
 screen_MAKE=$(MAKE) -C $(screen_BUILDDIR)
 
 screen_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
@@ -3261,12 +3262,11 @@ libical_defconfig $(libical_BUILDDIR)/Makefile: | $(libical_BUILDDIR) $(libical_
 	      $(libical_DIR)
 
 libical_install: DESTDIR=$(BUILD_SYSROOT)
-libical_install: | $(libical_cross_cmake_$(APP_BUILD))
-	$(MKDIR) $(libical_BUILDDIR)
+libical_install: | $(libical_BUILDDIR) $(libical_CROSSFILE_$(APP_PLATFORM))
 	cd $(libical_BUILDDIR) \
-	  && cmake \
-	      $(libical_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
+	  && $(BUILD_PKGCFG_ENV) cmake \
+	      $(libical_CROSSFILE_$(APP_PLATFORM):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	      -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
 	      -DLIBICAL_JAVA_BINDINGS=False -DLIBICAL_GOBJECT_INTROSPECTION=False \
 	      $(libical_CMAKEARGS_$(APP_PLATFORM)) $(libical_CMAKEARGS) \
 	      $(libical_DIR)
@@ -3279,11 +3279,11 @@ endif
 $(eval $(call DEF_DESTDEP,libical))
 
 libical: | $(libical_BUILDDIR)/Makefile
-	$(libical_MAKE)
+	$(libical_MAKE) $(CMAKE_MAKE_VERBOSE) $(PARALLEL_BUILD)
 
 #------------------------------------
 #
-bluez_DEP=utilinux dbus glib libical readline systemd lilbasound
+bluez_DEP=utilinux dbus glib libical readline systemd libasound
 bluez_DIR=$(PKGDIR2)/bluez
 bluez_BUILDDIR=$(BUILDDIR2)/bluez-$(APP_PLATFORM)
 
@@ -3340,6 +3340,7 @@ bluez_%: | $(bluez_BUILDDIR)/Makefile
 
 #------------------------------------
 #
+cpython_DEP+=openssl readline zlib utilinux
 cpython_DIR=$(PKGDIR2)/cpython
 cpython_BUILDDIR=$(BUILDDIR2)/cpython-$(APP_PLATFORM)
 cpython_MAKE=$(MAKE) -C $(cpython_BUILDDIR)
@@ -3391,6 +3392,24 @@ cpython_%: | $(cpython_BUILDDIR)/Makefile
 cpython_host_install: DESTDIR=$(cpython_host_PATH)
 cpython_host_install $(cpython_host_python):
 	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) cpython_destpkg_install
+
+#------------------------------------
+#
+cc1352flash_DIR=$(PKGDIR)/cc1352-flash
+cc1352flash_BUILDDIR=$(BUILDDIR)/cc1352-flash-$(APP_PLATFORM)
+cc1352flash_MAKE=$(MAKE) -C $(cc1352flash_DIR) \
+    CC=$(CC) CXX=$(CXX) O=$(cc1352flash_BUILDDIR) \
+	CPPFLAGS=-I$(BUILD_SYSROOT)/include \
+	LDFLAGS="-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib" \
+	LDLIBS=-lgpiod
+
+GENDIR+=$(cc1352flash_BUILDDIR)
+
+cc1352flash_defconfig $(cc1352flash_BUILDDIR)/tag: | $(cc1352flash_BUILDDIR)
+	touch $(cc1352flash_BUILDDIR)/tag
+
+cc1352flash: | $(cc1352flash_BUILDDIR)/tag
+	$(cc1352flash_MAKE) $(PARALLEL_BUILD)
 
 #------------------------------------
 #

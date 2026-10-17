@@ -1,10 +1,17 @@
 CC ?= cc
-CFLAGS ?= -O2 -g
-CFLAGS += -std=c11 -Wall -Wextra -Wpedantic
+CFLAGS ?= -g
+CFLAGS += -std=gnu11 -Wall -Wextra -Wpedantic
+
+SRCDIR ?= $(CURDIR)
+O ?= $(SRCDIR)
 
 all: cc1352-flash
+.PHONY: all
 
-cc1352-flash: cc1352-flash.c
+$(O)/cc1352-flash: $(SRCDIR)/cc1352-flash.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
-.PHONY: all
+.PHONY: cc1352-flash
+cc1352-flash: $(O)/cc1352-flash
+
+
