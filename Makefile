@@ -1583,25 +1583,31 @@ libasound_%: | $(libasound_BUILDDIR)/Makefile
 #   marked AC_TRY_RUN
 # dependent: ncurses
 #
-screen_DEP=ncursesw
+screen_DEP=ncursesw terminfo libxcrypt acl
 screen_DIR=$(PKGDIR2)/screen/src
 screen_BUILDDIR=$(BUILDDIR2)/screen-$(APP_PLATFORM)
-screen_MAKE=$(MAKE) -C $(screen_BUILDDIR)
 
-screen_INCDIR+=$(BUILD_SYSROOT)/include $(BUILD_SYSROOT)/include/ncursesw
-screen_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
+screen_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/ncursesw
+screen_LIBDIR+=$(BUILD_LIBDIR)
+
+screen_ACARGS+=--disable-pam
+
+screen_MAKE=$(MAKE) -C $(screen_BUILDDIR)
 
 GENDIR+=$(screen_BUILDDIR)
 
-screen_defconfig $(screen_BUILDDIR)/Makefile: | $(screen_BUILDDIR)
-	cp -a $(screen_DIR)/* $(screen_BUILDDIR)/
+$(screen_DIR)/configure:
+	cd $(screen_DIR) \
+	  && ./autogen.sh
+
+screen_defconfig $(screen_BUILDDIR)/Makefile: | $(screen_BUILDDIR) $(screen_DIR)/configure
 	cd $(screen_BUILDDIR) \
-	  && $(BUILD_PKGCFG_ENV) ./configure \
+	  && $(BUILD_PKGCFG_ENV) $(screen_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      CPPFLAGS="$(addprefix -I,$(screen_INCDIR)) $(screen_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
+	      CPPFLAGS="$(screen_INCDIR:%=-I%) -I$(screen_DIR) $(screen_ACARGS_CPPFLAGS_$(APP_PLATFORM))" \
 	      CFLAGS="$(screen_ACARGS_CFLAGS_$(APP_PLATFORM))" \
-	      LDFLAGS="$(addprefix -L,$(screen_LIBDIR)) $(screen_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
-	      $(screen_ACARGS_$(APP_PLATFORM))
+	      LDFLAGS="$(screen_LIBDIR:%=-L%) $(screen_ACARGS_LDFLAGS_$(APP_PLATFORM))" \
+	      $(screen_ACARGS) $(screen_ACARGS_$(APP_PLATFORM))
 
 screen_install: DESTDIR=$(BUILD_SYSROOT)
 screen_install: | $(screen_BUILDDIR)/Makefile
@@ -3400,16 +3406,24 @@ cc1352flash_BUILDDIR=$(BUILDDIR)/cc1352-flash-$(APP_PLATFORM)
 cc1352flash_MAKE=$(MAKE) -C $(cc1352flash_DIR) \
     CC=$(CC) CXX=$(CXX) O=$(cc1352flash_BUILDDIR) \
 	CPPFLAGS=-I$(BUILD_SYSROOT)/include \
-	LDFLAGS="-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib" \
-	LDLIBS=-lgpiod
+	LDFLAGS="-L$(BUILD_SYSROOT)/lib64 -L$(BUILD_SYSROOT)/lib"
 
 GENDIR+=$(cc1352flash_BUILDDIR)
 
-cc1352flash_defconfig $(cc1352flash_BUILDDIR)/tag: | $(cc1352flash_BUILDDIR)
-	touch $(cc1352flash_BUILDDIR)/tag
-
-cc1352flash: | $(cc1352flash_BUILDDIR)/tag
+cc1352flash: | $(cc1352flash_BUILDDIR)
 	$(cc1352flash_MAKE) $(PARALLEL_BUILD)
+
+cc1352flash_distclean:
+	$(RMTREE) $(cc1352flash_BUILDDIR)
+
+cc1352flash_install: DESTDIR=$(BUILD_SYSROOT)
+cc1352flash_install: | $(cc1352flash_BUILDDIR)
+	$(cc1352flash_MAKE) DESTDIR=$(DESTDIR) install
+
+$(eval $(call DEF_DESTDEP,cc1352flash))
+
+cc1352flash_%: | $(cc1352flash_BUILDDIR)
+	$(cc1352flash_MAKE) $(PARALLEL_BUILD) $(@:cc1352flash_%=%)
 
 #------------------------------------
 #

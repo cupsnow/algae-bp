@@ -28,6 +28,7 @@ Usage: builder/build_mesa3d.sh COMMAND
   deps-target     AArch64 zlib and libdrm from sibling source trees
   llvm-host       native LLVM/Clang tools and libraries
   spirv-host      native SPIRV-Tools and LLVM-SPIRV-Translator
+  glslang-host    native GLSL to SPIR-V compiler for lavapipe
   mesa-host       native mesa_clc and vtn_bindgen2
   libclc          host Clang -> 32/64-bit SPIR-V builtins, staged for target
   llvm-target     AArch64 LLVM/Clang libraries
@@ -41,7 +42,7 @@ Individual stages require their preceding dependencies to have been installed.
 HELP
 }
 manifest() {
-  for tree in llvm-project mesa3d spirv-tools spirv-llvm-translator; do
+  for tree in llvm-project mesa3d spirv-tools spirv-llvm-translator glslang; do
     printf '%s ' "$tree"
     git -C "$SRC/$tree" describe --always --dirty
     git -C "$SRC/$tree" rev-parse HEAD
@@ -49,7 +50,7 @@ manifest() {
   printf 'SPIRV-Headers '; git -C "$HEADERS" rev-parse HEAD
 }
 check() {
-  for tree in llvm-project/llvm mesa3d spirv-tools spirv-llvm-translator libdrm zlib; do
+  for tree in llvm-project/llvm mesa3d spirv-tools spirv-llvm-translator glslang libdrm zlib; do
     [[ -d $SRC/$tree ]] || fail "missing $SRC/$tree"
   done
   [[ -f $HEADERS/include/spirv/unified1/spirv.hpp ]] || fail "missing SPIRV-Headers: $HEADERS"
@@ -72,8 +73,15 @@ check() {
   manifest
 }
 prepare() {
+  # C programs linking target C++ DSOs also need their indirect dependencies.
+  # GCC's C++ runtime can live outside its libc sysroot; -L alone does not
+  # let ld resolve a DSO's DT_NEEDED entries when linking with the C driver.
+  local cxx_runtime
+  cxx_runtime=$("${CROSS}g++" --sysroot="$GCC_SYSROOT" -print-file-name=libstdc++.so.6)
+  [[ $cxx_runtime == /* && -f $cxx_runtime ]] || fail 'cannot locate target libstdc++.so.6'
+  TARGET_LINK_FLAGS="-L$ROOT/usr/lib -Wl,-rpath-link,$ROOT/usr/lib -Wl,-rpath-link,$(dirname -- "$cxx_runtime")"
   # Paths go into CMake/Meson files. Reject characters requiring special quoting.
-  for path in "$SRC" "$OUT" "$HOST" "$ROOT" "$CROSS" "$GCC_SYSROOT" "$HEADERS"; do
+  for path in "$SRC" "$OUT" "$HOST" "$ROOT" "$CROSS" "$GCC_SYSROOT" "$HEADERS" "$cxx_runtime"; do
     [[ $path == /* && $path != *[\ \'\"\;\\$'\n']* ]] || fail "use absolute paths without spaces/quotes/semicolons: $path"
   done
   mkdir -p "$OUT" "$HOST" "$ROOT/usr"
@@ -92,8 +100,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 set(CMAKE_C_FLAGS_INIT "-I$ROOT/usr/include")
 set(CMAKE_CXX_FLAGS_INIT "-I$ROOT/usr/include")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-L$ROOT/usr/lib -Wl,-rpath-link,$ROOT/usr/lib")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "-L$ROOT/usr/lib -Wl,-rpath-link,$ROOT/usr/lib")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "$TARGET_LINK_FLAGS")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "$TARGET_LINK_FLAGS")
 CMAKE
 }
 deps_target() {
@@ -144,7 +152,9 @@ cmake_build() {
   local opts=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
   if [[ $arch == target ]]; then
     target_env
-    opts+=(-DCMAKE_TOOLCHAIN_FILE="$OUT/target.cmake" -DCMAKE_INSTALL_PREFIX=/usr)
+    opts+=(-DCMAKE_TOOLCHAIN_FILE="$OUT/target.cmake" -DCMAKE_INSTALL_PREFIX=/usr
+      -DCMAKE_EXE_LINKER_FLAGS="$TARGET_LINK_FLAGS"
+      -DCMAKE_SHARED_LINKER_FLAGS="$TARGET_LINK_FLAGS")
   else
     native_env
     opts+=(-DCMAKE_C_COMPILER="$(command -v gcc)" -DCMAKE_CXX_COMPILER="$(command -v g++)"
@@ -192,6 +202,12 @@ meson_setup() {
   local reconfigure=()
   [[ ! -f $dir/meson-private/coredata.dat ]] || reconfigure=(--reconfigure)
   run meson setup "${reconfigure[@]}" "$dir" "$SRC/mesa3d" --wrap-mode=nofallback "$@"
+}
+glslang_host() {
+  # Mesa's Vulkan BVH shaders need a native compiler, without optimizer passes.
+  cmake_build glslang-host "$SRC/glslang" host \
+    -DBUILD_EXTERNAL=OFF -DENABLE_OPT=OFF -DGLSLANG_TESTS=OFF \
+    -DGLSLANG_ENABLE_INSTALL=ON -DENABLE_GLSLANG_BINARIES=ON
 }
 mesa_host() {
   native_env
@@ -260,6 +276,7 @@ endian = 'little'
 needs_exe_wrapper = true
 sys_root = '$ROOT'
 pkg_config_libdir = ['$ROOT/usr/lib/pkgconfig', '$ROOT/usr/share/pkgconfig']
+bindgen_clang_arguments = ['--sysroot=$GCC_SYSROOT', '--gcc-toolchain=$(dirname -- "$(dirname -- "${CROSS}gcc")")']
 [built-in options]
 c_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include']
 cpp_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include']
@@ -303,16 +320,17 @@ case "$command" in
   help|-h|--help) help; exit ;;
   check) check; exit ;;
   manifest) manifest; exit ;;
-  all|deps-target|llvm-host|llvm-target|spirv-host|spirv-target|mesa-host|libclc|mesa-configure|mesa-target|package) ;;
+  all|deps-target|llvm-host|llvm-target|spirv-host|spirv-target|glslang-host|mesa-host|libclc|mesa-configure|mesa-target|package) ;;
   *) fail "unknown command: $command" ;;
 esac
 prepare
 case "$command" in
   all) check; manifest > "$OUT/source-revisions.txt"
-    deps_target; llvm host; spirv host; mesa_host; libclc; llvm target; spirv target; mesa_target ;;
+    deps_target; llvm host; spirv host; glslang_host; mesa_host; libclc; llvm target; spirv target; mesa_target ;;
   deps-target) deps_target ;;
   llvm-host) llvm host ;; llvm-target) llvm target ;;
   spirv-host) spirv host ;; spirv-target) spirv target ;;
+  glslang-host) glslang_host ;;
   mesa-host) mesa_host ;; libclc) libclc ;;
   mesa-configure) mesa_configure ;; mesa-target) mesa_target ;;
   package)

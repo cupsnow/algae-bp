@@ -51,7 +51,7 @@ memory; lower JOBS if the build runs out of memory.
 Defaults:
 
 - Sources: parent of algae-bp (`llvm-project`, `mesa3d`, `spirv-tools`,
-  `spirv-llvm-translator`, `zlib`, `libdrm`). SPIRV-Headers defaults to
+  `spirv-llvm-translator`, `glslang`, `zlib`, `libdrm`). SPIRV-Headers defaults to
   `spirv-tools/external/spirv-headers`; override `HEADERS` if needed.
 - Compiler: `cross/aarch64-linux-gnu/bin/aarch64-linux-gnu-` beneath algae-bp.
 - Output: `algae-bp/build/mesa3d-stack`; override `OUT` to start a fresh build.
@@ -73,6 +73,7 @@ and contain no spaces, quotes, backslashes or semicolons.
 | deps-target | Meson/CMake, cross GCC | zlib, libdrm |
 | llvm-host | LLVM/Clang, table generators, llvm-config, libclang | none |
 | spirv-host | native libraries for Mesa's compiler tools | none |
+| glslang-host | native glslangValidator for lavapipe's Vulkan shaders | none |
 | mesa-host | mesa_clc, vtn_bindgen2 | none |
 | libclc | host Clang, opt, llvm-link | 32/64-bit SPIR-V builtins |
 | llvm-target | host table generators, cross GCC | LLVM/Clang libraries and headers |
@@ -82,6 +83,14 @@ and contain no spaces, quotes, backslashes or semicolons.
 Individual stage names are CLI commands and do not recursively build their
 prerequisites. `all` runs them in the table's order. LLVM target installation may
 also include AArch64 tools; these are never used as build-PC tools.
+
+The target CMake linker flags include the cross compiler's C++ runtime directory
+via `-rpath-link`. This lets C executables resolve `libLLVM.so`'s indirect
+`libstdc++.so.6` dependency even when GCC installs it outside its libc sysroot.
+The script refreshes these flags in existing CMake caches on each run.
+The Mesa cross file also passes the compiler's libc sysroot and GCC installation
+prefix to bindgen's native libclang, so Rusticl bindings use AArch64 C and C++
+headers rather than build-PC headers.
 
 Mesa's LLVM dependency requires a runnable `llvm-config`. The generated Python
 adapter queries native LLVM and rewrites its installation prefix to the staged
@@ -144,8 +153,6 @@ References:
 - https://docs.mesa3d.org/rusticl.html
 - https://docs.mesa3d.org/envvars.html
 
-Validation on creation: Bash syntax and command dispatch checked. AArch64 zlib
-and libdrm were built and staged successfully; their ELF architecture was
-verified. The current
-build environment lacks Rust/bindgen, so the complete LLVM/Mesa/Rusticl build
-and BeaglePlay/QEMU runtime tests have not been completed.
+Build validation (2026-10-18): LLVM, SPIRV-Tools, LLVM-SPIRV-Translator,
+glslang and Mesa/Rusticl built and installed into the staging directories.
+BeaglePlay/QEMU runtime tests have not been completed.
