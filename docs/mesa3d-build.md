@@ -14,14 +14,18 @@ not included; this is suitable for headless API tests, not a desktop image.
 
 ## Build
 
-From algae-bp, activate your build-tools environment, for example:
+From algae-bp, create the build-tools environment once if needed:
 
 ```sh
-. .venv/bin/activate
+make pyvenv
 ./builder/build_mesa3d.sh check
 JOBS=4 ./builder/build_mesa3d.sh all
 ./builder/build_mesa3d.sh package
 ```
+
+The script automatically activates `algae-bp/.venv` for `check` and every
+build/package stage. Set `PYVENVDIR=/absolute/path/to/venv` to use another
+environment. `help` and `manifest` do not require a venv.
 
 Build PC prerequisites: GCC/G++, CMake, Ninja, Meson, pkg-config, Python with
 Mako/PyYAML/packaging, Bison, Flex, Rust and bindgen-cli. Host development

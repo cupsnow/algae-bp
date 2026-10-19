@@ -687,28 +687,26 @@ cjson_%: | $(cjson_BUILDDIR)/Makefile
 #------------------------------------
 #
 jsonc_DIR=$(PKGDIR2)/json-c
-jsonc_BUILDDIR=$(BUILDDIR2)/json-c-$(APP_BUILD)
+jsonc_BUILDDIR=$(BUILDDIR2)/json-c-test-$(APP_BUILD)
 jsonc_MAKE=$(MAKE) -C $(jsonc_BUILDDIR)
 
 jsonc_cross_cmake_aarch64=$(BUILDDIR)/cross-aarch64.cmake
 
-jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: | $(jsonc_cross_cmake_$(APP_BUILD))
-	$(MKDIR) $(jsonc_BUILDDIR)
+GENDIR+=$(jsonc_BUILDDIR)
+
+jsonc_defconfig $(jsonc_BUILDDIR)/Makefile: | $(jsonc_cross_cmake_$(APP_BUILD)) $(jsonc_BUILDDIR)
 	cd $(jsonc_BUILDDIR) \
 	  && cmake \
 	      $(jsonc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-		  -DCMAKE_INSTALL_PREFIX:PATH=$(BUILD_SYSROOT) \
+		  -DCMAKE_INSTALL_PREFIX:PATH=/ \
+	      -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
+	      -DCMAKE_INSTALL_INCLUDEDIR:PATH=/include \
+	      -DINSTALL_PKGCONFIG_DIR:PATH=/lib/pkgconfig \
 		  $(jsonc_DIR)
 
 jsonc_install: DESTDIR=$(BUILD_SYSROOT)
-jsonc_install: | $(jsonc_cross_cmake_$(APP_BUILD))
-	$(MKDIR) $(jsonc_BUILDDIR)
-	cd $(jsonc_BUILDDIR) \
-	  && cmake \
-	      $(jsonc_cross_cmake_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-		  -DCMAKE_INSTALL_PREFIX:PATH=$(DESTDIR) \
-		  $(jsonc_DIR)
-	$(jsonc_MAKE) DESTDIR= install
+jsonc_install: jsonc | $(jsonc_BUILDDIR)/Makefile
+	$(jsonc_MAKE) DESTDIR=$(DESTDIR) install
 ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
 	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,json-c)
 endif

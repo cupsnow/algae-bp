@@ -9,16 +9,51 @@ HOST=${HOST:-$OUT/host}
 ROOT=${ROOT:-$OUT/root}
 CROSS=${CROSS:-$TOP/cross/aarch64-linux-gnu/bin/aarch64-linux-gnu-}
 GCC_SYSROOT=${GCC_SYSROOT:-$("${CROSS}gcc" -print-sysroot)}
-JOBS=${JOBS:-4}
+PYVENVDIR=${PYVENVDIR:-$TOP/.venv}
 LLVM_TARGETS='X86;AArch64;SPIRV'
 HEADERS=${HEADERS:-$SRC/spirv-tools/external/spirv-headers}
-# Tools may come from a caller's venv. Never source an unrelated build environment.
+# Native LLVM tools take priority over other host tools.
 export PATH="$HOST/bin:$PATH"
 unset CC CXX CPP AR AS LD RANLIB STRIP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS \
   CMAKE_TOOLCHAIN_FILE CMAKE_PREFIX_PATH LLVM_CONFIG PKG_CONFIG_PATH \
   PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR DESTDIR
-fail() { echo "mesa-build: $*" >&2; exit 1; }
-run() { printf '+ '; printf '%q ' "$@"; printf '\n'; "$@"; }
+
+_lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
+if [ "$_lo_free_mem" -ge 20 ]; then
+  _pri_memory_max=15G
+  _pri_cpu_quota=1400%
+  _pri_parallel="15"
+elif [ "$_lo_free_mem" -ge 8 ]; then
+  _pri_memory_max=4G
+  _pri_cpu_quota=480%
+  _pri_parallel="4"
+else
+  _pri_memory_max=2G
+  _pri_cpu_quota=190%
+  _pri_parallel="2"
+fi
+
+JOBS=${JOBS:-$_pri_parallel}
+# Limit build resources to reduce host memory pressure.
+_pri_runner=(systemd-run --user --scope
+  -p "MemoryMax=$_pri_memory_max"
+  -p "CPUQuota=$_pri_cpu_quota")
+
+fail() {
+  echo "mesa-build: $*" >&2; exit 1;
+}
+
+run() {
+  printf '+ '; printf '%q ' "$@"; printf '\n'; "$@";
+}
+
+activate_venv() {
+  [[ -f $PYVENVDIR/bin/activate && -x $PYVENVDIR/bin/python3 ]] ||
+    fail "missing Python venv: $PYVENVDIR (run: make -C \"$TOP\" PYVENVDIR=\"$PYVENVDIR\" pyvenv)"
+  source "$PYVENVDIR/bin/activate"
+  export PATH="$HOST/bin:$PATH"
+}
+
 help() {
   cat <<'HELP'
 Usage: builder/build_mesa3d.sh COMMAND
@@ -36,11 +71,15 @@ Usage: builder/build_mesa3d.sh COMMAND
   mesa-configure  configure llvmpipe + lavapipe + Rusticl
   mesa-target     configure, build and stage Mesa
   package         tar the staged target files and runtime environment
-Variables: SRC OUT HOST ROOT CROSS GCC_SYSROOT HEADERS JOBS (default 4).
+Variables: SRC OUT HOST ROOT CROSS GCC_SYSROOT HEADERS JOBS (default based on available RAM).
+Builds run in a systemd user scope with RAM-based memory and CPU limits.
+PYVENVDIR defaults to algae-bp/.venv; activated for check and all build/package stages.
+Create it with make pyvenv. Help and manifest do not require a venv.
 All outputs default to algae-bp/build/mesa3d-stack. No source updates or patches.
 Individual stages require their preceding dependencies to have been installed.
 HELP
 }
+
 manifest() {
   for tree in llvm-project mesa3d spirv-tools spirv-llvm-translator glslang; do
     printf '%s ' "$tree"
@@ -49,6 +88,7 @@ manifest() {
   done
   printf 'SPIRV-Headers '; git -C "$HEADERS" rev-parse HEAD
 }
+
 check() {
   for tree in llvm-project/llvm mesa3d spirv-tools spirv-llvm-translator glslang libdrm zlib; do
     [[ -d $SRC/$tree ]] || fail "missing $SRC/$tree"
@@ -72,6 +112,7 @@ check() {
   run bindgen --version
   manifest
 }
+
 prepare() {
   # C programs linking target C++ DSOs also need their indirect dependencies.
   # GCC's C++ runtime can live outside its libc sysroot; -L alone does not
@@ -104,6 +145,7 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "$TARGET_LINK_FLAGS")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "$TARGET_LINK_FLAGS")
 CMAKE
 }
+
 deps_target() {
   cmake_build zlib-target "$SRC/zlib" target -DZLIB_BUILD_TESTING=OFF
   target_env
@@ -130,9 +172,10 @@ MESON
   run meson setup "${reconfigure[@]}" "$OUT/libdrm-target" "$SRC/libdrm" \
     --cross-file="$OUT/deps-cross.ini" --prefix=/usr --libdir=lib \
     --buildtype=release --wrap-mode=nofallback -Dauto_features=disabled
-  run meson compile -C "$OUT/libdrm-target" -j "$JOBS"
-  run env DESTDIR="$ROOT" meson install -C "$OUT/libdrm-target"
+  run "${_pri_runner[@]}" meson compile -C "$OUT/libdrm-target" -j "$JOBS"
+  run env DESTDIR="$ROOT" meson install --no-rebuild -C "$OUT/libdrm-target"
 }
+
 native_env() {
   unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_LIBDIR
   export PKG_CONFIG_PATH="$HOST/lib/pkgconfig:$HOST/share/pkgconfig"
@@ -140,6 +183,7 @@ native_env() {
   export LD_LIBRARY_PATH="$HOST/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   export LIBCLANG_PATH="$HOST/lib"
 }
+
 target_env() {
   export PKG_CONFIG_SYSROOT_DIR="$ROOT"
   export PKG_CONFIG_LIBDIR="$ROOT/usr/lib/pkgconfig:$ROOT/usr/share/pkgconfig:$GCC_SYSROOT/usr/lib/pkgconfig:$GCC_SYSROOT/usr/share/pkgconfig"
@@ -147,6 +191,7 @@ target_env() {
   export LIBCLANG_PATH="$HOST/lib"
   export LD_LIBRARY_PATH="$HOST/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 }
+
 cmake_build() {
   local name=$1 source=$2 arch=$3; shift 3
   local opts=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
@@ -161,13 +206,14 @@ cmake_build() {
       -DCMAKE_AR="$(command -v ar)" -DCMAKE_RANLIB="$(command -v ranlib)" -DCMAKE_INSTALL_PREFIX="$HOST")
   fi
   run cmake -G Ninja -S "$source" -B "$OUT/$name" "${opts[@]}" "$@"
-  run cmake --build "$OUT/$name" --parallel "$JOBS"
+  run "${_pri_runner[@]}" cmake --build "$OUT/$name" --parallel "$JOBS"
   if [[ $arch == target ]]; then
     run env DESTDIR="$ROOT" cmake --install "$OUT/$name"
   else
     run cmake --install "$OUT/$name"
   fi
 }
+
 llvm() {
   local arch=$1 extra=()
   if [[ $arch == target ]]; then
@@ -186,6 +232,7 @@ llvm() {
     -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF \
     -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF "${extra[@]}"
 }
+
 spirv() {
   local arch=$1 prefix=$HOST
   [[ $arch == target ]] && prefix="$ROOT/usr"
@@ -197,27 +244,31 @@ spirv() {
     -DLLVM_SPIRV_INCLUDE_TESTS=OFF -DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=OFF \
     -DBUILD_SHARED_LIBS=ON -DLLVM_LINK_LLVM_DYLIB=ON
 }
+
 meson_setup() {
   local dir=$1; shift
   local reconfigure=()
   [[ ! -f $dir/meson-private/coredata.dat ]] || reconfigure=(--reconfigure)
   run meson setup "${reconfigure[@]}" "$dir" "$SRC/mesa3d" --wrap-mode=nofallback "$@"
 }
+
 glslang_host() {
   # Mesa's Vulkan BVH shaders need a native compiler, without optimizer passes.
   cmake_build glslang-host "$SRC/glslang" host \
     -DBUILD_EXTERNAL=OFF -DENABLE_OPT=OFF -DGLSLANG_TESTS=OFF \
     -DGLSLANG_ENABLE_INSTALL=ON -DENABLE_GLSLANG_BINARIES=ON
 }
+
 mesa_host() {
   native_env
   meson_setup "$OUT/mesa-host" --prefix="$HOST" --libdir=lib --buildtype=release \
     -Dgallium-drivers=[] -Dvulkan-drivers=[] -Dplatforms=[] -Dglx=disabled \
     -Dopengl=false -Degl=disabled -Dgbm=disabled -Dgles1=disabled -Dgles2=disabled \
     -Dllvm=enabled -Dshared-llvm=enabled -Dmesa-clc=enabled -Dinstall-mesa-clc=true
-  run meson compile -C "$OUT/mesa-host" -j "$JOBS"
-  run meson install -C "$OUT/mesa-host"
+  run "${_pri_runner[@]}" meson compile -C "$OUT/mesa-host" -j "$JOBS"
+  run meson install --no-rebuild -C "$OUT/mesa-host"
 }
+
 libclc() {
   # Standalone LLVM 24 layout; no target C compiler is used for device IR.
   for bits in 32 64; do
@@ -240,6 +291,7 @@ Description: Upstream LLVM SPIR-V OpenCL builtins
 Version: 0.2.0
 PC
 }
+
 mesa_configure() {
   target_env
   [[ -x $HOST/bin/mesa_clc ]] || fail 'run mesa-host first'
@@ -294,12 +346,14 @@ MESON
     -Dgallium-va=disabled -Dvideo-codecs=[] -Dbuild-tests=false \
     -Dexpat=disabled -Dxmlconfig=disabled -Dzstd=disabled -Dzlib=enabled
 }
+
 mesa_target() {
   mesa_configure
-  run meson compile -C "$OUT/mesa-target" -j "$JOBS"
-  run env DESTDIR="$ROOT" meson install -C "$OUT/mesa-target"
+  run "${_pri_runner[@]}" meson compile -C "$OUT/mesa-target" -j "$JOBS"
+  run env DESTDIR="$ROOT" meson install --no-rebuild -C "$OUT/mesa-target"
   runtime_env
 }
+
 runtime_env() {
   cat > "$ROOT/mesa-software-env.sh" <<'ENV'
 # Source on the target after installing this archive's usr/ tree into /usr.
@@ -315,26 +369,76 @@ done
 unset mesa_icd
 ENV
 }
+
 command=${1:-help}
+
 case "$command" in
-  help|-h|--help) help; exit ;;
-  check) check; exit ;;
-  manifest) manifest; exit ;;
-  all|deps-target|llvm-host|llvm-target|spirv-host|spirv-target|glslang-host|mesa-host|libclc|mesa-configure|mesa-target|package) ;;
-  *) fail "unknown command: $command" ;;
+help|-h|--help)
+  help; exit
+  ;;
+check)
+  activate_venv; check; exit
+  ;;
+manifest)
+  manifest; exit
+  ;;
+all|deps-target|llvm-host|llvm-target|spirv-host|spirv-target|glslang-host|mesa-host|libclc|mesa-configure|mesa-target|package)
+  ;;
+*)
+  fail "unknown command: $command"
+  ;;
 esac
+
+activate_venv
+
 prepare
 case "$command" in
-  all) check; manifest > "$OUT/source-revisions.txt"
-    deps_target; llvm host; spirv host; glslang_host; mesa_host; libclc; llvm target; spirv target; mesa_target ;;
-  deps-target) deps_target ;;
-  llvm-host) llvm host ;; llvm-target) llvm target ;;
-  spirv-host) spirv host ;; spirv-target) spirv target ;;
-  glslang-host) glslang_host ;;
-  mesa-host) mesa_host ;; libclc) libclc ;;
-  mesa-configure) mesa_configure ;; mesa-target) mesa_target ;;
-  package)
-    [[ -f $ROOT/usr/lib/libRusticlOpenCL.so ]] || fail 'build Mesa before packaging'
-    runtime_env
-    run tar -C "$ROOT" -cJf "$OUT/mesa3d-aarch64.tar.xz" . ;;
+all)
+  check
+  manifest > "$OUT/source-revisions.txt"
+  deps_target
+  llvm host
+  spirv host
+  glslang_host
+  mesa_host
+  libclc
+  llvm target
+  spirv target
+  mesa_target
+  ;;
+deps-target)
+  deps_target
+  ;;
+llvm-host)
+  llvm host
+  ;;
+llvm-target)
+  llvm target
+  ;;
+spirv-host)
+  spirv host
+  ;;
+spirv-target)
+  spirv target
+  ;;
+glslang-host)
+  glslang_host
+  ;;
+mesa-host)
+  mesa_host
+  ;;
+libclc)
+  libclc
+  ;;
+mesa-configure)
+  mesa_configure
+  ;;
+mesa-target)
+  mesa_target
+  ;;
+package)
+  [[ -f $ROOT/usr/lib/libRusticlOpenCL.so ]] || fail 'build Mesa before packaging'
+  runtime_env
+  run tar -C "$ROOT" -cJf "$OUT/mesa3d-aarch64.tar.xz" .
+  ;;
 esac
