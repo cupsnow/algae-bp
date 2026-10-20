@@ -780,8 +780,16 @@ envbase() {
   [ ! -d "\$SYSROOT_BP" ] || { echo "Already defined SYSROOT_BP=\$SYSROOT_BP"; return 0; }
   SYSROOT_BP=${_pri_nfsalgaews}/build/sysroot-bp
   [ -d "\$SYSROOT_BP" ] || { echo "\$SYSROOT_BP not mount"; return 1; }
-  export LD_LIBRARY_PATH=\${SYSROOT_BP}/usr/lib64:\${SYSROOT_BP}/usr/lib:\${SYSROOT_BP}/lib64:\${SYSROOT_BP}/lib:\${SYSROOT_BP}/lib/systemd
-  export PATH=$PATH:\${SYSROOT_BP}/usr/bin:\${SYSROOT_BP}/sbin:\${SYSROOT_BP}/bin
+
+  LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/usr/lib64:\${SYSROOT_BP}/usr/lib
+  LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/lib64:\${SYSROOT_BP}/lib
+  LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/lib/systemd
+  LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}${_pri_nfsalgaews}/algae-bp/destdir-cpython/usr/lib
+  export LD_LIBRARY_PATH
+
+  PATH=\${PATH:+\$PATH:}\${SYSROOT_BP}/usr/bin:\${SYSROOT_BP}/sbin:\${SYSROOT_BP}/bin
+  PATH=\${PATH:+\$PATH:}${_pri_nfsalgaews}/algae-bp/destdir-cpython/usr/bin
+  export PATH
   export SYSROOT_BP
   echo "SYSROOT_BP=\$SYSROOT_BP"
 }
@@ -799,6 +807,78 @@ pyvenv() {
 
 envbase || exit
 pyvenv || exit
+
+
+EOH
+  chmod +x $_lo_sh
+}
+
+genenv_qemuarm64() {
+  _lo_sh=setenv.sh
+  cat <<EOH >$_lo_sh
+#!/bin/sh
+
+envbase() {
+  [ ! -d "\$SYSROOT_BP" ] || { echo "Already defined SYSROOT_BP=\$SYSROOT_BP"; return 0; }
+  SYSROOT_BP=${_pri_nfsalgaews}/build/sysroot-qemuarm64
+  [ -d "\$SYSROOT_BP" ] || { echo "\$SYSROOT_BP not mount"; return 1; }
+
+  # LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/usr/lib64:\${SYSROOT_BP}/usr/lib
+  # LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/lib64:\${SYSROOT_BP}/lib
+  # LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/lib/systemd
+  LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}${_pri_nfsalgaews}/algae-bp/destdir-cpython/usr/lib
+  export LD_LIBRARY_PATH
+
+  # PATH=\${PATH:+\$PATH:}\${SYSROOT_BP}/usr/bin:\${SYSROOT_BP}/sbin:\${SYSROOT_BP}/bin
+  PATH=\${PATH:+\$PATH:}${_pri_nfsalgaews}/algae-bp/destdir-cpython/usr/bin
+  export PATH
+  export SYSROOT_BP
+  echo "SYSROOT_BP=\$SYSROOT_BP"
+}
+
+pyvenv() {
+  ! type -P deactivate || { echo "Already found deactivate"; return 0; }
+  VENVDIR=${_pri_nfsdw}/bpenv/venv
+  if [ ! -e "\$VENVDIR/bin/activate" ]; then
+    echo "\$VENVDIR/bin/activate not ready"
+    return 0
+  fi
+  . \$VENVDIR/bin/activate
+  echo "python venv ready (\$VENVDIR)"
+}
+
+mesaenv() {
+  [ ! -d "\$MESADIR" ] || { echo "Already defined MESADIR=\$MESADIR"; return 0; }
+  MESADIR=${_pri_nfsalgaews}/algae-bp/build/mesa3d-stack/root
+  [ -d "\$MESADIR" ] || { echo "\$MESADIR not mount"; return 1; }
+
+  export PATH="\$MESADIR/usr/bin:\$PATH"
+  export LD_LIBRARY_PATH="\$MESADIR/usr/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+
+  export LIBGL_ALWAYS_SOFTWARE=true
+  export GALLIUM_DRIVER=llvmpipe
+  export RUSTICL_ENABLE=llvmpipe
+  export EGL_PLATFORM=surfaceless
+  export OCL_ICD_VENDORS="\$MESADIR/etc/OpenCL/vendors"
+
+  sed "s|/usr/lib/|\$MESADIR/usr/lib/|g" \
+      "\$MESADIR/usr/share/vulkan/icd.d/lvp_icd.aarch64.json" \
+      > /tmp/lvp-qemu.json
+
+  export VK_DRIVER_FILES=/tmp/lvp-qemu.json
+
+  CLC=/home/joelai/02_dev/algae-ws/algae-bp/build/mesa3d-stack/root/usr/share/clc
+  mkdir -p "\$CLC"
+  mount --bind "\$MESADIR/usr/share/clc" "\$CLC"
+
+  export MESADIR
+  echo "MESADIR=\$MESADIR"
+}
+
+
+envbase || exit
+pyvenv || exit
+mesaenv || exit
 
 
 EOH
@@ -1005,9 +1085,9 @@ while test -n "$1"; do
     sync; sync
     exit
     ;;
-  genenv)
+  genenv|genenv_qemuarm64)
     nfsmount || exit
-    genenv
+    $opt1
     ;;
   otakernel)
     nfsmount || exit

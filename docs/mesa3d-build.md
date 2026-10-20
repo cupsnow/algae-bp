@@ -28,9 +28,12 @@ build/package stage. Set `PYVENVDIR=/absolute/path/to/venv` to use another
 environment. `help` and `manifest` do not require a venv.
 
 Build PC prerequisites: GCC/G++, CMake, Ninja, Meson, pkg-config, Python with
-Mako/PyYAML/packaging, Bison, Flex, Rust and bindgen-cli. Host development
-packages include zlib, libdrm, libexpat and libzstd; Mesa's host configuration
-reports any other missing dependencies. Use the checked-out Mesa requirements
+Mako/PyYAML/packaging, Bison, Flex, Rust and bindgen-cli. General development
+packages come from `HOST_SYSROOT` for native builds and `TARGET_SYSROOT` for
+AArch64 builds. Supply zlib in both roots and libdrm in the target root; the
+script no longer builds zlib or libdrm. Native pkg-config may also use the build
+PC's system packages as a fallback. Mesa's configuration reports any additional
+missing dependencies. Use the checked-out Mesa requirements
 as the authority: currently Meson >=1.7 and Rust >=1.82, bindgen >=0.71.1 with
 some versions explicitly rejected in `meson.build`. LLVM 24 recommends CMake
 >=3.31. Host bindgen needs a native libclang (the host LLVM stage supplies it).
@@ -55,26 +58,49 @@ memory; lower JOBS if the build runs out of memory.
 Defaults:
 
 - Sources: parent of algae-bp (`llvm-project`, `mesa3d`, `spirv-tools`,
-  `spirv-llvm-translator`, `glslang`, `zlib`, `libdrm`). SPIRV-Headers defaults to
+  `spirv-llvm-translator`, `glslang`). SPIRV-Headers defaults to
   `spirv-tools/external/spirv-headers`; override `HEADERS` if needed.
 - Compiler: `cross/aarch64-linux-gnu/bin/aarch64-linux-gnu-` beneath algae-bp.
 - Output: `algae-bp/build/mesa3d-stack`; override `OUT` to start a fresh build.
 - Native tools/libraries: `$OUT/host`.
 - Target staging tree: `$OUT/root`, installed with prefix `/usr` and DESTDIR.
 - Compiler libc sysroot: queried from GCC; override `GCC_SYSROOT` if required.
+- General target packages: `TARGET_SYSROOT=$SRC/build/sysroot-$APP_PLATFORM`,
+  with `APP_PLATFORM=qemuarm64` by default.
+- General native packages: `HOST_SYSROOT=$SRC/build/sysroot-ub20`.
 
-The compiler sysroot supplies libc and the C++ runtime. The staging tree supplies
-project dependencies. They remain separate. Target pkg-config searches only
-explicit target directories and rewrites `/usr` paths into the staging tree.
-Use a fresh OUT after source-version, compiler, architecture or sysroot changes;
-the script never removes an existing cache automatically. Paths must be absolute
-and contain no spaces, quotes, backslashes or semicolons.
+The compiler sysroot supplies libc and the C++ runtime. `TARGET_SYSROOT` and
+`HOST_SYSROOT` are dependency inputs, not installation destinations or replacements
+for GCC's libc sysroot. Both root-level `include`/`lib` and `usr/include`/`usr/lib`
+layouts are supported, including lib64 and compiler-triplet library directories.
+Mesa/LLVM/SPIR-V outputs remain under `$OUT/root` and `$OUT/host` and take
+precedence over general dependencies.
+
+CMake, Meson, bindgen and direct compiler invocations use the appropriate input
+root. The script generates per-architecture pkg-config metadata under
+`$OUT/pkgconfig-{host,target}` through `builder/mesa3d-pkgconfig.py`. Each file's
+paths are relocated relative to its owning root, so `prefix=`, `prefix=/` and
+`prefix=/usr` can coexist without a global `PKG_CONFIG_SYSROOT_DIR`. Source
+metadata is never edited. Target discovery excludes build-PC system packages;
+native discovery retains system fallback.
+
+Use a fresh `OUT` when adopting these dependency roots or changing sources,
+compiler, architecture or sysroot. Existing CMake/Meson caches and old staged
+zlib/libdrm files can otherwise retain the previous dependency selection. The
+script never removes an existing build cache or staged library automatically.
+Paths must be absolute and contain no whitespace, quotes, backslashes or semicolons.
+
+```sh
+TARGET_SYSROOT=/path/to/target-packages \
+HOST_SYSROOT=/path/to/native-packages \
+OUT="$PWD/build/mesa3d-stack-sysroots" ./builder/build_mesa3d.sh all
+```
 
 ## Stages and architecture
 
 | Stage | Executes on build PC | Installed for AArch64 |
 | --- | --- | --- |
-| deps-target | Meson/CMake, cross GCC | zlib, libdrm |
+| deps-target | pkg-config checks supplied target zlib/libdrm and host zlib | none |
 | llvm-host | LLVM/Clang, table generators, llvm-config, libclang | none |
 | spirv-host | native libraries for Mesa's compiler tools | none |
 | glslang-host | native glslangValidator for lavapipe's Vulkan shaders | none |
@@ -117,8 +143,11 @@ The package is a staging overlay, not a complete root filesystem. Inspect it
 before extracting its `usr/` tree into your BeaglePlay or QEMU guest rootfs.
 It includes development files and LLVM tools and is not size optimized.
 The guest needs compatible glibc/libstdc++/libgcc from the cross toolchain,
-plus a Vulkan loader, OpenCL ICD loader and API test applications. These loaders
-and applications are not built by this script. Mesa installs its ICD manifests.
+plus runtime dependencies (including target zlib/libdrm), a Vulkan loader,
+OpenCL ICD loader and API test applications. `test-tools` builds the loaders and
+`eglinfo`, `vulkaninfo`, `clinfo` from `TEST_SRC`; it also runs as part of `all`.
+General packages from the input sysroots are not copied into the Mesa archive.
+Mesa installs its ICD manifests.
 QEMU user emulation is not used during the cross build. Full-system QEMU can
 run the same software stack without GPU passthrough.
 

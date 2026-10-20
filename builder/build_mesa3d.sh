@@ -1,24 +1,34 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Unpatched upstream Mesa software stack for AArch64 Linux. See docs/mesa3d-build.md.
-set -euo pipefail
-trap 'echo "mesa-build: failed at line $LINENO" >&2' ERR
-TOP=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+set -eu
+# POSIX exit trap: report failures while preserving the original exit status.
+trap 'status=$?; if [ "$status" -ne 0 ]; then
+  printf "mesa-build: failed (status %s)\n" "$status" >&2
+fi' 0
+APP_PLATFORM=${APP_PLATFORM:-qemuarm64}
+TOP=$(cd -- "$(dirname -- "$0")/.." && pwd)
 SRC=${SRC:-$(dirname -- "$TOP")}
 OUT=${OUT:-$TOP/build/mesa3d-stack}
 HOST=${HOST:-$OUT/host}
 ROOT=${ROOT:-$OUT/root}
 CROSS=${CROSS:-$TOP/cross/aarch64-linux-gnu/bin/aarch64-linux-gnu-}
 GCC_SYSROOT=${GCC_SYSROOT:-$("${CROSS}gcc" -print-sysroot)}
+TARGET_SYSROOT=${TARGET_SYSROOT:-${SRC}/build/sysroot-${APP_PLATFORM}}
+HOST_SYSROOT=${HOST_SYSROOT:-${SRC}/build/sysroot-ub20}
 PYVENVDIR=${PYVENVDIR:-$TOP/.venv}
 LLVM_TARGETS='X86;AArch64;SPIRV'
 HEADERS=${HEADERS:-$SRC/spirv-tools/external/spirv-headers}
+TEST_SRC=${TEST_SRC:-$TOP/build/mesa3d-test-sources}
+TEST_TREES='vulkan-headers vulkan-loader vulkan-tools opencl-headers opencl-icd-loader clinfo mesa-demos'
 # Native LLVM tools take priority over other host tools.
 export PATH="$HOST/bin:$PATH"
 unset CC CXX CPP AR AS LD RANLIB STRIP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS \
   CMAKE_TOOLCHAIN_FILE CMAKE_PREFIX_PATH LLVM_CONFIG PKG_CONFIG_PATH \
   PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR DESTDIR
 
-_lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
+# Capture free separately so a failure cannot be hidden by a pipeline.
+_lo_mem_info=$(free -g)
+_lo_free_mem=$(printf '%s\n' "$_lo_mem_info" | awk '/^Mem:/ {print $7}')
 if [ "$_lo_free_mem" -ge 20 ]; then
   _pri_memory_max=15G
   _pri_cpu_quota=1400%
@@ -35,22 +45,28 @@ fi
 
 JOBS=${JOBS:-$_pri_parallel}
 # Limit build resources to reduce host memory pressure.
-_pri_runner=(systemd-run --user --scope
-  -p "MemoryMax=$_pri_memory_max"
-  -p "CPUQuota=$_pri_cpu_quota")
+run_limited() {
+  # Prepend optional scope properties without losing argument boundaries.
+  [ -z "$_pri_cpu_quota" ] || set -- -p "CPUQuota=$_pri_cpu_quota" "$@"
+  [ -z "$_pri_memory_max" ] || set -- -p "MemoryMax=$_pri_memory_max" "$@"
+  run systemd-run --user --scope "$@"
+}
 
 fail() {
   echo "mesa-build: $*" >&2; exit 1;
 }
 
 run() {
-  printf '+ '; printf '%q ' "$@"; printf '\n'; "$@";
+  printf '+'
+  printf ' [%s]' "$@"
+  printf '\n'
+  "$@"
 }
 
 activate_venv() {
-  [[ -f $PYVENVDIR/bin/activate && -x $PYVENVDIR/bin/python3 ]] ||
+  [ -f "$PYVENVDIR/bin/activate" ] && [ -x "$PYVENVDIR/bin/python3" ] ||
     fail "missing Python venv: $PYVENVDIR (run: make -C \"$TOP\" PYVENVDIR=\"$PYVENVDIR\" pyvenv)"
-  source "$PYVENVDIR/bin/activate"
+  . "$PYVENVDIR/bin/activate"
   export PATH="$HOST/bin:$PATH"
 }
 
@@ -60,7 +76,7 @@ Usage: builder/build_mesa3d.sh COMMAND
   check           check source trees, cross compiler and build prerequisites
   manifest        print current source revisions (does not fetch or checkout)
   all             check, then build/install all stages in dependency order
-  deps-target     AArch64 zlib and libdrm from sibling source trees
+  deps-target     check zlib/libdrm in the supplied dependency sysroots
   llvm-host       native LLVM/Clang tools and libraries
   spirv-host      native SPIRV-Tools and LLVM-SPIRV-Translator
   glslang-host    native GLSL to SPIR-V compiler for lavapipe
@@ -70,8 +86,13 @@ Usage: builder/build_mesa3d.sh COMMAND
   spirv-target    AArch64 SPIRV-Tools and LLVM-SPIRV-Translator
   mesa-configure  configure llvmpipe + lavapipe + Rusticl
   mesa-target     configure, build and stage Mesa
+  test-tools      build/stage eglinfo, vulkaninfo, clinfo and their API loaders
   package         tar the staged target files and runtime environment
-Variables: SRC OUT HOST ROOT CROSS GCC_SYSROOT HEADERS JOBS (default based on available RAM).
+Variables: APP_PLATFORM SRC OUT HOST ROOT CROSS GCC_SYSROOT TARGET_SYSROOT HOST_SYSROOT
+           HEADERS TEST_SRC JOBS (default based on available RAM).
+TARGET_SYSROOT defaults to $SRC/build/sysroot-$APP_PLATFORM (qemuarm64).
+HOST_SYSROOT defaults to $SRC/build/sysroot-ub20. General dependencies are not built.
+TEST_SRC defaults to algae-bp/build/mesa3d-test-sources; see docs for source URLs.
 Builds run in a systemd user scope with RAM-based memory and CPU limits.
 PYVENVDIR defaults to algae-bp/.venv; activated for check and all build/package stages.
 Create it with make pyvenv. Help and manifest do not require a venv.
@@ -87,25 +108,39 @@ manifest() {
     git -C "$SRC/$tree" rev-parse HEAD
   done
   printf 'SPIRV-Headers '; git -C "$HEADERS" rev-parse HEAD
+  # Intentional splitting: TEST_TREES contains fixed, space-separated names.
+  for tree in $TEST_TREES; do
+    if [ -d "$TEST_SRC/$tree" ]; then
+      printf '%s ' "$tree"
+      git -C "$TEST_SRC/$tree" describe --always --dirty
+      git -C "$TEST_SRC/$tree" rev-parse HEAD
+    fi
+  done
 }
 
 check() {
-  for tree in llvm-project/llvm mesa3d spirv-tools spirv-llvm-translator glslang libdrm zlib; do
-    [[ -d $SRC/$tree ]] || fail "missing $SRC/$tree"
+  for tree in llvm-project/llvm mesa3d spirv-tools spirv-llvm-translator glslang; do
+    [ -d "$SRC/$tree" ] || fail "missing $SRC/$tree"
   done
-  [[ -f $HEADERS/include/spirv/unified1/spirv.hpp ]] || fail "missing SPIRV-Headers: $HEADERS"
+  check_test_sources
+  [ -f "$HEADERS/include/spirv/unified1/spirv.hpp" ] || fail "missing SPIRV-Headers: $HEADERS"
   for tool in cmake ninja meson pkg-config python3 gcc g++ rustc bindgen bison flex; do
     command -v "$tool" >/dev/null || fail "missing host tool: $tool (see docs/mesa3d-build.md)"
   done
   for tool in gcc g++ ar ranlib strip; do
-    [[ -x ${CROSS}$tool ]] || fail "missing ${CROSS}$tool"
+    [ -x "${CROSS}$tool" ] || fail "missing ${CROSS}$tool"
   done
-  [[ $("${CROSS}gcc" -dumpmachine) == aarch64* ]] || fail 'compiler must target AArch64'
-  [[ -d $GCC_SYSROOT ]] || fail "missing compiler sysroot: $GCC_SYSROOT"
+  machine=$("${CROSS}gcc" -dumpmachine)
+  case "$machine" in
+    aarch64*) ;;
+    *) fail 'compiler must target AArch64' ;;
+  esac
+  [ -d "$GCC_SYSROOT" ] || fail "missing compiler sysroot: $GCC_SYSROOT"
   python3 -c 'import mako, yaml, packaging'
-  rustc --print target-libdir --target aarch64-unknown-linux-gnu | while IFS= read -r dir; do
-    [[ -d $dir ]] || fail 'install Rust aarch64-unknown-linux-gnu standard libraries'
-  done
+  dependency_setup
+  deps_target
+  dir=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu)
+  [ -d "$dir" ] || fail 'install Rust aarch64-unknown-linux-gnu standard libraries'
   run cmake --version
   run meson --version
   run rustc --version
@@ -114,16 +149,15 @@ check() {
 }
 
 prepare() {
-  # C programs linking target C++ DSOs also need their indirect dependencies.
-  # GCC's C++ runtime can live outside its libc sysroot; -L alone does not
-  # let ld resolve a DSO's DT_NEEDED entries when linking with the C driver.
-  local cxx_runtime
-  cxx_runtime=$("${CROSS}g++" --sysroot="$GCC_SYSROOT" -print-file-name=libstdc++.so.6)
-  [[ $cxx_runtime == /* && -f $cxx_runtime ]] || fail 'cannot locate target libstdc++.so.6'
-  TARGET_LINK_FLAGS="-L$ROOT/usr/lib -Wl,-rpath-link,$ROOT/usr/lib -Wl,-rpath-link,$(dirname -- "$cxx_runtime")"
+  dependency_setup
   # Paths go into CMake/Meson files. Reject characters requiring special quoting.
-  for path in "$SRC" "$OUT" "$HOST" "$ROOT" "$CROSS" "$GCC_SYSROOT" "$HEADERS" "$cxx_runtime"; do
-    [[ $path == /* && $path != *[\ \'\"\;\\$'\n']* ]] || fail "use absolute paths without spaces/quotes/semicolons: $path"
+  for path in "$SRC" "$OUT" "$HOST" "$ROOT" "$CROSS" "$GCC_SYSROOT" "$HEADERS" "$TEST_SRC" "$TARGET_SYSROOT" "$HOST_SYSROOT" "$cxx_runtime"; do
+    case "$path" in
+      *[[:space:]]*|*\'*|*\"*|*\;*|*\\*)
+        fail "use absolute paths without whitespace/quotes/semicolons/backslashes: $path" ;;
+      /*) ;;
+      *) fail "use absolute paths: $path" ;;
+    esac
   done
   mkdir -p "$OUT" "$HOST" "$ROOT/usr"
   cat > "$OUT/target.cmake" <<CMAKE
@@ -134,95 +168,131 @@ set(CMAKE_CXX_COMPILER "${CROSS}g++")
 set(CMAKE_AR "${CROSS}ar")
 set(CMAKE_RANLIB "${CROSS}ranlib")
 set(CMAKE_SYSROOT "$GCC_SYSROOT")
-set(CMAKE_FIND_ROOT_PATH "$ROOT" "$GCC_SYSROOT")
+set(CMAKE_FIND_ROOT_PATH "$ROOT" "$TARGET_SYSROOT" "$GCC_SYSROOT")
+set(CMAKE_PREFIX_PATH "/usr" "/")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
-set(CMAKE_C_FLAGS_INIT "-I$ROOT/usr/include")
-set(CMAKE_CXX_FLAGS_INIT "-I$ROOT/usr/include")
+set(CMAKE_C_FLAGS_INIT "$TARGET_INCLUDE_FLAGS")
+set(CMAKE_CXX_FLAGS_INIT "$TARGET_INCLUDE_FLAGS")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "$TARGET_LINK_FLAGS")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "$TARGET_LINK_FLAGS")
 CMAKE
 }
 
-deps_target() {
-  cmake_build zlib-target "$SRC/zlib" target -DZLIB_BUILD_TESTING=OFF
-  target_env
-  cat > "$OUT/deps-cross.ini" <<MESON
-[binaries]
-c = '${CROSS}gcc'
-cpp = '${CROSS}g++'
-ar = '${CROSS}ar'
-strip = '${CROSS}strip'
-pkg-config = 'pkg-config'
-[host_machine]
-system = 'linux'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
-endian = 'little'
-[properties]
-needs_exe_wrapper = true
-[built-in options]
-c_args = ['--sysroot=$GCC_SYSROOT']
-c_link_args = ['--sysroot=$GCC_SYSROOT']
-MESON
-  local reconfigure=()
-  [[ ! -f $OUT/libdrm-target/meson-private/coredata.dat ]] || reconfigure=(--reconfigure)
-  run meson setup "${reconfigure[@]}" "$OUT/libdrm-target" "$SRC/libdrm" \
-    --cross-file="$OUT/deps-cross.ini" --prefix=/usr --libdir=lib \
-    --buildtype=release --wrap-mode=nofallback -Dauto_features=disabled
-  run "${_pri_runner[@]}" meson compile -C "$OUT/libdrm-target" -j "$JOBS"
-  run env DESTDIR="$ROOT" meson install --no-rebuild -C "$OUT/libdrm-target"
+# Keep package roots separate from the compiler's libc sysroot and install roots.
+dependency_setup() {
+  [ -d "$TARGET_SYSROOT" ] || fail "missing TARGET_SYSROOT: $TARGET_SYSROOT"
+  [ -d "$HOST_SYSROOT" ] || fail "missing HOST_SYSROOT: $HOST_SYSROOT"
+  TARGET_INCLUDE_FLAGS="-I$ROOT/usr/include -I$TARGET_SYSROOT/include -I$TARGET_SYSROOT/usr/include"
+  HOST_INCLUDE_FLAGS="-I$HOST/include -I$HOST_SYSROOT/include -I$HOST_SYSROOT/usr/include"
+  TARGET_LIBRARY_FLAGS="-L$ROOT/usr/lib -Wl,-rpath-link,$ROOT/usr/lib"
+  HOST_LIBRARY_FLAGS="-L$HOST/lib -Wl,-rpath-link,$HOST/lib"
+  HOST_LIBRARY_PATH="$HOST/lib"
+  target_triplet=$("${CROSS}gcc" -dumpmachine)
+  host_triplet=$(gcc -dumpmachine)
+  for libdir in "$TARGET_SYSROOT/lib" "$TARGET_SYSROOT/lib64" \
+      "$TARGET_SYSROOT/usr/lib" "$TARGET_SYSROOT/usr/lib64" \
+      "$TARGET_SYSROOT/lib/$target_triplet" "$TARGET_SYSROOT/usr/lib/$target_triplet"; do
+    TARGET_LIBRARY_FLAGS="$TARGET_LIBRARY_FLAGS -L$libdir -Wl,-rpath-link,$libdir"
+  done
+  for libdir in "$HOST_SYSROOT/lib" "$HOST_SYSROOT/lib64" \
+      "$HOST_SYSROOT/usr/lib" "$HOST_SYSROOT/usr/lib64" \
+      "$HOST_SYSROOT/lib/$host_triplet" "$HOST_SYSROOT/usr/lib/$host_triplet"; do
+    HOST_LIBRARY_FLAGS="$HOST_LIBRARY_FLAGS -L$libdir -Wl,-rpath-link,$libdir"
+    HOST_LIBRARY_PATH="$HOST_LIBRARY_PATH:$libdir"
+  done
+  # C programs linking target C++ DSOs also need their indirect dependencies.
+  # GCC's C++ runtime can live outside its libc sysroot; -L alone does not
+  # let ld resolve a DSO's DT_NEEDED entries when linking with the C driver.
+  cxx_runtime=$("${CROSS}g++" --sysroot="$GCC_SYSROOT" -print-file-name=libstdc++.so.6)
+  case "$cxx_runtime" in
+    /*) [ -f "$cxx_runtime" ] || fail 'cannot locate target libstdc++.so.6' ;;
+    *) fail 'cannot locate target libstdc++.so.6' ;;
+  esac
+  TARGET_LINK_FLAGS="$TARGET_LIBRARY_FLAGS -Wl,-rpath-link,$(dirname -- "$cxx_runtime")"
+  TARGET_MESON_LINK_ARGS=$(python3 -c 'import shlex, sys; print(repr(shlex.split(sys.argv[1])))' "--sysroot=$GCC_SYSROOT $TARGET_LINK_FLAGS")
+  HOST_MESON_LINK_ARGS=$(python3 -c 'import shlex, sys; print(repr(shlex.split(sys.argv[1])))' "$HOST_LIBRARY_FLAGS")
+  mkdir -p "$OUT"
+  for arch in host target; do
+    cat > "$OUT/pkg-config-$arch" <<'WRAPPER'
+#!/bin/sh
+# Metadata is already relocated per package. Disable automatic prefix guessing.
+exec pkg-config --dont-define-prefix "$@"
+WRAPPER
+    chmod +x "$OUT/pkg-config-$arch"
+  done
 }
 
+deps_target() (
+  target_env
+  run "$PKG_CONFIG" --print-errors --exists zlib libdrm
+  native_env
+  run "$PKG_CONFIG" --print-errors --exists zlib
+)
+
 native_env() {
+  python3 "$TOP/builder/mesa3d-pkgconfig.py" "$OUT/pkgconfig-host" \
+    native "$HOST" relocate "$HOST_SYSROOT"
   unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_LIBDIR
-  export PKG_CONFIG_PATH="$HOST/lib/pkgconfig:$HOST/share/pkgconfig"
-  export CMAKE_PREFIX_PATH="$HOST"
-  export LD_LIBRARY_PATH="$HOST/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export PKG_CONFIG_PATH="$OUT/pkgconfig-host"
+  export PKG_CONFIG="$OUT/pkg-config-host"
+  export CMAKE_PREFIX_PATH="$HOST:$HOST_SYSROOT:$HOST_SYSROOT/usr"
+  export LD_LIBRARY_PATH="$HOST_LIBRARY_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   export LIBCLANG_PATH="$HOST/lib"
 }
 
 target_env() {
-  export PKG_CONFIG_SYSROOT_DIR="$ROOT"
-  export PKG_CONFIG_LIBDIR="$ROOT/usr/lib/pkgconfig:$ROOT/usr/share/pkgconfig:$GCC_SYSROOT/usr/lib/pkgconfig:$GCC_SYSROOT/usr/share/pkgconfig"
-  unset PKG_CONFIG_PATH CMAKE_PREFIX_PATH
+  python3 "$TOP/builder/mesa3d-pkgconfig.py" "$OUT/pkgconfig-target" \
+    relocate "$ROOT" relocate "$TARGET_SYSROOT" relocate "$GCC_SYSROOT"
+  # Each .pc file already points to its owning root; never rebase them globally.
+  unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_PATH CMAKE_PREFIX_PATH
+  export PKG_CONFIG_LIBDIR="$OUT/pkgconfig-target"
+  export PKG_CONFIG="$OUT/pkg-config-target"
   export LIBCLANG_PATH="$HOST/lib"
-  export LD_LIBRARY_PATH="$HOST/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH="$HOST_LIBRARY_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 }
 
-cmake_build() {
-  local name=$1 source=$2 arch=$3; shift 3
-  local opts=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
-  if [[ $arch == target ]]; then
+# Subshells keep helper variables and environment changes scoped to each build.
+cmake_build() (
+  name=$1 source=$2 arch=$3; shift 3
+  set -- -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON "$@"
+  if [ "$arch" = target ]; then
     target_env
-    opts+=(-DCMAKE_TOOLCHAIN_FILE="$OUT/target.cmake" -DCMAKE_INSTALL_PREFIX=/usr
-      -DCMAKE_EXE_LINKER_FLAGS="$TARGET_LINK_FLAGS"
-      -DCMAKE_SHARED_LINKER_FLAGS="$TARGET_LINK_FLAGS")
+    set -- -DCMAKE_TOOLCHAIN_FILE="$OUT/target.cmake" -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_C_FLAGS="$TARGET_INCLUDE_FLAGS" -DCMAKE_CXX_FLAGS="$TARGET_INCLUDE_FLAGS" \
+      -DCMAKE_EXE_LINKER_FLAGS="$TARGET_LINK_FLAGS" \
+      -DCMAKE_SHARED_LINKER_FLAGS="$TARGET_LINK_FLAGS" "$@"
   else
     native_env
-    opts+=(-DCMAKE_C_COMPILER="$(command -v gcc)" -DCMAKE_CXX_COMPILER="$(command -v g++)"
-      -DCMAKE_AR="$(command -v ar)" -DCMAKE_RANLIB="$(command -v ranlib)" -DCMAKE_INSTALL_PREFIX="$HOST")
+    set -- -DCMAKE_C_COMPILER="$(command -v gcc)" -DCMAKE_CXX_COMPILER="$(command -v g++)" \
+      -DCMAKE_AR="$(command -v ar)" -DCMAKE_RANLIB="$(command -v ranlib)" -DCMAKE_INSTALL_PREFIX="$HOST" \
+      -DCMAKE_PREFIX_PATH="$HOST;$HOST_SYSROOT;$HOST_SYSROOT/usr" \
+      -DCMAKE_C_FLAGS="$HOST_INCLUDE_FLAGS" -DCMAKE_CXX_FLAGS="$HOST_INCLUDE_FLAGS" \
+      -DCMAKE_EXE_LINKER_FLAGS="$HOST_LIBRARY_FLAGS" \
+      -DCMAKE_SHARED_LINKER_FLAGS="$HOST_LIBRARY_FLAGS" "$@"
   fi
-  run cmake -G Ninja -S "$source" -B "$OUT/$name" "${opts[@]}" "$@"
-  run "${_pri_runner[@]}" cmake --build "$OUT/$name" --parallel "$JOBS"
-  if [[ $arch == target ]]; then
+  set -- -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG" "$@"
+  run cmake -G Ninja -S "$source" -B "$OUT/$name" "$@"
+  run_limited cmake --build "$OUT/$name" --parallel "$JOBS"
+  if [ "$arch" = target ]; then
     run env DESTDIR="$ROOT" cmake --install "$OUT/$name"
   else
     run cmake --install "$OUT/$name"
   fi
-}
+)
 
-llvm() {
-  local arch=$1 extra=()
-  if [[ $arch == target ]]; then
-    [[ -x $HOST/bin/llvm-tblgen ]] || fail 'run llvm-host first'
-    extra+=(-DLLVM_USE_HOST_TOOLS=ON -DLLVM_NATIVE_TOOL_DIR="$OUT/llvm-host/bin"
-      -DLLVM_TABLEGEN="$OUT/llvm-host/bin/llvm-tblgen"
-      -DCLANG_TABLEGEN="$OUT/llvm-host/bin/clang-tblgen"
-      -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-gnu
-      -DLLVM_HOST_TRIPLE=aarch64-unknown-linux-gnu)
+llvm() (
+  arch=$1
+  set --
+  if [ "$arch" = target ]; then
+    [ -x "$HOST/bin/llvm-tblgen" ] || fail 'run llvm-host first'
+    set -- -DLLVM_USE_HOST_TOOLS=ON -DLLVM_NATIVE_TOOL_DIR="$OUT/llvm-host/bin" \
+      -DLLVM_TABLEGEN="$OUT/llvm-host/bin/llvm-tblgen" \
+      -DCLANG_TABLEGEN="$OUT/llvm-host/bin/clang-tblgen" \
+      -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-gnu \
+      -DLLVM_HOST_TRIPLE=aarch64-unknown-linux-gnu
   fi
   cmake_build "llvm-$arch" "$SRC/llvm-project/llvm" "$arch" \
     -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD="$LLVM_TARGETS" \
@@ -230,12 +300,12 @@ llvm() {
     -DCLANG_LINK_CLANG_DYLIB=ON -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_DUMP=ON \
     -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
     -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF \
-    -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF "${extra[@]}"
-}
+    -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF "$@"
+)
 
-spirv() {
-  local arch=$1 prefix=$HOST
-  [[ $arch == target ]] && prefix="$ROOT/usr"
+spirv() (
+  arch=$1 prefix=$HOST
+  [ "$arch" = target ] && prefix="$ROOT/usr"
   cmake_build "spirv-tools-$arch" "$SRC/spirv-tools" "$arch" \
     -DSPIRV-Headers_SOURCE_DIR="$HEADERS" -DSPIRV_SKIP_TESTS=ON \
     -DSPIRV_SKIP_EXECUTABLES=ON -DSPIRV_TOOLS_BUILD_STATIC=ON
@@ -243,14 +313,13 @@ spirv() {
     -DLLVM_DIR="$prefix/lib/cmake/llvm" -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$HEADERS" \
     -DLLVM_SPIRV_INCLUDE_TESTS=OFF -DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=OFF \
     -DBUILD_SHARED_LIBS=ON -DLLVM_LINK_LLVM_DYLIB=ON
-}
+)
 
-meson_setup() {
-  local dir=$1; shift
-  local reconfigure=()
-  [[ ! -f $dir/meson-private/coredata.dat ]] || reconfigure=(--reconfigure)
-  run meson setup "${reconfigure[@]}" "$dir" "$SRC/mesa3d" --wrap-mode=nofallback "$@"
-}
+meson_setup() (
+  dir=$1; shift
+  [ ! -f "$dir/meson-private/coredata.dat" ] || set -- --reconfigure "$@"
+  run meson setup "$dir" "$SRC/mesa3d" --wrap-mode=nofallback "$@"
+)
 
 glslang_host() {
   # Mesa's Vulkan BVH shaders need a native compiler, without optimizer passes.
@@ -261,11 +330,22 @@ glslang_host() {
 
 mesa_host() {
   native_env
-  meson_setup "$OUT/mesa-host" --prefix="$HOST" --libdir=lib --buildtype=release \
+  cat > "$OUT/host-native.ini" <<MESON
+[binaries]
+c = '$(command -v gcc)'
+cpp = '$(command -v g++)'
+pkg-config = '$OUT/pkg-config-host'
+[built-in options]
+c_args = ['-I$HOST/include', '-I$HOST_SYSROOT/include', '-I$HOST_SYSROOT/usr/include']
+cpp_args = ['-I$HOST/include', '-I$HOST_SYSROOT/include', '-I$HOST_SYSROOT/usr/include']
+c_link_args = $HOST_MESON_LINK_ARGS
+cpp_link_args = $HOST_MESON_LINK_ARGS
+MESON
+  meson_setup "$OUT/mesa-host" --native-file="$OUT/host-native.ini" --prefix="$HOST" --libdir=lib --buildtype=release \
     -Dgallium-drivers=[] -Dvulkan-drivers=[] -Dplatforms=[] -Dglx=disabled \
     -Dopengl=false -Degl=disabled -Dgbm=disabled -Dgles1=disabled -Dgles2=disabled \
     -Dllvm=enabled -Dshared-llvm=enabled -Dmesa-clc=enabled -Dinstall-mesa-clc=true
-  run "${_pri_runner[@]}" meson compile -C "$OUT/mesa-host" -j "$JOBS"
+  run_limited meson compile -C "$OUT/mesa-host" -j "$JOBS"
   run meson install --no-rebuild -C "$OUT/mesa-host"
 }
 
@@ -294,8 +374,8 @@ PC
 
 mesa_configure() {
   target_env
-  [[ -x $HOST/bin/mesa_clc ]] || fail 'run mesa-host first'
-  [[ -f $ROOT/usr/lib/libLLVM.so ]] || fail 'run llvm-target first'
+  [ -x "$HOST/bin/mesa_clc" ] || fail 'run mesa-host first'
+  [ -f "$ROOT/usr/lib/libLLVM.so" ] || fail 'run llvm-target first'
   # llvm-config must run on the build PC but report the staged target paths.
   # Both LLVM builds deliberately use identical source, targets, RTTI and shared
   # library settings. Native metadata queries then describe identical libraries.
@@ -316,7 +396,7 @@ c = '${CROSS}gcc'
 cpp = '${CROSS}g++'
 ar = '${CROSS}ar'
 strip = '${CROSS}strip'
-pkg-config = 'pkg-config'
+pkg-config = '$OUT/pkg-config-target'
 llvm-config = '$OUT/llvm-config-target'
 rust = ['rustc', '--target', 'aarch64-unknown-linux-gnu']
 [host_machine]
@@ -326,15 +406,14 @@ cpu = 'aarch64'
 endian = 'little'
 [properties]
 needs_exe_wrapper = true
-sys_root = '$ROOT'
-pkg_config_libdir = ['$ROOT/usr/lib/pkgconfig', '$ROOT/usr/share/pkgconfig']
-bindgen_clang_arguments = ['--sysroot=$GCC_SYSROOT', '--gcc-toolchain=$(dirname -- "$(dirname -- "${CROSS}gcc")")']
+pkg_config_libdir = ['$OUT/pkgconfig-target']
+bindgen_clang_arguments = ['-I$ROOT/usr/include', '-I$TARGET_SYSROOT/include', '-I$TARGET_SYSROOT/usr/include', '--sysroot=$GCC_SYSROOT', '--gcc-toolchain=$(dirname -- "$(dirname -- "${CROSS}gcc")")']
 [built-in options]
-c_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include']
-cpp_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include']
-c_link_args = ['--sysroot=$GCC_SYSROOT', '-L$ROOT/usr/lib', '-Wl,-rpath-link,$ROOT/usr/lib']
-cpp_link_args = ['--sysroot=$GCC_SYSROOT', '-L$ROOT/usr/lib', '-Wl,-rpath-link,$ROOT/usr/lib']
-rust_link_args = ['-C', 'linker=${CROSS}gcc', '-C', 'link-arg=--sysroot=$GCC_SYSROOT', '-C', 'link-arg=-L$ROOT/usr/lib']
+c_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include', '-I$TARGET_SYSROOT/include', '-I$TARGET_SYSROOT/usr/include']
+cpp_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include', '-I$TARGET_SYSROOT/include', '-I$TARGET_SYSROOT/usr/include']
+c_link_args = $TARGET_MESON_LINK_ARGS
+cpp_link_args = $TARGET_MESON_LINK_ARGS
+rust_link_args = ['-C', 'linker=${CROSS}gcc', '-C', 'link-args=--sysroot=$GCC_SYSROOT $TARGET_LINK_FLAGS']
 MESON
   meson_setup "$OUT/mesa-target" --cross-file="$OUT/mesa-cross.ini" \
     --prefix=/usr --libdir=lib --buildtype=release \
@@ -349,8 +428,79 @@ MESON
 
 mesa_target() {
   mesa_configure
-  run "${_pri_runner[@]}" meson compile -C "$OUT/mesa-target" -j "$JOBS"
+  run_limited meson compile -C "$OUT/mesa-target" -j "$JOBS"
   run env DESTDIR="$ROOT" meson install --no-rebuild -C "$OUT/mesa-target"
+  runtime_env
+}
+
+check_test_sources() {
+  # Intentional splitting: TEST_TREES contains fixed, space-separated names.
+  for tree in $TEST_TREES; do
+    [ -d "$TEST_SRC/$tree" ] || fail "missing $TEST_SRC/$tree (see test-tools source setup in docs/mesa3d-build.md)"
+  done
+}
+
+test_tools() {
+  check_test_sources
+  [ -f "$ROOT/usr/lib/pkgconfig/egl.pc" ] || fail 'run mesa-target before test-tools'
+  set -- -DBUILD_WSI_XCB_SUPPORT=OFF -DBUILD_WSI_XLIB_SUPPORT=OFF \
+    -DBUILD_WSI_WAYLAND_SUPPORT=OFF -DBUILD_WSI_DIRECTFB_SUPPORT=OFF
+  cmake_build vulkan-headers-target "$TEST_SRC/vulkan-headers" target -DBUILD_TESTING=OFF
+  cmake_build vulkan-loader-target "$TEST_SRC/vulkan-loader" target \
+    -DVulkanHeaders_DIR="$ROOT/usr/share/cmake/VulkanHeaders" \
+    -DBUILD_TESTS=OFF -DBUILD_WSI_XLIB_XRANDR_SUPPORT=OFF "$@"
+  cmake_build vulkan-tools-target "$TEST_SRC/vulkan-tools" target \
+    -DVulkanHeaders_DIR="$ROOT/usr/share/cmake/VulkanHeaders" \
+    -DVulkanLoader_DIR="$ROOT/usr/lib/cmake/VulkanLoader" \
+    -DBUILD_CUBE=OFF -DBUILD_ICD=OFF -DBUILD_TESTS=OFF -DBUILD_VULKANINFO=ON "$@"
+  cmake_build opencl-headers-target "$TEST_SRC/opencl-headers" target \
+    -DOPENCL_HEADERS_BUILD_TESTING=OFF
+  cmake_build opencl-loader-target "$TEST_SRC/opencl-icd-loader" target \
+    -DOPENCL_ICD_LOADER_HEADERS_DIR="$ROOT/usr/include" \
+    -DOPENCL_ICD_LOADER_BUILD_TESTING=OFF -DBUILD_TESTING=OFF -DENABLE_OPENCL_LAYERS=OFF
+
+  # clinfo is a single translation unit. Compile out of tree, leaving its
+  # upstream checkout untouched (the upstream Makefile builds in source).
+  mkdir -p "$OUT/clinfo-target" "$ROOT/usr/bin"
+  # Intentional splitting: validated paths in TARGET_LINK_FLAGS contain no spaces.
+  run_limited "${CROSS}gcc" --sysroot="$GCC_SYSROOT" \
+    -O2 -std=c99 -I"$ROOT/usr/include" -I"$TARGET_SYSROOT/include" -I"$TARGET_SYSROOT/usr/include" \
+    "$TEST_SRC/clinfo/src/clinfo.c" \
+    $TARGET_LINK_FLAGS \
+    -o "$OUT/clinfo-target/clinfo" -lOpenCL -ldl
+  run install -m 755 "$OUT/clinfo-target/clinfo" "$ROOT/usr/bin/clinfo"
+
+  target_env
+  cat > "$OUT/test-tools-cross.ini" <<MESON
+[binaries]
+c = '${CROSS}gcc'
+cpp = '${CROSS}g++'
+ar = '${CROSS}ar'
+strip = '${CROSS}strip'
+pkg-config = '$OUT/pkg-config-target'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+[properties]
+needs_exe_wrapper = true
+[built-in options]
+c_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include', '-I$TARGET_SYSROOT/include', '-I$TARGET_SYSROOT/usr/include']
+cpp_args = ['--sysroot=$GCC_SYSROOT', '-I$ROOT/usr/include', '-I$TARGET_SYSROOT/include', '-I$TARGET_SYSROOT/usr/include']
+c_link_args = $TARGET_MESON_LINK_ARGS
+cpp_link_args = $TARGET_MESON_LINK_ARGS
+MESON
+  set --
+  [ ! -f "$OUT/mesa-demos-target/meson-private/coredata.dat" ] || set -- --reconfigure
+  run meson setup "$@" "$OUT/mesa-demos-target" "$TEST_SRC/mesa-demos" \
+    --cross-file="$OUT/test-tools-cross.ini" --prefix=/usr --libdir=lib \
+    --buildtype=release --wrap-mode=nofallback -Dauto_features=disabled -Degl=enabled
+  run_limited meson compile -C "$OUT/mesa-demos-target" -j "$JOBS"
+  run env DESTDIR="$ROOT" meson install --no-rebuild -C "$OUT/mesa-demos-target"
+  for tool in eglinfo vulkaninfo clinfo; do
+    [ -x "$ROOT/usr/bin/$tool" ] || fail "test-tools did not install $tool"
+  done
   runtime_env
 }
 
@@ -382,7 +532,7 @@ check)
 manifest)
   manifest; exit
   ;;
-all|deps-target|llvm-host|llvm-target|spirv-host|spirv-target|glslang-host|mesa-host|libclc|mesa-configure|mesa-target|package)
+all|deps-target|llvm-host|llvm-target|spirv-host|spirv-target|glslang-host|mesa-host|libclc|mesa-configure|mesa-target|test-tools|package)
   ;;
 *)
   fail "unknown command: $command"
@@ -396,7 +546,6 @@ case "$command" in
 all)
   check
   manifest > "$OUT/source-revisions.txt"
-  deps_target
   llvm host
   spirv host
   glslang_host
@@ -405,6 +554,7 @@ all)
   llvm target
   spirv target
   mesa_target
+  test_tools
   ;;
 deps-target)
   deps_target
@@ -436,8 +586,11 @@ mesa-configure)
 mesa-target)
   mesa_target
   ;;
+test-tools)
+  test_tools
+  ;;
 package)
-  [[ -f $ROOT/usr/lib/libRusticlOpenCL.so ]] || fail 'build Mesa before packaging'
+  [ -f "$ROOT/usr/lib/libRusticlOpenCL.so" ] || fail 'build Mesa before packaging'
   runtime_env
   run tar -C "$ROOT" -cJf "$OUT/mesa3d-aarch64.tar.xz" .
   ;;

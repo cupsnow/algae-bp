@@ -105,6 +105,11 @@ BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
 BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 usr/lib lib64 lib)
 endif
 
+ifneq ($(strip $(BUILD_SYSROOT2)),)
+BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT2)/,usr/include include)
+BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT2)/,usr/lib64 usr/lib lib64 lib)
+endif
+
 # Append
 BUILD_INCDIR+=$(BUILD_INCDIR_POST2)
 BUILD_LIBDIR+=$(BUILD_LIBDIR_POST2)
@@ -221,8 +226,9 @@ DEPDOT_ID=$(firstword $(1))$(if $(word 2,$(1)),_$(words $(1))more)
 
 GENDIR+=$(BUILDDIR)
 
-depgraph: DEPDOT_PKGS+=glib tmux mmcutils mtdutils wpasup mosquitto
+depgraph: DEPDOT_PKGS+=tmux mmcutils mtdutils wpasup mosquitto
 depgraph: DEPDOT_PKGS+=coreutils
+depgraph: DEPDOT_PKGS+=glib systemd bluez
 depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(DEPDOT_PKGS))
 depgraph: | $(BUILDDIR)
 depgraph:
@@ -890,8 +896,9 @@ coreutils_defconfig $(coreutils_BUILDDIR)/Makefile: | $(coreutils_DIR)/configure
 	cd $(coreutils_BUILDDIR) \
 	  && $(coreutils_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
-	      CPPFLAGS="$(addprefix -I,$(coreutils_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(coreutils_LIBDIR)) $(addprefix -l,$(coreutils_LIBS))" \
+	      CPPFLAGS="$(coreutils_INCDIR:%=-I%)" \
+	      LDFLAGS="$(coreutils_LIBDIR:%=-L%)" \
+		  LIBS="$(coreutils_LIBS:%=-l%)" \
 	      $(coreutils_ACARGS_$(APP_PLATFORM))
 
 coreutils_install: DESTDIR=$(DESTDIR)
@@ -929,8 +936,9 @@ e2fsprogs_defconfig $(e2fsprogs_BUILDDIR)/Makefile: | $(e2fsprogs_BUILDDIR)
 	cd $(e2fsprogs_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(e2fsprogs_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --enable-elf-shlibs \
-	      CPPFLAGS="$(addprefix -I,$(e2fsprogs_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(e2fsprogs_LIBDIR)) $(addprefix -l,$(e2fsprogs_LIBS))" \
+	      CPPFLAGS="$(e2fsprogs_INCDIR:%=-I%)" \
+	      LDFLAGS="$(e2fsprogs_LIBDIR:%=-L%)" \
+		  LIBS="$(e2fsprogs_LIBS:%=-l%)" \
 	      $(e2fsprogs_ACARGS_$(APP_PLATFORM))
 
 
@@ -1295,8 +1303,6 @@ readline: | $(readline_BUILDDIR)/Makefile
 
 readline_%: | $(readline_BUILDDIR)/Makefile
 	$(readline_MAKE) $(PARALLEL_BUILD) $(@:readline_%=%)
-
-
 
 #------------------------------------
 #
@@ -1937,6 +1943,9 @@ dbus_BUILDDIR=$(BUILDDIR2)/dbus-$(APP_PLATFORM)
 dbus_MESON=. $(PYVENVDIR)/bin/activate && $(1) meson
 dbus_NINJA=. $(PYVENVDIR)/bin/activate && $(1) ninja
 
+dbus_INCDIR=$(BUILD_INCDIR)
+dbus_LIBDIR=$(BUILD_LIBDIR)
+
 dbus_CROSSFILE-bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 dbus_CROSSFILE-qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 dbus_CROSSFILE-air192=$(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini
@@ -1952,10 +1961,10 @@ dbus_defconfig $(dbus_BUILDDIR)/build.ninja: | $(dbus_BUILDDIR) $(PYVENVDIR) $(d
 	    $(dbus_CROSSFILE-$(APP_PLATFORM):%=--cross-file %) \
 	    --prefix=/ \
 	    --libdir=lib \
-		-Dc_args="$(glib_INCDIR:%=-I%)" \
-		-Dcpp_args="$(glib_INCDIR:%=-I%)" \
-		-Dc_link_args="$(glib_LIBDIR:%=-L%) $(glib_LIBDIR:%=-Wl,-rpath-link=%)" \
-		-Dcpp_link_args="$(glib_LIBDIR:%=-L%) $(glib_LIBDIR:%=-Wl,-rpath-link=%)" \
+		-Dc_args="$(dbus_INCDIR:%=-I%)" \
+		-Dcpp_args="$(dbus_INCDIR:%=-I%)" \
+		-Dc_link_args="$(dbus_LIBDIR:%=-L%) $(dbus_LIBDIR:%=-Wl,-rpath-link=%)" \
+		-Dcpp_link_args="$(dbus_LIBDIR:%=-L%) $(dbus_LIBDIR:%=-Wl,-rpath-link=%)" \
 	    $(dbus_BUILDDIR) $(dbus_DIR)
 
 dbus_install: DESTDIR=$(BUILD_SYSROOT)
@@ -2456,15 +2465,13 @@ CLEAN += curl
 
 
 #------------------------------------
-# WIP
 # dependent: zlib, openssl
 #
 openssh_DEP=zlib openssl
 openssh_DIR=$(PKGDIR2)/openssh
-openssh_BUILDDIR=$(BUILDDIR2)/openssh-$(APP_BUILD)
+openssh_BUILDDIR=$(BUILDDIR2)/openssh-$(APP_PLATFORM)
 openssh_MAKE=$(MAKE) DESTDIR=$(DESTDIR) -C $(openssh_BUILDDIR)
-# openssh_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
-#     $(BUILD_SYSROOT)/share/pkgconfig
+
 openssh_INCDIR+=$(BUILD_SYSROOT)/include
 openssh_LIBDIR+=$(BUILD_SYSROOT)/lib $(BUILD_SYSROOT)/lib64
 openssh_LIBS+=
@@ -2480,9 +2487,10 @@ openssh_defconfig $(openssh_BUILDDIR)/Makefile: | $(openssh_DIR)/configure $(ope
 	cd $(openssh_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(openssh_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-etc-default-login \
-	      CPPFLAGS="$(addprefix -I,$(openssh_INCDIR))" \
-	      LDFLAGS="$(addprefix -L,$(openssh_LIBDIR)) $(addprefix -l,$(openssh_LIBS))" \
-	      $(openssh_ACARGS_$(APP_PLATFORM))
+	      CPPFLAGS="$(openssh_INCDIR:%=-I%)" \
+	      LDFLAGS="$(openssh_LIBDIR:%=-L%)" \
+		  LIBS="$(openssh_LIBS:%=-l%)" \
+	      $(openssh_ACARGS) $(openssh_ACARGS_$(APP_PLATFORM))
 
 openssh_install: DESTDIR=$(BUILD_SYSROOT)
 openssh_install:  | $(openssh_BUILDDIR)/Makefile
@@ -3293,6 +3301,7 @@ bluez_BUILDDIR=$(BUILDDIR2)/bluez-$(APP_PLATFORM)
 
 bluez_INCDIR+=$(BUILD_INCDIR) $(BUILD_SYSROOT)/include/ncursesw
 bluez_LIBDIR+=$(BUILD_LIBDIR)
+
 bluez_LIBS+=tinfow pcre2-8 iconv
 
 bluez_ACARGS+=--disable-obex --disable-manpages --disable-cups \
@@ -3365,6 +3374,14 @@ cpython_ACARGS_bp+=--host=`$(CC) -dumpmachine` --build=`$(cpython_DIR)/config.gu
 cpython_ACARGS_bp+=--with-build-python=$(cpython_host_python)
 cpython_ACARGS_bp+=--enable-shared
 
+cpython_ACENV_qemuarm64+=ac_cv_file__dev_ptmx=yes ac_cv_file__dev_ptc=no
+cpython_ACENV_qemuarm64+=ac_cv_buggy_getaddrinfo=no
+
+cpython_ACARGS_qemuarm64+=--host=`$(CC) -dumpmachine` --build=`$(cpython_DIR)/config.guess`
+cpython_ACARGS_qemuarm64+=--with-build-python=$(cpython_host_python)
+cpython_ACARGS_qemuarm64+=--enable-shared
+
+
 GENDIR+=$(cpython_BUILDDIR)
 
 # CPython requires a nonempty runtime prefix; DESTDIR supplies staging.
@@ -3375,8 +3392,7 @@ endif
 cpython_defconfig $(cpython_BUILDDIR)/Makefile: | $(cpython_BUILDDIR)
 	cd $(cpython_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(cpython_ACENV) $(cpython_ACENV_$(APP_PLATFORM)) $(cpython_DIR)/configure \
-		  --prefix=/usr \
-		  --with-ensurepip=no \
+		  --prefix=/usr --with-ensurepip=no \
 		  $(cpython_ACARGS) $(cpython_ACARGS_$(APP_PLATFORM))
 
 cpython_install: DESTDIR=$(BUILD_SYSROOT)
@@ -3787,22 +3803,6 @@ tester1_DEP+=live555 x264 wpasup
 $(eval $(call SIMPLE_APP2,tester1))
 
 $(eval $(call SIMPLE_APP2,cltest2))
-
-#------------------------------------
-#
-cmake01_DIR=$(PROJDIR)/package/cmake01
-cmake01_BUILDDIR=$(BUILDDIR)/cmake01
-cmake01_MAKE=$(MAKE) PROJDIR=$(PROJDIR) CROSS_COMPILE=$(CROSS_COMPILE) \
-    -C $(cmake01_BUILDDIR)
-
-cmake01_defconfig $(cmake01_BUILDDIR)/Makefile: | $(cmake01_BUILDDIR)
-	cd $(cmake01_BUILDDIR) && \
-	  cmake $(cmake01_DIR)
-
-GENDIR+=$(cmake01_BUILDDIR)
-
-cmake01: | $(cmake01_BUILDDIR)/Makefile
-	$(cmake01_MAKE)
 
 #------------------------------------
 #
