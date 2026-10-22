@@ -35,6 +35,10 @@
 #  include "blegatt.h"
 #endif
 
+#ifdef USE_BLUEZ
+#  include "bluez1.h"
+#endif
+
 static struct {
 	void *ev_ctx;
 	char quit;
@@ -496,11 +500,20 @@ int main(int argc, const char **argv) {
 			"blegatt up | advertise on|off | notify <text> | close");
 #endif
 
+#ifdef USE_BLUEZ
+	bluez1_global = bluez1_init(impl.ev_ctx);
+	cli1_cmd_add(cli_global, "bluez1", &cli_cmd_bluez1, NULL,
+			"bluez1 start [adapter-path] | stop | pair <device-path> | send <text> | notify <text>");
+#endif
+
 	while (!impl.quit) {
 		aloe_evb2_run_once(impl.ev_ctx, ALOE_EVB2_INFINITE);
 	}
 	ret = 0;
 finally:
+#ifdef USE_BLUEZ
+	if (bluez1_global) bluez1_destroy(bluez1_global);
+#endif
 	if (mgmt) mgmt1_destroy(mgmt);
 	if (cli_global) cli1_destroy(cli_global);
 	if (ipc_global) ipc1_destroy(ipc_global);

@@ -99,6 +99,15 @@ tester_aloe_SRCS+=$(filter-out %/aloe/ev.c,$(wildcard \
   $(PROJDIR)/package/aloe/sys_linux/*.cpp \
   $(PROJDIR)/package/aloe/sys_linux/*.c))
 
+# Keep cross builds on target GLib headers; override bluez1_* for split sysroots.
+ifneq ($(strip $(BUILD_SYSROOT)),)
+bluez_CPPFLAGS?=-I$(BUILD_SYSROOT)/include/glib-2.0 -I$(BUILD_SYSROOT)/lib/glib-2.0/include
+bluez_LDFLAGS?=-L$(BUILD_SYSROOT)/lib -lgio-2.0 -lgobject-2.0 -lglib-2.0 -lgmodule-2.0 -lpcre2-8 -lz -lffi -lmount -lblkid
+else
+bluez_CPPFLAGS?=$(shell pkg-config --cflags gio-2.0)
+bluez_LDFLAGS?=$(shell pkg-config --libs gio-2.0)
+endif
+
 #------------------------------------
 #
 tester_aloe_DOCSDIR?=$(BUILDDIR)/aloe-docs
@@ -165,7 +174,7 @@ $(eval $(call TESTER1_APP2,tester_cli2, \
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB USE_BT
+tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB USE_BT USE_BLUEZ
 ifneq ($(strip $(wildcard $(BUILD_SYSROOT)/lib/libwpa_client.a)),)
 tester_ev3_ATTR+=USE_WPASUPCLIENT
 endif
@@ -209,9 +218,16 @@ tester_ev3_CPPFLAGS+=-DUSE_USB=1
 endif
 
 ifneq ($(filter USE_BT,$(tester_ev3_ATTR)),)
-tester_ev3_SRCS+=tester_btrfcomm.cpp tester_blegatt.cpp
+tester_ev3_SRCS+=btrfcomm.cpp blegatt.cpp
 tester_ev3_CPPFLAGS+=-DUSE_BT=1
 # end of USE_BT
+endif
+
+ifneq ($(filter USE_BLUEZ,$(tester_ev3_ATTR)),)
+tester_ev3_SRCS+=bluez1.cpp
+tester_ev3_CPPFLAGS+=-DUSE_BLUEZ=1 $(bluez_CPPFLAGS)
+tester_ev3_LDFLAGS+=$(bluez_LDFLAGS)
+# end of USE_BLUEZ
 endif
 
 tester_ev3_CPPFLAGS+=$(CPPFLAGS)

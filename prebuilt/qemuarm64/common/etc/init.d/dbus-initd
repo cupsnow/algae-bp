@@ -1,0 +1,121 @@
+#!/bin/sh
+
+. /etc/init.d/func
+
+_pri_tag="dbus-initd"
+_pri_dbus_socket="/var/run/dbus/system_bus_socket"
+
+log_d "$0 $*"
+
+ts_dt() {
+  date "+%y-%m-%d %H:%M:%S"
+}
+
+log_d() {
+  _lo_ret=$?
+  echo "[$(ts_dt)][Debug]${_pri_tag:+"[$_pri_tag]"} $*"
+  return $_lo_ret
+}
+
+log_e() {
+  _lo_ret=$?
+  echo "[$(ts_dt)][ERROR]${_pri_tag:+"[$_pri_tag]"} $*" >&2
+  return $_lo_ret
+}
+
+cmd_run() {
+  log_d "Execute: $*"
+  echo ""
+  "$@"
+  _lo_ret=$?
+  echo ""
+  log_d "Exit code $_lo_ret ($1 $2 $3 ...)"
+  echo ""
+  return $_lo_ret
+}
+
+# NFS layout on the board: <nfsroot>/02_dev/algae-ws/build/sysroot-qemuarm64
+_pri_sysroot=
+sysroot_get() {
+  if [ -e "${_pri_sysroot}" ]; then
+    echo "$_pri_sysroot"
+    return 0
+  fi
+  _lo_candi="/media /mnt /run /var/run /tmp"
+  for i in $_lo_candi; do
+    _lo_root="$i/02_dev/algae-ws/build/sysroot-qemuarm64"
+    if [ -x "$_lo_root/bin/dbus-daemon" ]; then
+      _pri_sysroot=$_lo_root
+      echo "$_pri_sysroot"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ldpath_set() {
+  _lo_sysroot=$1
+  export LD_LIBRARY_PATH="$_lo_sysroot/lib"
+  log_d "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+}
+
+messagebus_ensure() {
+  if ! grep -q '^messagebus:' /etc/group 2>/dev/null; then
+    echo 'messagebus:x:999:' >> /etc/group
+  fi
+  if ! grep -q '^messagebus:' /etc/passwd 2>/dev/null; then
+    echo 'messagebus:x:999:999:messagebus:/var/run/dbus:/bin/false' >> /etc/passwd
+  fi
+  mkdir -p /var/run/dbus
+  chown messagebus:messagebus /var/run/dbus
+}
+
+dbus_initd_start() {
+  _lo_sysroot=$(sysroot_get) || { log_e "missing sysroot-qemuarm64"; return 1; }
+  if [ -S $_pri_dbus_socket ]; then
+    log_d "system bus already up"
+    return 0
+  fi
+  messagebus_ensure
+  ldpath_set "$_lo_sysroot"
+  # share/dbus-1/system.conf is the real bus config; etc/dbus-1/system.conf is empty
+  cmd_run "$_lo_sysroot/bin/dbus-daemon" \
+    --config-file="$_lo_sysroot/share/dbus-1/system.conf" \
+    || return 1
+  [ -S $_pri_dbus_socket ] || { log_e "system bus socket missing"; return 1; }
+}
+
+dbus_initd_stop() {
+  if [ -f /var/run/dbus/pid ]; then
+    kill "$(cat /var/run/dbus/pid)" 2>/dev/null
+    rm -f /var/run/dbus/pid
+  fi
+  rm -f $_pri_dbus_socket
+}
+
+case "$1" in
+start)
+  shift
+  dbus_initd_start || { log_e "Failed to start dbus"; exit 1; }
+  ;;
+stop)
+  shift
+  dbus_initd_stop
+  ;;
+restart)
+  shift
+  $0 stop && $0 start "$@"
+  ;;
+*)
+  cat <<-EOHERE
+USAGE
+    $(basename "$0") [start | stop | restart]
+
+OPTIONS
+    start    Start the system bus from sysroot-qemuarm64
+    stop     Stop the system bus
+    restart  Stop then start
+
+EOHERE
+  ;;
+esac

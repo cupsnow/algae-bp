@@ -34,6 +34,10 @@ _lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0x
 # 368b:8d81 AICSemi AIC 8800D80
 _lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0x368b,productid=0x8d81"
 
+# 0a12:0001 Cambridge Silicon Radio, Ltd Bluetooth Dongle (HCI mode)
+_lo_qemuargs_usbbt1=
+_lo_qemuargs_usbbt1="${_lo_qemuargs_usbbt1} -device usb-host,bus=xhci.0,vendorid=0x0a12,productid=0x0001"
+
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
 cmd_qemu_base1="${cmd_qemu_base1} -machine virt,virtualization=on,secure=off"
@@ -70,6 +74,8 @@ start_uboot() {
 
   # device_add usb-host,vendorid=0xa69c,productid=0x8d80
   _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usb1} ${_lo_qemuargs_aic8800d80}"
+
+  _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usbbt1}"
 
   if [ ! -f "${_lo_dtb}" ]; then
     # shellcheck disable=SC2086
