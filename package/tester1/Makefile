@@ -405,6 +405,8 @@ endif
 #ARTIFACT+=ARTIFACT_EGL
 artifact: $(ARTIFACT) $(ARTIFACT_DOXYGEN)
 
+docs: $(ARTIFACT_DOXYGEN)
+
 -include $(sort $(foreach iter,$(ARTIFACT),$(${iter}_DEPS)))
 
 #------------------------------------

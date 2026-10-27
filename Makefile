@@ -3445,6 +3445,8 @@ ccblinky_DIR=$(PKGDIR)/cc_blinky
 ccblinky_BUILDDIR=$(BUILDDIR)/cc_blinky-$(APP_PLATFORM)
 ccblinky_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
+  && $(MKDIR) "$(BUILDDIR)/.zephyr-cache/.cache" \
+  && export XDG_CACHE_HOME="$(BUILDDIR)/.zephyr-cache" \
   && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
   && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
   && cd $(ccblinky_DIR) \
@@ -3458,6 +3460,29 @@ ccblinky_distclean:
 
 ccblinky: | $(ccblinky_BUILDDIR)/build.ninja
 	$(ccblinky_WEST) build -d $(ccblinky_BUILDDIR)
+
+#------------------------------------
+#
+nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
+nano33smp_BUILDDIR=$(BUILDDIR)/nano33ble_smp_svr-$(APP_PLATFORM)
+nano33smp_WEST=. $(PYVENVDIR)/bin/activate \
+  && . ~/zephyrproject/zephyr/zephyr-env.sh \
+  && $(MKDIR) "$(BUILDDIR)/.zephyr-cache/.cache" \
+  && export XDG_CACHE_HOME="$(BUILDDIR)/.zephyr-cache" \
+  && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+  && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
+  && cd $(nano33smp_DIR) \
+  && west
+
+nano33smp_defconfig $(nano33smp_BUILDDIR)/build.ninja:
+	$(nano33smp_WEST) build -p always -b arduino_nano_33_ble@rev2 -d $(nano33smp_BUILDDIR) \
+	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
+
+nano33smp_distclean:
+	$(RMTREE) $(nano33smp_BUILDDIR)
+
+nano33smp: | $(nano33smp_BUILDDIR)/build.ninja
+	$(nano33smp_WEST) build -d $(nano33smp_BUILDDIR)
 
 #------------------------------------
 #
@@ -3799,7 +3824,7 @@ endef
 
 $(eval $(call SIMPLE_APP2,dummy1))
 
-tester1_DEP+=live555 x264 wpasup
+tester1_DEP+=zlib libnl x264 live555 wpasup
 $(eval $(call SIMPLE_APP2,tester1))
 
 $(eval $(call SIMPLE_APP2,cltest2))

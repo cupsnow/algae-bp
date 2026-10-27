@@ -6,27 +6,9 @@ Develop Note
 OpenOCD with FT232H
 ----
 
-- [Adafruit FT232H Breakout](https://learn.adafruit.com/adafruit-ft232h-breakout) I2C Mode switch turn **on**
-- Nano33 BLE powered with USB
+[Programming with Adafruit FT232H BreakOut](adafruit-ft232h.md)
 
-```
-| SWD   | FT232H | Nano33 BLE | memo     |
-| ----- | ------ | ---------- | -------- |
-| V3.3  | V3.3   | Pin1       | not used |
-| GND   | GND    | Pin5       |          |
-| SWCLK | D0     | Pin3       |          |
-| SWDIO | D1     | Pin2       |          |
-| RESET | D3     | Pin6       | not used |
-```
-
-Download Nano33 BLE With Openocd
-----
-
-    openocd -f interface/ftdi/ft232h-module-swd.cfg -f target/nrf52.cfg \
-    -c "adapter speed 1000" \
-    -c "program /home/joelai/02_dev/nano33_blinky/build/merged.hex verify reset exit"
-
-OpenOCD with Beagleplay
+OpenOCD with Beagleplay GPIO
 ----
 
 > [cat /sys/kernel/debug/gpio](docs/bp-gpio.txt)
@@ -38,7 +20,7 @@ OpenOCD with Beagleplay
 | 642        | PWM      | GPIO1_11 |         |
 | 643        | RST      | GPIO1_12 | RESET   |
 
-```
+```sh
 ./devsync.sh gpio_init 640 out
 ./devsync.sh gpio_init 641 out
 ./devsync.sh gpio_init 643 out
@@ -50,7 +32,7 @@ openocd -f bpgpioswd.cfg -c "program arduino_nano_33_ble_bootloader-0.9.2-29-g6a
 Build with nrf sdk
 ----
 
-        make CROSS_COMPILE=/home/joelai/07_sw/pkg/toolchain-arm-none-eabi/bin/arm-none-eabi- BOARD=arduino_nano_33_ble all
+    make CROSS_COMPILE=/home/joelai/07_sw/pkg/toolchain-arm-none-eabi/bin/arm-none-eabi- BOARD=arduino_nano_33_ble all
 
 bootloader check DFU and FRST
 ----
