@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 # ubuntu required package: texinfo gawk
 
 _lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
@@ -54,7 +56,7 @@ BUILDDIR="$(pwd)/tmp/cross_tmp"
 PREFIX=${BUILDDIR}/$TARGET
 SYSROOT=$PREFIX/$TARGET/sysroot
 SRC=${BUILDDIR}/src
-NPROC="$(( $(nproc) / 4 ))"
+NPROC="$_pri_parallel"
 PKGDIR="/home/joelai/02_dev/pkgs"
 
 mkdir -p "$PREFIX" "$SYSROOT" "$SRC"
@@ -64,7 +66,8 @@ BINUTILS_VER=2.47
 GCC_VER=16.2.0
 GLIBC_VER=2.44
 LINUX_VER=7.2
-GDB_VER=16.2
+GDB_VER=18.1
+NCURSES_VER=6.5
 
 # === Download sources ===
 download_source() {
@@ -92,7 +95,7 @@ download_source() {
   fi
 
   if [ -f "${PKGDIR}/linux-$LINUX_VER.tar.xz" ]; then
-    tar -xf linux-$LINUX_VER.tar.xz
+    tar -xf "${PKGDIR}/linux-$LINUX_VER.tar.xz"
   else
     wget -nc https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$LINUX_VER.tar.xz
     tar -xf linux-$LINUX_VER.tar.xz
@@ -105,8 +108,20 @@ download_source() {
     tar -xf "gdb-$GDB_VER.tar.xz"
   fi
 
+  if [ -f "${PKGDIR}/ncurses-$NCURSES_VER.tar.gz" ]; then
+    tar -xf "${PKGDIR}/ncurses-$NCURSES_VER.tar.gz"
+  else
+    wget -nc "https://ftp.gnu.org/gnu/ncurses/ncurses-$NCURSES_VER.tar.gz"
+    tar -xf "ncurses-$NCURSES_VER.tar.gz"
+  fi
+
   # GCC prerequisites
   (cd gcc-$GCC_VER && ./contrib/download_prerequisites)
+
+  # GDB 16 requires GMP and MPFR.  Reuse the sources fetched for GCC; each
+  # GDB build will compile them for its own host (PC or AArch64 target).
+  ln -sfn "../gcc-$GCC_VER/gmp" "gdb-$GDB_VER/gmp"
+  ln -sfn "../gcc-$GCC_VER/mpfr" "gdb-$GDB_VER/mpfr"
 }
 
 # === 1. Build binutils ===
@@ -244,16 +259,19 @@ build_target_library_stdcxx() {
   cd ..
 }
 
-# === 8. Build the host debugger and target gdbserver ===
-# Host GDB runs on the PC and debugs aarch64-linux-gnu over TCP.
+# === 8. Build host GDB, target gdbserver, and target GDB ===
 build_gdb() {
+  export PATH="$PREFIX/bin:$PATH"
   cd "$SRC"
 
-  mkdir -p build-gdb && cd build-gdb
-  ../gdb-$GDB_VER/configure \
+  # This is the normal remote-debugging client.  It runs on the PC and uses
+  # "target remote <target-ip>:2345" to connect to target gdbserver.
+  mkdir -p build-gdb-host && cd build-gdb-host
+  CFLAGS="-O2 -std=gnu17" ../gdb-$GDB_VER/configure \
     --target=$TARGET --prefix=$PREFIX \
     --with-sysroot=$SYSROOT \
-    --disable-nls --disable-werror
+    --disable-nls --disable-werror --disable-shared --enable-static \
+    --without-python --without-guile --without-debuginfod
   make -j$NPROC all-gdb
   make install-gdb
   cd ..
@@ -268,6 +286,43 @@ build_gdb() {
   make DESTDIR="$SYSROOT" install
 
   cd ..
+
+  # A GDB executable that itself runs on the target also needs terminal
+  # support.  Build a private static ncurses so the installed target GDB does
+  # not add an ncurses shared-library requirement to the base sysroot.
+  TARGET_GDB_DEPS="$SRC/build-gdb-target-deps"
+  mkdir -p build-ncurses-target && cd build-ncurses-target
+  CC="$TARGET-gcc" CXX="$TARGET-g++" \
+    ../ncurses-$NCURSES_VER/configure \
+      --build=$(../ncurses-$NCURSES_VER/config.guess) \
+      --host=$TARGET --prefix="$TARGET_GDB_DEPS" \
+      --enable-widec --with-normal --without-shared \
+      --without-debug --without-ada --without-cxx-binding \
+      --without-manpages --without-progs --without-tests
+  make -j$NPROC
+  make install
+  cd ..
+
+  mkdir -p build-gdb-target && cd build-gdb-target
+  CC="$TARGET-gcc" CXX="$TARGET-g++" \
+  CFLAGS="-O2 -std=gnu17" \
+  CPPFLAGS="-I$TARGET_GDB_DEPS/include -I$TARGET_GDB_DEPS/include/ncursesw" \
+  LDFLAGS="-L$TARGET_GDB_DEPS/lib" \
+    ../gdb-$GDB_VER/configure \
+      --build=$(../gdb-$GDB_VER/config.guess) \
+      --host=$TARGET --target=$TARGET --prefix=/usr \
+      --with-sysroot=/ --with-curses \
+      --disable-nls --disable-werror --disable-tui \
+      --disable-shared --enable-static \
+      --without-python --without-guile --without-debuginfod \
+      --without-babeltrace --without-libipt
+  make -j$NPROC all-gdb
+  make DESTDIR="$SYSROOT" install-gdb
+  cd ..
+
+  test -x "$PREFIX/bin/$TARGET-gdb"
+  test -x "$SYSROOT/usr/bin/gdbserver"
+  test -x "$SYSROOT/usr/bin/gdb"
 }
 
 # === 9. Package the toolchain ===
@@ -282,7 +337,7 @@ package_dist() {
   echo "Add to PATH: export PATH=\${BUILDDIR}/$TARGET/bin:\$PATH"
 }
 
-build_cross() {
+build_all() {
   download_source
   export PATH=$PREFIX/bin:$PATH
   build_binutils
@@ -292,13 +347,18 @@ build_cross() {
   build_gcc_stage2
   build_glibc_stage2
   build_target_library_stdcxx
-  # build_gdb()
+  build_gdb
   package_dist
 }
 
 show_help() {
   cat <<EOHELP
 Usage: $(basename "$0") <COMMAND> [ARGUMENTS]
+
+Commands:
+  build_all    Build and package the complete cross toolchain
+  build_gdb    Build host GDB, target gdbserver, and target GDB after the
+               compiler, sysroot, sources, and target C++ runtime exist
 EOHELP
 }
 
@@ -307,7 +367,7 @@ dispatch() {
   [ "$#" -eq 0 ] || shift
 
   case "$_lo_command" in
-  build_cross)
+  build_all|build_gdb)
     "$_lo_command" "$@"
     ;;
   help|-h|--help)
