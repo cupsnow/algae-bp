@@ -3445,8 +3445,8 @@ ccblinky_DIR=$(PKGDIR)/cc_blinky
 ccblinky_BUILDDIR=$(BUILDDIR)/cc_blinky-$(APP_PLATFORM)
 ccblinky_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
-  && $(MKDIR) "$(BUILDDIR)/.zephyr-cache/.cache" \
-  && export XDG_CACHE_HOME="$(BUILDDIR)/.zephyr-cache" \
+  && $(MKDIR) "$(BUILDDIR)/zephyr-cache/.cache" \
+  && export XDG_CACHE_HOME="$(BUILDDIR)/zephyr-cache" \
   && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
   && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
   && cd $(ccblinky_DIR) \
@@ -3467,8 +3467,8 @@ nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
 nano33smp_BUILDDIR=$(BUILDDIR)/nano33ble_smp_svr-$(APP_PLATFORM)
 nano33smp_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
-  && $(MKDIR) "$(BUILDDIR)/.zephyr-cache/.cache" \
-  && export XDG_CACHE_HOME="$(BUILDDIR)/.zephyr-cache" \
+  && $(MKDIR) "$(BUILDDIR)/zephyr-cache/.cache" \
+  && export XDG_CACHE_HOME="$(BUILDDIR)/zephyr-cache" \
   && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
   && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
   && cd $(nano33smp_DIR) \
