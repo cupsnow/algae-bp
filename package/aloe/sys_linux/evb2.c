@@ -6,8 +6,13 @@
  *
  * @author joelai
  *
- * @file /esh-ws/package/esh-tester/compat/aloe_evb2.c
- * @brief aloe_evb2
+ * @file evb2.c
+ * @brief Linux epoll implementation of the aloe_evb2 event loop.
+ *
+ * Handles can be linked into the descriptor-monitor list and timer list at
+ * the same time.  Before dispatch they move to the ready list, whose link is
+ * shared with the descriptor-monitor list.  Cross-thread one-shot timers use
+ * that same link while pending on the mutex-protected asynchronous list.
  */
 
 #define _GNU_SOURCE
@@ -23,6 +28,8 @@
 #include <stddef.h>
 #include <pthread.h>
 #include <sys/epoll.h>
+#include <time.h>
+
 
 #define log_m(_lvl, _msg, _args...) do { \
 	struct timespec ts; \
@@ -38,10 +45,13 @@
 #define log_d(...) log_m("Debug", __VA_ARGS__)
 #define log_e(...) log_m("ERROR", __VA_ARGS__)
 
+/** Internal flags stored in aloe_evb2_handle::flag2. */
 enum {
-	/** internal used flags. */
+	/** Release the handle after its first user callback. */
 	EVB2_FLAG_ONESHOT = 1 << 8,
+	/** The handle was cancelled from its active callback; release it afterward. */
 	EVB2_FLAG_DEAD = 1 << 9,
+	/** Framework-owned handle whose callback is excluded from the user count. */
 	EVB2_FLAG_INTERNAL = 1 << 10,
 };
 
@@ -49,18 +59,21 @@ enum {
 /** Floor when re-arming a persistent 0ms timer, to avoid a busy loop. */
 #define EVB2_MIN_REARM_MS 1
 
-/* Opaque structures */
+/** Event-loop state, opaque to API users. */
 typedef struct aloe_evb2_ctx evb2_t;
+/** Registered descriptor/timer state, opaque to API users. */
 typedef struct aloe_evb2_handle evb2_handle_t;
 
+/** Intrusive singly-linked-list entry. */
 typedef struct qent {
 	struct qent *next;
 } qent_t;
 
+/** Internal state for one registered descriptor and/or timer. */
 struct aloe_evb2_handle {
 	aloe_evb2_cb_t cb;
 	void *user_data;
-	int fd;
+	int fd; /* ALOE_EVB2_FD_TIMER for a timer; lower values are reserved. */
 	uint64_t timeout_ms;
 	uint64_t timeout_at;
 	evb2_t *evb;
@@ -71,6 +84,7 @@ struct aloe_evb2_handle {
 	qent_t timer_ent;
 };
 
+/** Internal state for one event-loop instance. */
 struct aloe_evb2_ctx {
 	int epfd;
 	int async_pipe[2];
@@ -168,6 +182,21 @@ static void evb2_set_timeout(evb2_handle_t *h, uint64_t now) {
 	}
 }
 
+/**
+ * Restart a persistent handle's timeout after callback dispatch.
+ *
+ * @param evb Event-loop context that owns @p h.
+ * @param h Handle whose timeout is to be restarted.
+ *
+ * Any previous timer-list entry is removed before calculating the new
+ * absolute deadline from the monotonic clock.  A zero-millisecond interval is
+ * re-armed as EVB2_MIN_REARM_MS to prevent a persistent timer from creating a
+ * tight callback loop.  ALOE_EVB2_INFINITE leaves the handle off the timer
+ * list, which is valid only for handles that also monitor a file descriptor.
+ *
+ * @pre Called by the loop thread.
+ * @pre @p h belongs to @p evb and is not currently on the ready list.
+ */
 static void evb2_arm_timer(evb2_t *evb, evb2_handle_t *h) {
 	uint64_t now = evb2_now_ms();
 
@@ -227,8 +256,8 @@ static int epoll_refresh(evb2_t *evb, int fd) {
 		log_e("sanity check invalid state\n");
 		return -1;
 	}
-	if (fd < 0) {
-		// timer
+	/* Timer and reserved pseudo-FDs are never registered with epoll. */
+	if (fd <= ALOE_EVB2_FD_TIMER) {
 		return 0;
 	}
 
@@ -324,7 +353,7 @@ static evb2_handle_t* handle_alloc(evb2_t *evb) {
 		return NULL;
 	}
 	h->evb = evb;
-	h->fd = -1;
+	h->fd = ALOE_EVB2_FD_TIMER;
 	return h;
 }
 
@@ -459,8 +488,10 @@ void* aloe_evb2_add_fd(void *_ctx, int fd,
 	evb2_t *evb = (evb2_t*)_ctx;
 	evb2_handle_t *h;
 
-	if (!evb || evb->stopping || evb->finalized || !cb || fd < -1) return NULL;
-	if (fd < 0 && timeout_ms == ALOE_EVB2_INFINITE) return NULL;
+	if (!evb || evb->stopping || evb->finalized || !cb
+			|| fd < ALOE_EVB2_FD_TIMER) return NULL;
+	if (fd == ALOE_EVB2_FD_TIMER
+			&& timeout_ms == ALOE_EVB2_INFINITE) return NULL;
 
 	if (!(h = handle_alloc(evb))) return NULL;
 	h->cb = cb;
@@ -494,13 +525,14 @@ void* aloe_evb2_add_oneshot_fd(void *_ctx, int fd,
 	return h;
 }
 
-/* Register simple timer (fd = -1) */
+/* Register simple timer (fd = ALOE_EVB2_FD_TIMER). */
 void* aloe_evb2_add_timer(void *_ctx,
 		uint64_t timeout_ms, aloe_evb2_cb_t cb, void *user_data) {
-	return aloe_evb2_add_fd(_ctx, -1, 0, timeout_ms, cb, user_data);
+	return aloe_evb2_add_fd(_ctx, ALOE_EVB2_FD_TIMER, 0, timeout_ms,
+			cb, user_data);
 }
 
-/* Register single-shot simple timer (fd = -1).
+/* Register single-shot simple timer (fd = ALOE_EVB2_FD_TIMER).
  * Any thread: enqueue + wake; loop thread arms it onto timer_list.
  */
 void* aloe_evb2_add_oneshot_timer(void *_ctx,
@@ -513,7 +545,7 @@ void* aloe_evb2_add_oneshot_timer(void *_ctx,
 
 	h->cb = cb;
 	h->user_data = user_data;
-	h->fd = -1;
+	h->fd = ALOE_EVB2_FD_TIMER;
 	h->flag = 0;
 	h->timeout_ms = timeout_ms;
 	h->flag2 = EVB2_FLAG_ONESHOT;
@@ -535,7 +567,7 @@ void* aloe_evb2_add_oneshot_timer(void *_ctx,
 int aloe_evb2_cancel(void *_ctx, void *_handle) {
 	evb2_t *evb = (evb2_t*)_ctx;
 	evb2_handle_t *h = (evb2_handle_t*)_handle;
-	int fd;
+	int fd, removed;
 
 	if (!evb || !h || h->evb != evb) return -1;
 	if (h->flag2 & EVB2_FLAG_INTERNAL) return -1;
@@ -554,12 +586,12 @@ int aloe_evb2_cancel(void *_ctx, void *_handle) {
 	pthread_mutex_unlock(&evb->async_lock);
 
 	fd = h->fd;
-	if (!qent_remove(&evb->fdmon_list, &h->fdmon_ent)
-			&& !qent_remove(&evb->ready_list, &h->fdmon_ent)
-			&& !qent_remove(&evb->timer_list, &h->timer_ent)) {
-		return -1;
-	}
-	qent_remove(&evb->timer_list, &h->timer_ent);
+	/* A handle may be in an FD list and the timer list simultaneously. */
+	removed = qent_remove(&evb->fdmon_list, &h->fdmon_ent);
+	removed |= qent_remove(&evb->ready_list, &h->fdmon_ent);
+	removed |= qent_remove(&evb->timer_list, &h->timer_ent);
+	if (!removed) return -1;
+
 	if (fd >= 0) epoll_refresh(evb, fd);
 	free(h);
 	return 0;
@@ -572,7 +604,8 @@ int aloe_evb2_cancel_fd(void *_ctx, int fd) {
 	int n = 0;
 
 	if (!evb) return -1;
-	if (fd < 0) return -1;
+
+	if (fd <= ALOE_EVB2_FD_TIMER) return -1;
 	if (fd == evb->async_pipe[0] || fd == evb->async_pipe[1]) return -1;
 
 	for (q = evb->fdmon_list; q; q = next) {
@@ -601,7 +634,9 @@ int aloe_evb2_set_timeout(void *_ctx, void *_handle, uint64_t timeout_ms) {
 	if (!evb || !h || h->evb != evb) return -1;
 	if (h->flag2 & (EVB2_FLAG_INTERNAL | EVB2_FLAG_DEAD)) return -1;
 	if (evb->stopping || evb->finalized) return -1;
-	if (h->fd < 0 && timeout_ms == ALOE_EVB2_INFINITE) return -1;
+
+	if (h->fd == ALOE_EVB2_FD_TIMER
+			&& timeout_ms == ALOE_EVB2_INFINITE) return -1;
 
 	h->timeout_ms = timeout_ms;
 	evb2_set_timeout(h, evb2_now_ms());
