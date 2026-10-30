@@ -1474,15 +1474,55 @@ $(eval $(call DEF_DESTDEP,iconvgettext))
 
 #------------------------------------
 #
+# oniguruma_DIR?=$(PKGDIR2)/oniguruma
+oniguruma_DIR?=$(PKGDIR)/onig-6.9.9
+oniguruma_BUILDDIR?=$(BUILDDIR2)/oniguruma-$(APP_PLATFORM)
+oniguruma_MAKE=$(MAKE) -C $(oniguruma_BUILDDIR)
+
+GENDIR+=$(oniguruma_BUILDDIR)
+
+$(oniguruma_DIR)/configure:
+	cd $(oniguruma_DIR) && ./autogen.sh
+
+oniguruma_defconfig $(oniguruma_BUILDDIR)/Makefile: | $(oniguruma_DIR)/configure $(oniguruma_BUILDDIR)
+	cd $(oniguruma_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(oniguruma_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix= \
+	      $(oniguruma_ACARGS_$(APP_PLATFORM))
+
+oniguruma_install: DESTDIR=$(BUILD_SYSROOT)
+oniguruma_install: | $(oniguruma_BUILDDIR)/Makefile
+	$(oniguruma_MAKE) DESTDIR=$(DESTDIR) install
+ifneq ($(strip $(filter 0 1,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.la,$(DESTDIR)/lib,liboniguruma-8 liboniguruma-posix)
+endif
+ifneq ($(strip $(filter 0,$(BUILD_PKGCFG_USAGE))),)
+	$(call CMD_RM_FIND,.pc,$(DESTDIR)/lib/pkgconfig,liboniguruma-8 liboniguruma-posix)
+endif
+	$(call CMD_RM_EMPTYDIR,$(DESTDIR)/lib/pkgconfig)
+
+$(eval $(call DEF_DESTDEP,oniguruma))
+
+oniguruma: | $(oniguruma_BUILDDIR)/Makefile
+	$(oniguruma_MAKE) $(PARALLEL_BUILD)
+
+oniguruma_%: | $(oniguruma_BUILDDIR)/Makefile
+	$(oniguruma_MAKE) $(PARALLEL_BUILD) $(@:oniguruma_%=%)
+
+
+
+
+#------------------------------------
+#
 pcre2_DIR?=$(PKGDIR2)/pcre2
 pcre2_BUILDDIR?=$(BUILDDIR2)/pcre2-$(APP_BUILD)
 pcre2_MAKE=$(MAKE) -C $(pcre2_BUILDDIR)
 
+GENDIR+=$(pcre2_BUILDDIR)
+
 $(pcre2_DIR)/configure: | $(pcre2_DIR)/autogen.sh
 	cd $(pcre2_DIR) \
 	  && ./autogen.sh
-
-GENDIR+=$(pcre2_BUILDDIR)
 
 pcre2_defconfig $(pcre2_BUILDDIR)/Makefile: | $(pcre2_DIR)/configure $(pcre2_BUILDDIR)
 	cd $(pcre2_BUILDDIR) \

@@ -267,23 +267,29 @@ build_gdb() {
   # This is the normal remote-debugging client.  It runs on the PC and uses
   # "target remote <target-ip>:2345" to connect to target gdbserver.
   mkdir -p build-gdb-host && cd build-gdb-host
-  CFLAGS="-O2 -std=gnu17" ../gdb-$GDB_VER/configure \
-    --target=$TARGET --prefix=$PREFIX \
-    --with-sysroot=$SYSROOT \
-    --disable-nls --disable-werror --disable-shared --enable-static \
-    --without-python --without-guile --without-debuginfod
+  if [ ! -f Makefile ]; then
+    CFLAGS="-O2 -std=gnu17" ../gdb-$GDB_VER/configure \
+      --target=$TARGET --prefix=$PREFIX \
+      --with-sysroot=$SYSROOT \
+      --disable-nls --disable-werror --disable-shared --enable-static \
+      --without-python --without-guile --without-debuginfod
+  fi
   make -j$NPROC all-gdb
   make install-gdb
   cd ..
 
   # gdbserver runs on the target.  Stage it as /usr/bin/gdbserver in SYSROOT.
   mkdir -p build-gdbserver && cd build-gdbserver
-  CC="$TARGET-gcc" CXX="$TARGET-g++" \
-    ../gdb-$GDB_VER/gdb/gdbserver/configure \
-      --host=$TARGET --target=$TARGET --prefix=/usr \
-      --disable-werror
-  make -j$NPROC
-  make DESTDIR="$SYSROOT" install
+  if [ ! -f Makefile ]; then
+    CC="$TARGET-gcc" CXX="$TARGET-g++" \
+      ../gdb-$GDB_VER/configure \
+        --build=$(../gdb-$GDB_VER/config.guess) \
+        --host=$TARGET --target=$TARGET --prefix=/usr \
+        --disable-gdb --disable-binutils --disable-gas --disable-ld \
+        --disable-sim --disable-nls --disable-werror
+  fi
+  make -j$NPROC all-gdbserver
+  make DESTDIR="$SYSROOT" install-gdbserver
 
   cd ..
 
@@ -292,30 +298,36 @@ build_gdb() {
   # not add an ncurses shared-library requirement to the base sysroot.
   TARGET_GDB_DEPS="$SRC/build-gdb-target-deps"
   mkdir -p build-ncurses-target && cd build-ncurses-target
-  CC="$TARGET-gcc" CXX="$TARGET-g++" \
-    ../ncurses-$NCURSES_VER/configure \
-      --build=$(../ncurses-$NCURSES_VER/config.guess) \
-      --host=$TARGET --prefix="$TARGET_GDB_DEPS" \
-      --enable-widec --with-normal --without-shared \
-      --without-debug --without-ada --without-cxx-binding \
-      --without-manpages --without-progs --without-tests
+  if [ ! -f Makefile ]; then
+    CC="$TARGET-gcc" CXX="$TARGET-g++" \
+      ../ncurses-$NCURSES_VER/configure \
+        --build=$(../ncurses-$NCURSES_VER/config.guess) \
+        --host=$TARGET --prefix="$TARGET_GDB_DEPS" \
+        --enable-widec --with-normal --without-shared \
+        --disable-opaque-curses --disable-opaque-form \
+        --disable-opaque-menu --disable-opaque-panel \
+        --without-debug --without-ada --without-cxx-binding \
+        --without-manpages --without-progs --without-tests
+  fi
   make -j$NPROC
   make install
   cd ..
 
   mkdir -p build-gdb-target && cd build-gdb-target
-  CC="$TARGET-gcc" CXX="$TARGET-g++" \
-  CFLAGS="-O2 -std=gnu17" \
-  CPPFLAGS="-I$TARGET_GDB_DEPS/include -I$TARGET_GDB_DEPS/include/ncursesw" \
-  LDFLAGS="-L$TARGET_GDB_DEPS/lib" \
-    ../gdb-$GDB_VER/configure \
-      --build=$(../gdb-$GDB_VER/config.guess) \
-      --host=$TARGET --target=$TARGET --prefix=/usr \
-      --with-sysroot=/ --with-curses \
-      --disable-nls --disable-werror --disable-tui \
-      --disable-shared --enable-static \
-      --without-python --without-guile --without-debuginfod \
-      --without-babeltrace --without-libipt
+  if [ ! -f Makefile ]; then
+    CC="$TARGET-gcc" CXX="$TARGET-g++" \
+    CFLAGS="-O2 -std=gnu17 -I$TARGET_GDB_DEPS/include -I$TARGET_GDB_DEPS/include/ncursesw" \
+    CXXFLAGS="-O2 -I$TARGET_GDB_DEPS/include -I$TARGET_GDB_DEPS/include/ncursesw" \
+    LDFLAGS="-L$TARGET_GDB_DEPS/lib" \
+      ../gdb-$GDB_VER/configure \
+        --build=$(../gdb-$GDB_VER/config.guess) \
+        --host=$TARGET --target=$TARGET --prefix=/usr \
+        --with-sysroot=/ \
+        --disable-nls --disable-werror --disable-tui \
+        --disable-shared --enable-static \
+        --without-python --without-guile --without-debuginfod \
+        --without-babeltrace --without-libipt
+  fi
   make -j$NPROC all-gdb
   make DESTDIR="$SYSROOT" install-gdb
   cd ..

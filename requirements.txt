@@ -12,7 +12,6 @@ sphinx_rtd_theme
 sphinx-prompt
 tornado
 yamllint
-yamllint
 
 # python3.9
 importlib_resources
