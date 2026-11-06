@@ -1,0 +1,25 @@
+MACHINE ??= "beagleplay-ti"
+DISTRO ?= "poky"
+
+# Keep downloaded source archives outside the algae-bp workspace.
+DL_DIR = "/home/joelai/02_dev2/iq9/qli191/downloads"
+
+PACKAGE_CLASSES ?= "package_ipk"
+EXTRA_IMAGE_FEATURES = ""
+USER_CLASSES ?= "buildstats"
+PATCHRESOLVE = "noop"
+
+# Reclaim per-recipe work directories after successful packaging.
+INHERIT += "rm_work"
+
+# Poky enables SPDX/SBOM generation by default. Defer those large build
+# artifacts during the storage-constrained first-stage boot-image work.
+INHERIT:remove = "create-spdx"
+
+# BusyBox supplies init, login, and the device manager in the first-stage image.
+VIRTUAL-RUNTIME_init_manager = "busybox"
+VIRTUAL-RUNTIME_login_manager = "busybox"
+VIRTUAL-RUNTIME_dev_manager = "busybox-mdev"
+VIRTUAL-RUNTIME_initscripts = "initscripts"
+
+CONF_VERSION = "2"

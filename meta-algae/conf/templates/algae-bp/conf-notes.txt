@@ -1,0 +1,3 @@
+The first-stage image is intentionally minimal and BusyBox-centered.
+
+Its output is written below tmp/deploy/images/beagleplay-ti/ in the build directory.

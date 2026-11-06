@@ -1,0 +1,5 @@
+Algae BeaglePlay minimal BusyBox image
+
+Build with:
+
+    bitbake algae-busybox-image

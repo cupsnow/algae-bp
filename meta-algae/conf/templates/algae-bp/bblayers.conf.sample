@@ -1,0 +1,13 @@
+POKY_BBLAYERS_CONF_VERSION = "2"
+
+BBPATH = "${TOPDIR}"
+BBFILES ?= ""
+
+BBLAYERS ?= " \
+  ${TOPDIR}/../sources/poky/meta \
+  ${TOPDIR}/../sources/poky/meta-poky \
+  ${TOPDIR}/../sources/meta-arm/meta-arm \
+  ${TOPDIR}/../sources/meta-arm/meta-arm-toolchain \
+  ${TOPDIR}/../sources/meta-ti/meta-ti-bsp \
+  ${TOPDIR}/../meta-algae \
+  "
