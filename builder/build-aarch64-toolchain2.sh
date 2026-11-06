@@ -2,6 +2,8 @@
 
 set -e
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
 # ubuntu required package: texinfo gawk
 
 _lo_free_mem=$(free -g | awk '/^Mem:/ {print $7}')
@@ -52,7 +54,8 @@ cmd_run() {
 
 # === Configuration ===
 TARGET=aarch64-linux-gnu
-BUILDDIR="$(pwd)/tmp/cross_tmp"
+# BUILDDIR="$(pwd)/tmp/cross_tmp"
+BUILDDIR="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)/build/build-aarch64-toolchain2"
 PREFIX=${BUILDDIR}/$TARGET
 SYSROOT=$PREFIX/$TARGET/sysroot
 SRC=${BUILDDIR}/src
@@ -371,6 +374,9 @@ Commands:
   build_all    Build and package the complete cross toolchain
   build_gdb    Build host GDB, target gdbserver, and target GDB after the
                compiler, sysroot, sources, and target C++ runtime exist
+
+BUILDDIR=$BUILDDIR
+
 EOHELP
 }
 

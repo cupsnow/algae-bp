@@ -1,6 +1,8 @@
 Dev Info
 ====
 
+Refer to [mcuboot.md](mcuboot.md) for more precisely SWD connect
+
 Wired
 ----
 

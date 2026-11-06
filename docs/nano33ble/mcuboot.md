@@ -56,9 +56,9 @@ References:
 
 ```text
 FT232H D0 ---------------- Nano SWCLK
-FT232H D1 ---------------- Nano SWDIO
-FT232H D2 ---- 220-470 ohm +
+FT232H D1 ---------------- +
                            +-- Nano SWDIO
+FT232H D2 -- 220-470 ohm --+
 FT232H D4 ---------------- Nano RESET       optional
 FT232H GND --------------- Nano GND
 ```

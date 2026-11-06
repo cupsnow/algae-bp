@@ -38,6 +38,8 @@ _lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0x
 _lo_qemuargs_usbbt1=
 _lo_qemuargs_usbbt1="${_lo_qemuargs_usbbt1} -device usb-host,bus=xhci.0,vendorid=0x0a12,productid=0x0001"
 
+_lo_qemuargs_hostfwd1=-netdev user,id=my-shrd-net,hostfwd=tcp::2222-:22
+
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
 cmd_qemu_base1="${cmd_qemu_base1} -machine virt,virtualization=on,secure=off"
@@ -74,8 +76,8 @@ start_uboot() {
 
   # device_add usb-host,vendorid=0xa69c,productid=0x8d80
   _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usb1} ${_lo_qemuargs_aic8800d80}"
-
   _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usbbt1}"
+  _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_hostfwd1}"
 
   if [ ! -f "${_lo_dtb}" ]; then
     # shellcheck disable=SC2086

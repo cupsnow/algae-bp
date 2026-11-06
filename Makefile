@@ -2436,6 +2436,63 @@ CLEAN+=wt
 
 #------------------------------------
 #
+trivy_DIR=$(PKGDIR2)/trivy
+trivy_BUILDDIR=$(BUILDDIR2)/trivy-$(APP_PLATFORM)
+
+trivy_GOENV+=CGO_ENABLED=0 GOOS=linux
+trivy_GOENV_bp+=GOARCH=arm64
+trivy_GOENV_qemuarm64+=GOARCH=arm64
+
+GENDIR+=$(trivy_BUILDDIR)
+
+trivy_install: DESTDIR=$(PROJDIR)/tool
+trivy_install: trivy
+	install -Dm755 $(trivy_BUILDDIR)/trivy \
+	    $(DESTDIR)/bin/trivy
+
+$(eval $(call DEF_DESTDEP,trivy))
+
+trivy: | $(trivy_BUILDDIR)
+	cd $(trivy_DIR) \
+	  && $(trivy_GOENV) $(trivy_GOENV_$(APP_PLATFORM)) \
+	    go build -trimpath -ldflags="-s -w" \
+	        -o $(trivy_BUILDDIR)/trivy \
+			./cmd/trivy
+
+trivy_host_install: DESTDIR=$(PROJDIR)/tool
+trivy_host_install:
+	$(MAKE) APP_PLATFORM=ub20 trivy_install
+
+trivy_host:
+	$(MAKE) APP_PLATFORM=ub20 $(@:trivy_host%=trivy%)
+
+#------------------------------------
+#
+beszel_DIR=$(PKGDIR2)/beszel
+beszel_BUILDDIR=$(BUILDDIR2)/beszel-$(APP_PLATFORM)
+
+beszel_GOENV+=CGO_ENABLED=0 GOOS=linux
+beszel_GOENV_bp+=GOARCH=arm64
+beszel_GOENV_qemuarm64+=GOARCH=arm64
+
+GENDIR+=$(beszel_BUILDDIR)
+
+beszel_install: DESTDIR=$(BUILD_SYSROOT)
+beszel_install: beszel
+	install -Dm755 $(beszel_BUILDDIR)/beszel-agent \
+	    $(DESTDIR)/bin/beszel-agent
+
+$(eval $(call DEF_DESTDEP,beszel))
+
+beszel: | $(beszel_BUILDDIR)
+	cd $(beszel_DIR) \
+	  && $(beszel_GOENV) $(beszel_GOENV_$(APP_PLATFORM)) \
+	    go build -trimpath -ldflags="-s -w" \
+	        -o $(beszel_BUILDDIR)/beszel-agent \
+	        ./internal/cmd/agent
+
+#------------------------------------
+#
 iw_DEP=libnl
 iw_DIR=$(PKGDIR2)/iw
 iw_BUILDDIR?=$(BUILDDIR2)/iw-$(APP_BUILD)
@@ -3482,7 +3539,7 @@ cc1352flash_%: | $(cc1352flash_BUILDDIR)
 #------------------------------------
 #
 ccblinky_DIR=$(PKGDIR)/cc_blinky
-ccblinky_BUILDDIR=$(BUILDDIR)/cc_blinky-$(APP_PLATFORM)
+ccblinky_BUILDDIR=$(BUILDDIR2)/cc_blinky-$(APP_PLATFORM)
 ccblinky_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
   && $(MKDIR) "$(BUILDDIR)/zephyr-cache/.cache" \
@@ -3504,7 +3561,7 @@ ccblinky: | $(ccblinky_BUILDDIR)/build.ninja
 #------------------------------------
 #
 nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
-nano33smp_BUILDDIR=$(BUILDDIR)/nano33ble_smp_svr-$(APP_PLATFORM)
+nano33smp_BUILDDIR=$(BUILDDIR2)/nano33ble_smp_svr-$(APP_PLATFORM)
 nano33smp_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
   && $(MKDIR) "$(BUILDDIR)/zephyr-cache/.cache" \
@@ -3527,7 +3584,7 @@ nano33smp: | $(nano33smp_BUILDDIR)/build.ninja
 #------------------------------------
 #
 ccrcp_DIR=$(PKGDIR)/cc_rcp
-ccrcp_BUILDDIR=$(BUILDDIR)/cc_rcp-$(APP_PLATFORM)
+ccrcp_BUILDDIR=$(BUILDDIR2)/cc_rcp-$(APP_PLATFORM)
 ccrcp_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
   && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
