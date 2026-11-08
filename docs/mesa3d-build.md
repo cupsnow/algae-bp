@@ -12,6 +12,51 @@ lavapipe (`swrast` in Mesa's Vulkan build options), and OpenCL through
 Rusticl/llvmpipe. EGL surfaceless and GBM are enabled. X11, GLX and Wayland are
 not included; this is suitable for headless API tests, not a desktop image.
 
+## Source repositories
+
+Prepare these checkouts under `SRC` (the parent of algae-bp by default), using
+the directory names below. LLVM supplies Clang and libclc in the same repository.
+The URLs for the main stack match the existing checkouts' `origin` remotes.
+
+| Directory relative to `SRC` | Source repository |
+| --- | --- |
+| `llvm-project` | [LLVM, Clang and libclc](https://github.com/llvm/llvm-project.git) |
+| `mesa3d` | [Mesa](https://gitlab.freedesktop.org/mesa/mesa.git) |
+| `spirv-tools` | [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools.git) |
+| `spirv-tools/external/spirv-headers` | [SPIRV-Headers](https://github.com/KhronosGroup/SPIRV-Headers.git) |
+| `spirv-llvm-translator` | [SPIRV-LLVM-Translator](https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git) |
+| `glslang` | [glslang](https://github.com/KhronosGroup/glslang.git) |
+
+Use SPIRV-Headers compatible with the checked-out SPIRV-Tools revision; `HEADERS`
+can point to a separate checkout. Keep LLVM and SPIRV-LLVM-Translator versions
+aligned. The build script uses these checkouts without cloning or updating them.
+
+### Test-tools source setup
+
+The `test-tools` stage, also included in `all`, expects these repositories under
+`TEST_SRC` (default: `SRC`, the parent of algae-bp). Clone each repository
+into the directory shown; for example:
+
+```sh
+git clone https://github.com/KhronosGroup/Vulkan-Headers.git ../vulkan-headers
+```
+
+| Directory relative to `TEST_SRC` | Source repository |
+| --- | --- |
+| `vulkan-headers` | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers.git) |
+| `vulkan-loader` | [Vulkan-Loader](https://github.com/KhronosGroup/Vulkan-Loader.git) |
+| `vulkan-tools` | [Vulkan-Tools](https://github.com/KhronosGroup/Vulkan-Tools.git) |
+| `opencl-headers` | [OpenCL-Headers](https://github.com/KhronosGroup/OpenCL-Headers.git) |
+| `opencl-icd-loader` | [OpenCL-ICD-Loader](https://github.com/KhronosGroup/OpenCL-ICD-Loader.git) |
+| `clinfo` | [clinfo](https://github.com/Oblomov/clinfo.git) |
+| `mesa-demos` | [Mesa demos (eglinfo)](https://gitlab.freedesktop.org/mesa/demos.git) |
+
+Use compatible Vulkan-Headers, Vulkan-Loader and Vulkan-Tools releases. General
+zlib/libdrm dependencies come from the supplied sysroots, as described below.
+Set `TEST_SRC=/absolute/path/to/test-sources` to keep these checkouts elsewhere.
+If moving existing sources, use a fresh `OUT`: CMake and Meson caches retain
+their original source paths.
+
 ## Build
 
 From algae-bp, create the build-tools environment once if needed:

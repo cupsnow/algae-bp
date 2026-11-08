@@ -114,3 +114,23 @@ responses with idle zeros, verification-only, NACK, status failure, response
 checksum failure and CRC mismatch. No physical BeaglePlay flashing or GPIO
 validation has been performed. Tests emulate the ROM; they do not establish
 hardware compatibility by themselves.
+
+## Probe ROM bootloader availability
+
+```sh
+./cc1352-flash --probe -p /dev/ttyS1
+# If already placed in ROM bootloader:
+./cc1352-flash --probe --manual -p /dev/ttyS1
+```
+
+No firmware file is required. The probe performs auto-baud synchronization,
+COMMAND_PING (0x20) and GET_STATUS. Exit status is zero only after ping ACK and
+successful bootloader status; NACK, timeout or transport errors return failure.
+It never erases or programs flash and leaves the target in the bootloader.
+Without `--manual`, entering the bootloader resets and interrupts running RCP
+firmware. A failure means ROM access was not established, not necessarily that
+hardware is absent (check UART ownership, bootloader backdoor and permissions).
+This does not test OpenThread/Spinel availability or identify the chip model.
+`--probe` cannot be combined with a firmware file or `--verify-only`.
+
+For protocol tests with a custom binary path, set `CC1352_FLASH` to that path.

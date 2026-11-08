@@ -3583,6 +3583,18 @@ nano33smp: | $(nano33smp_BUILDDIR)/build.ninja
 
 #------------------------------------
 #
+ESPIDFENV=. /home/joelai/.espressif/tools/activate_idf_v6.1.sh
+ESPIDFPY=$(ESPIDFENV) && idf.py
+
+esp32hci_DIR=$(PKGDIR)/esp32_hci
+esp32hci_BUILDDIR=$(BUILDDIR)/esp32_hci-$(APP_PLATFORM)
+esp32hci_IDFPY=$(ESPIDFPY) --project-dir=$(esp32hci_DIR) --build-dir=$(esp32hci_BUILDDIR)
+
+$(addprefix esp32hci_,flash build all monitor menuconfig):
+	$(esp32hci_IDFPY) -p /dev/ttyACM0 $(@:esp32hci_%=%)
+
+#------------------------------------
+#
 ccrcp_DIR=$(PKGDIR)/cc_rcp
 ccrcp_BUILDDIR=$(BUILDDIR2)/cc_rcp-$(APP_PLATFORM)
 ccrcp_WEST=. $(PYVENVDIR)/bin/activate \
@@ -3972,6 +3984,14 @@ endif
 # dist_rootfs_phase1_pkg+=libdrm mesa3d mosquitto openocd openssh
 
 # dist_rootfs_phase1_pkg+=glib
+
+dist_rootfs2: DESTDIR=$(BUILD_SYSROOT2)
+dist_rootfs2:
+#	$(MAKE) DESTDIR=$(DESTDIR) $(addsuffix _destdep_install, \
+#	    dbus cpython)
+	# Resolve build dependencies from the same sysroot used for installation.
+	$(MAKE) BUILD_SYSROOT=$(DESTDIR) DESTDIR=$(DESTDIR) $(addsuffix _destdep_install, \
+	    systemd bluez)
 
 dist_rootfs_phase1: DESTDIR=$(dist_DIR)/rootfs
 dist_rootfs_phase1:

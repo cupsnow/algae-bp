@@ -172,6 +172,11 @@ Build
 
          bitbake core-image-minimal --runall=fetch
 
+NFS mount
+----
+
+insecure
+
 Garage
 ====
 

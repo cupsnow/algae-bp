@@ -18,6 +18,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <termios.h>
+#include <getopt.h>
 
 #define FLASH_SIZE (704u * 1024u)
 #define ACK 0xcc
@@ -155,6 +156,17 @@ static void status(void)
 		exit(EXIT_FAILURE);
 	}
 }
+/* A successful ping confirms ROM protocol access, not the running RCP. */
+static void probe_bootloader(void)
+{
+	log_d("a\n");
+	command(0x20, NULL, 0); /* COMMAND_PING: ACK only */
+	log_d("a\n");
+	status();
+	log_d("a\n");
+	puts("CC1352 ROM bootloader available (PING ACK, status success). "
+			"Flash unchanged; target left in bootloader.");
+}
 static void be32(uint8_t *p, uint32_t v)
 {
 	p[0] = v >> 24;
@@ -181,7 +193,10 @@ static int request_gpio(const char *name, int value)
 		exit(EXIT_FAILURE);
 	}
 	for (size_t i = 0; i < paths.gl_pathc; ++i) {
-		log_d("paths.gl_pathv[%d/%d]: %s\n", (int)i + 1, (int)paths.gl_pathc, paths.gl_pathv[i]);
+		if (verbose >= 1) {
+			log_d("paths.gl_pathv[%d/%d]: %s\n", (int )i + 1,
+					(int )paths.gl_pathc, paths.gl_pathv[i]);
+		}
 		int fd = open(paths.gl_pathv[i], O_RDONLY | O_CLOEXEC);
 		if (fd < 0) continue;
 		struct gpiochip_info chip;
@@ -194,23 +209,33 @@ static int request_gpio(const char *name, int value)
 			struct gpio_v2_line_info line = {.offset = j};
 			if (ioctl(fd, GPIO_V2_GET_LINEINFO_IOCTL, &line)
 					|| strcmp(line.name, name)) {
-				log_d("line[%d/%d].name: %s\n", (int)i + 1, (int)chip.lines, line.name);
+				if (verbose >= 1) {
+					log_d("line[%d/%d].name: %s\n", (int)i + 1, (int)chip.lines, line.name);
+				}
 				continue;
 			}
-			struct gpio_v2_line_request req = {
-					.num_lines = 1,
-					.offsets = {j},
-					.consumer = "cc1352-flash",
-					.config = {
-						.flags = GPIO_V2_LINE_FLAG_OUTPUT,
-					},
-			};
+			struct gpio_v2_line_request req;
+			memset(&req, 0, sizeof(req));
+			req.num_lines = 1,
+			// req.offsets = {j},
+			req.offsets[0] = j;
+			// req.consumer = "cc1352-flash",
+			snprintf(req.consumer, sizeof(req.consumer), "%s", "cc1352-flash");
+
+			req.config.flags = GPIO_V2_LINE_FLAG_OUTPUT,
+			req.config.num_attrs = 1,
+
+			req.config.attrs[0].attr.id = GPIO_V2_LINE_ATTR_ID_OUTPUT_VALUES;
+			req.config.attrs[0].attr.values = (uint64_t)value;
+			req.config.attrs[0].mask = 1;
+
 			if (ioctl(fd, GPIO_V2_GET_LINE_IOCTL, &req)) fail(name);
 #else
 			struct gpioline_info line = {.line_offset = j};
 			if (ioctl(fd, GPIO_GET_LINEINFO_IOCTL, &line)
 					|| strcmp(line.name, name)) {
-				log_d("line[%d/%d].name: %s\n", (int)i + 1, (int)chip.lines, line.name);
+				log_d("line[%d/%d].name: %s\n", (int )i + 1, (int )chip.lines,
+						line.name);
 				continue;
 			}
 			struct gpiohandle_request req = {
@@ -257,31 +282,73 @@ static void bootloader(void)
 	usleep(200000);
 	close(reset);
 	close(boot);
+	log_d("enter bootloader\n");
 }
-static void usage(const char *name)
-{
+
+static const char opt_short[] = "hvp:";
+enum {
+	opt_key_reflags = 0x201,
+	opt_key_assume_bootloader,
+	opt_key_verify_only,
+	opt_key_probe,
+	opt_key_stty,
+	opt_key_max
+};
+static struct option opt_long[] = {
+		{"help", no_argument, NULL, 'h'},
+		{"verbose", no_argument, NULL, 'v'},
+		{"port", required_argument, NULL, 'p'},
+		{"assume_bootloader", no_argument, NULL, opt_key_assume_bootloader},
+		{"verify-only", no_argument, NULL, opt_key_verify_only},
+		{"probe", no_argument, NULL, opt_key_probe},
+		{"stty", no_argument, NULL, opt_key_stty},
+		{0},
+};
+
+static void usage(const char *name) {
 	printf(
-			"Usage: %s [-p UART] [--manual] [--verify-only] firmware.bin\n"
-					"Default UART: /dev/play/cc1352/uart, 115200 8N1\n"
-					"Default action: enter bootloader, mass erase, program, CRC verify, reset.\n"
-					"--manual: skip GPIO control; target must already be in ROM bootloader.\n"
-					"--verify-only: no erase/write; compare full-flash CRC and reset on success.\n"
-					"Raw binary at address zero, 1..720896 bytes; pad with FF to full flash.\n",
-			name);
+			"USAGE\n"
+			"  %s [OPTIONS] firmware.bin\n"
+			"  %s [OPTIONS] --probe\n"
+			"  %s [OPTIONS] --stty\n"
+			"\n"
+			"Description\n"
+			"  Default action: enter bootloader, mass erase, program, CRC verify, reset.\n"
+			"\n"
+			"OPTIONS\n"
+			"  -h, --help       Show this help\n"
+			"  -v, --verbose    More output\n"
+			"  -p, --port=PORT  Serial port\n"
+			"  --probe          Probe only\n"
+			"  --assume_bootloader  skip GPIO control; target must already be in ROM bootloader\n"
+			"    Default UART: /dev/play/cc1352/uart, 115200 8N1\n"
+			"    Default action: enter bootloader, mass erase, program, CRC verify, reset.\n"
+			"    --probe: sync, PING and status only; no firmware, erase, write or reset.\n"
+			"    Probe enters ROM bootloader unless --assume_bootloader; interrupts running firmware.\n"
+			"    --assume_bootloader: skip GPIO control; target must already be in ROM bootloader.\n"
+			"    --verify-only: no erase/write; compare full-flash CRC and reset on success.\n"
+			"    Raw binary at address zero, 1..720896 bytes; pad with FF to full flash.\n"
+			"    --stty: prepare tty.\n"
+			"    Prepare tty for monitor; stty -F /dev/play/cc1352/uart 115200 raw -echo cs8 -parenb -cstopb -crtscts -ixon -ixoff\n",
+			name, name, name);
 }
-int main(int argc, char **argv)
-{
+
+int main(int argc, char **argv) {
 	const char *port = "/dev/play/cc1352/uart", *file = NULL;
-	int manual = 0, verify = 0;
+	int assume_bootloader = 0, verify = 0, probe = 0, stty = 0;
 	for (int i = 1; i < argc; ++i) {
 		if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
 			usage(argv[0]);
 			return 0;
 		}
 		if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose"))
-			verbose = 1;
-		if (!strcmp(argv[i], "--manual"))
-			manual = 1;
+			verbose++;
+		else if (!strcmp(argv[i], "--stty"))
+			stty = 1;
+		else if (!strcmp(argv[i], "--probe"))
+			probe = 1;
+		else if (!strcmp(argv[i], "--assume_bootloader"))
+			assume_bootloader = 1;
 		else if (!strcmp(argv[i], "--verify-only"))
 			verify = 1;
 		else if (!strcmp(argv[i], "-p") && i + 1 < argc)
@@ -293,26 +360,45 @@ int main(int argc, char **argv)
 		else
 			file = argv[i];
 	}
-	if (!file) {
+	if ((!probe && !file) || (probe && (file || verify))) {
 		usage(argv[0]);
 		return 1;
 	}
-	uint8_t *image = malloc(FLASH_SIZE);
-	if (!image) fail("malloc");
-	memset(image, 0xff, FLASH_SIZE);
-	FILE *f = fopen(file, "rb");
-	if (!f) fail(file);
-	size_t size = fread(image, 1, FLASH_SIZE, f);
-	int extra = fgetc(f);
-	if (ferror(f)) fail("read firmware");
-	fclose(f);
-	if (!size || extra != EOF) {
-		fprintf(stderr, "Image must contain 1..%u bytes\n", FLASH_SIZE);
-		return 1;
+	if (stty) {
+		int r;
+		char cmdstr[128];
+		if ((r =
+				snprintf(cmdstr, sizeof(cmdstr),
+						"stty -F %s 115200 raw -echo cs8 -parenb -cstopb -crtscts -ixon -ixoff",
+						port)) <= 0
+				|| r >= (int)sizeof(cmdstr)) {
+			fprintf(stderr, "Insufficient cmdstr\n");
+			return 1;
+		}
+		r = system(cmdstr);
+		return r;
 	}
-	uint32_t expected = crc32(image, FLASH_SIZE);
-	printf("Image: %zu bytes, FF padded to %u; CRC32 %08x\n", size, FLASH_SIZE,
-			expected);
+	uint8_t *image = NULL;
+	uint32_t expected = 0;
+	if (!probe) {
+		image = (uint8_t*)malloc(FLASH_SIZE);
+		if (!image) fail("malloc");
+		memset(image, 0xff, FLASH_SIZE);
+		FILE *f = fopen(file, "rb");
+		if (!f) fail(file);
+		size_t size = fread(image, 1, FLASH_SIZE, f);
+		int extra = fgetc(f);
+		if (ferror(f)) fail("read firmware");
+		fclose(f);
+		if (!size || extra != EOF) {
+			fprintf(stderr, "Image must contain 1..%u bytes\n", FLASH_SIZE);
+			return 1;
+		}
+		expected = crc32(image, FLASH_SIZE);
+		printf("Image: %zu bytes, FF padded to %u; CRC32 %08x\n", size,
+		FLASH_SIZE,
+				expected);
+	}
 	uart = open(port, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
 	if (uart < 0) fail(port);
 	atexit(cleanup);
@@ -329,12 +415,18 @@ int main(int argc, char **argv)
 	t.c_cc[VMIN] = 0;
 	t.c_cc[VTIME] = 0;
 	if (tcsetattr(uart, TCSANOW, &t)) fail("tcsetattr");
-	if (!manual) bootloader();
+	if (!assume_bootloader) bootloader();
 	if (tcflush(uart, TCIOFLUSH)) fail("tcflush");
 	uint8_t sync[] = {0x55, 0x55};
 	int64_t deadline = now_ms() + timeout_ms;
+	log_d("sending sync\n");
 	transfer(sync, sizeof(sync), 1, deadline);
 	expect_ack(deadline);
+	if (probe) {
+		log_d("a\n");
+		probe_bootloader();
+		return 0;
+	}
 	status();
 	if (!verify) {
 		puts("Erasing customer flash...");

@@ -8,7 +8,7 @@ fi' 0
 APP_PLATFORM=${APP_PLATFORM:-qemuarm64}
 TOP=$(cd -- "$(dirname -- "$0")/.." && pwd)
 SRC=${SRC:-$(dirname -- "$TOP")}
-OUT=${OUT:-$TOP/build/mesa3d-stack}
+OUT=${OUT:-$SRC/build/mesa3d-stack}
 HOST=${HOST:-$OUT/host}
 ROOT=${ROOT:-$OUT/root}
 CROSS=${CROSS:-$TOP/cross/aarch64-linux-gnu/bin/aarch64-linux-gnu-}
@@ -18,7 +18,7 @@ HOST_SYSROOT=${HOST_SYSROOT:-${SRC}/build/sysroot-ub20}
 PYVENVDIR=${PYVENVDIR:-$TOP/.venv}
 LLVM_TARGETS='X86;AArch64;SPIRV'
 HEADERS=${HEADERS:-$SRC/spirv-tools/external/spirv-headers}
-TEST_SRC=${TEST_SRC:-$TOP/build/mesa3d-test-sources}
+TEST_SRC=${TEST_SRC:-$SRC}
 TEST_TREES='vulkan-headers vulkan-loader vulkan-tools opencl-headers opencl-icd-loader clinfo mesa-demos'
 # Native LLVM tools take priority over other host tools.
 export PATH="$HOST/bin:$PATH"
@@ -71,7 +71,7 @@ activate_venv() {
 }
 
 help() {
-  cat <<'HELP'
+  cat <<HELP
 Usage: builder/build_mesa3d.sh COMMAND
   check           check source trees, cross compiler and build prerequisites
   manifest        print current source revisions (does not fetch or checkout)
@@ -90,9 +90,14 @@ Usage: builder/build_mesa3d.sh COMMAND
   package         tar the staged target files and runtime environment
 Variables: APP_PLATFORM SRC OUT HOST ROOT CROSS GCC_SYSROOT TARGET_SYSROOT HOST_SYSROOT
            HEADERS TEST_SRC JOBS (default based on available RAM).
+
+APP_PLATFORM=$APP_PLATFORM
+TOP=$TOP
+SRC=$SRC
+OUT=$OUT
 TARGET_SYSROOT defaults to $SRC/build/sysroot-$APP_PLATFORM (qemuarm64).
 HOST_SYSROOT defaults to $SRC/build/sysroot-ub20. General dependencies are not built.
-TEST_SRC defaults to algae-bp/build/mesa3d-test-sources; see docs for source URLs.
+TEST_SRC defaults to $SRC alongside the main sources; see docs for source URLs.
 Builds run in a systemd user scope with RAM-based memory and CPU limits.
 PYVENVDIR defaults to algae-bp/.venv; activated for check and all build/package stages.
 Create it with make pyvenv. Help and manifest do not require a venv.

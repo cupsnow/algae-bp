@@ -11,7 +11,7 @@ import time
 import zlib
 from pathlib import Path
 
-TOOL = Path(__file__).with_name('cc1352-flash').resolve()
+TOOL = Path(os.environ.get('CC1352_FLASH', str(Path(__file__).with_name('build') / 'cc1352-flash'))).resolve()
 SIZE = 704 * 1024
 
 
@@ -24,10 +24,12 @@ def run(mode):
         expected = image + b'\xff' * (SIZE - len(image))
         flash = bytearray(expected if mode == 'verify' else b'\x00' * SIZE)
         args = [str(TOOL), '--manual', '-p', os.ttyname(slave)]
+        if mode.startswith('probe'):
+            args += ['--probe', '--verbose']
         if mode == 'verify':
             args += ['--verify-only']
         with tempfile.TemporaryFile() as output:
-            proc = subprocess.Popen(args + [str(path)], stdout=output, stderr=output)
+            proc = subprocess.Popen(args + ([] if mode.startswith('probe') else [str(path)]), stdout=output, stderr=output)
             deadline = time.monotonic() + 30
 
             def read(n):
@@ -61,12 +63,18 @@ def run(mode):
                     packet = read(length - 1)
                     assert sum(packet[1:]) & 255 == packet[0]
                     cmd, data = packet[1], packet[2:]
-                    if mode == 'nack':
+                    if mode in ('nack', 'probe-nack'):
                         os.write(master, b'\x33')
                         break
                     os.write(master, b'\x00\xcc')
-                    if cmd == 0x23:
+                    if mode.startswith('probe'):
+                        assert cmd in (0x20, 0x23), f'probe sent destructive command {cmd:x}'
+                    if cmd == 0x20:
+                        assert mode.startswith('probe') and not data
+                    elif cmd == 0x23:
                         reply(b'\x44' if mode == 'status' else b'\x40')
+                        if mode == 'probe':
+                            break
                         if mode in ('status', 'checksum'):
                             break
                     elif cmd == 0x2c:
@@ -93,7 +101,7 @@ def run(mode):
                     else:
                         raise AssertionError(f'unexpected command {cmd:x}')
                 code = proc.wait(timeout=5)
-                assert (code == 0) == (mode in ('flash', 'verify')), (mode, code)
+                assert (code == 0) == (mode in ('flash', 'verify', 'probe')), (mode, code)
             finally:
                 if proc.poll() is None:
                     proc.kill()
@@ -107,5 +115,5 @@ def run(mode):
 
 
 if __name__ == '__main__':
-    for case in ('flash', 'verify', 'nack', 'status', 'checksum', 'crc'):
+    for case in ('flash', 'verify', 'nack', 'status', 'checksum', 'crc', 'probe', 'probe-nack'):
         run(case)

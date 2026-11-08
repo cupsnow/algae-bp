@@ -68,9 +68,9 @@ mkdir -p "$PREFIX" "$SYSROOT" "$SRC"
 BINUTILS_VER=2.47
 GCC_VER=16.2.0
 GLIBC_VER=2.44
-LINUX_VER=7.2
+LINUX_VER=7.3.3
 GDB_VER=18.1
-NCURSES_VER=6.5
+NCURSES_VER=6.6
 
 # === Download sources ===
 download_source() {
@@ -342,14 +342,14 @@ build_gdb() {
 
 # === 9. Package the toolchain ===
 package_dist() {
-  cd "$SRC"
-
+  pushd .
   cd "${BUILDDIR}"
   tar -czf $TARGET-toolchain.tar.gz $TARGET
 
   echo "✅ Cross toolchain built and packaged:"
   echo "   ${BUILDDIR}/$TARGET-toolchain.tar.gz"
   echo "Add to PATH: export PATH=\${BUILDDIR}/$TARGET/bin:\$PATH"
+  popd
 }
 
 build_all() {
@@ -362,7 +362,7 @@ build_all() {
   build_gcc_stage2
   build_glibc_stage2
   build_target_library_stdcxx
-  build_gdb
+  # build_gdb
   package_dist
 }
 

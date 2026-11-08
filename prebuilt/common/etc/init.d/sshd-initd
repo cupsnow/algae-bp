@@ -24,6 +24,11 @@ sshd_start () {
     cmd_run chmod 0755 ${_lo_emptydir} || { log_e "failed"; return 1; }
   fi
 
+  if ! find /etc -iname ssh_host_ecdsa_key \
+      -o -iname ssh_host_ed25519_key -o -iname ssh_host_rsa_key; then
+    cmd_run ssh-keygen -A || { log_e "failed"; return 1; }
+  fi
+
   cmd_run start-stop-daemon -p ${_pri_daemin_pid} -x ${_pri_daemin_exec} -S
 }
 

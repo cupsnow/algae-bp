@@ -1,7 +1,9 @@
 #!/bin/bash
 # shellcheck disable=SC2120
-
-# qemu esc: ctrl-a x
+#
+# - to mount the host nfs, host config hint: /etc/exports
+#         /home/joelai/Downloads 127.0.0.0/8(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000,insecure)
+# - qemu esc: ctrl-a x
 
 log_d() {
   echo "[Debug] $*"
@@ -23,7 +25,8 @@ _pri_destdir="destdir/qemuarm64"
 _lo_qemuargs_bootdisk="-drive id=boot,file=fat:rw:${_pri_destdir}/boot,format=raw,if=none -device virtio-blk-device,drive=boot"
 _lo_qemuargs_rootdisk="-drive id=rootfs,file=${_pri_destdir}/rootfs.img,format=raw,if=none -device virtio-blk-device,drive=rootfs"
 
-_lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net -device virtio-net-device,netdev=my-shrd-net"
+_lo_qemuargs_nic1_hostfwd1="hostfwd=tcp::2222-:22"
+_lo_qemuargs_nic1="-netdev type=user,id=my-shrd-net${_lo_qemuargs_nic1_hostfwd1:+,$_lo_qemuargs_nic1_hostfwd1} -device virtio-net-device,netdev=my-shrd-net"
 _lo_qemuargs_usb1="-device qemu-xhci,id=xhci"
 
 _lo_qemuargs_aic8800d80=
@@ -37,8 +40,6 @@ _lo_qemuargs_aic8800d80="${_lo_qemuargs_aic8800d80} -device usb-host,vendorid=0x
 # 0a12:0001 Cambridge Silicon Radio, Ltd Bluetooth Dongle (HCI mode)
 _lo_qemuargs_usbbt1=
 _lo_qemuargs_usbbt1="${_lo_qemuargs_usbbt1} -device usb-host,bus=xhci.0,vendorid=0x0a12,productid=0x0001"
-
-_lo_qemuargs_hostfwd1=-netdev user,id=my-shrd-net,hostfwd=tcp::2222-:22
 
 cmd_qemu_base1="qemu-system-aarch64"
 cmd_qemu_base1="${cmd_qemu_base1} -cpu cortex-a57 -m 512M -smp 2"
@@ -77,7 +78,6 @@ start_uboot() {
   # device_add usb-host,vendorid=0xa69c,productid=0x8d80
   _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usb1} ${_lo_qemuargs_aic8800d80}"
   _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_usbbt1}"
-  _lo_qemuargs="${_lo_qemuargs} ${_lo_qemuargs_hostfwd1}"
 
   if [ ! -f "${_lo_dtb}" ]; then
     # shellcheck disable=SC2086

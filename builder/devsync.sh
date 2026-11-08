@@ -819,21 +819,44 @@ genenv_qemuarm64() {
 #!/bin/sh
 
 envbase() {
-  [ ! -d "\$SYSROOT_BP" ] || { echo "Already defined SYSROOT_BP=\$SYSROOT_BP"; return 0; }
-  SYSROOT_BP=${_pri_nfsalgaews}/build/sysroot-qemuarm64
-  [ -d "\$SYSROOT_BP" ] || { echo "\$SYSROOT_BP not mount"; return 1; }
+  _lo_sysroot=${_pri_nfsalgaews}/build/sysroot-qemuarm64
+  _lo_sysroot2=${_pri_nfsalgaews}/build/sysroot2-qemuarm64
 
-  # LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/usr/lib64:\${SYSROOT_BP}/usr/lib
-  # LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/lib64:\${SYSROOT_BP}/lib
-  # LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${SYSROOT_BP}/lib/systemd
-  LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}${_pri_nfsalgaews}/algae-bp/destdir-cpython/usr/lib
+  if [ -d "\$SYSROOT_BP" ] || [ -d "\$SYSROOT2_BP" ]; then
+    echo "Already existed"
+    echo "  SYSROOT_BP=\$SYSROOT_BP"
+    echo "  SYSROOT2_BP=\$SYSROOT2_BP"
+    return 0
+  fi
+  if [ ! -d "\$_lo_sysroot" ]; then
+    echo "\$_lo_sysroot not mount"
+    return 1
+  fi
+  if [ ! -d "\$_lo_sysroot2" ]; then
+    echo "\$_lo_sysroot2 not mount"
+    return 1
+  fi
+  
+  SYSROOT_BP=\$_lo_sysroot
+  SYSROOT2_BP=\$_lo_sysroot2
+  _lo_systemd_check=1
+
+  for _lo_prefix in \${SYSROOT_BP} \${SYSROOT2_BP}; do
+    for _lo_dir in /usr/sbin /sbin /usr/bin /bin; do
+      PATH=\${PATH:+\$PATH:}\${_lo_prefix}\${_lo_dir}
+    done
+    for _lo_dir in /usr/lib64 /lib64 /usr/lib /lib; do
+      LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${_lo_prefix}\${_lo_dir}
+    done
+    if find \${_lo_prefix}/lib/systemd -iname "libsystemd-*.so" 2>/dev/null; then
+      LD_LIBRARY_PATH=\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}\${_lo_prefix}/lib/systemd
+    fi
+  done
+
   export LD_LIBRARY_PATH
-
-  # PATH=\${PATH:+\$PATH:}\${SYSROOT_BP}/usr/bin:\${SYSROOT_BP}/sbin:\${SYSROOT_BP}/bin
-  PATH=\${PATH:+\$PATH:}${_pri_nfsalgaews}/algae-bp/destdir-cpython/usr/bin
   export PATH
   export SYSROOT_BP
-  echo "SYSROOT_BP=\$SYSROOT_BP"
+  export SYSROOT2_BP
 }
 
 pyvenv() {
@@ -875,10 +898,9 @@ mesaenv() {
   echo "MESADIR=\$MESADIR"
 }
 
-
-envbase || exit
-pyvenv || exit
-mesaenv || exit
+envbase || return
+pyvenv || return
+mesaenv || return
 
 
 EOH
@@ -1087,7 +1109,7 @@ while test -n "$1"; do
     ;;
   genenv|genenv_qemuarm64)
     nfsmount || exit
-    $opt1
+    genenv_qemuarm64 "$@"
     ;;
   otakernel)
     nfsmount || exit
