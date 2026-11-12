@@ -157,6 +157,37 @@ endef
 
 #------------------------------------
 #
+tester_suite_ATTR+=
+
+tester_suite_SRCS+=$(tester_aloe_SRCS)
+tester_suite_CPPFLAGS+=$(tester_aloe_CPPFLAGS)
+
+tester_suite_CPPFLAGS+=$(CPPFLAGS)
+tester_suite_CFLAGS+=$(CFLAGS)
+tester_suite_CXXFLAGS+=$(CXXFLAGS)
+tester_suite_LDFLAGS+=$(LDFLAGS)
+
+$(eval $(call TESTER1_APP2,tester_suite, \
+    tester_main.c tester_conv2.c tester_size2.c))
+
+ARTIFACT+=$(tester_suite_BIN)
+
+$(tester_suite_BIN)-strip: $(tester_suite_BUILDDIR)/$(tester_suite_BIN)
+	# strip all
+	cp -v $(tester_suite_BUILDDIR)/$(tester_suite_BIN) $(tester_suite_BUILDDIR)/$(tester_suite_BIN)-strip
+	$(CROSS_COMPILE)strip $(tester_suite_BUILDDIR)/$(tester_suite_BIN)-strip
+	# strip except the section name: "test_section" 
+	cp -v $(tester_suite_BUILDDIR)/$(tester_suite_BIN) $(tester_suite_BUILDDIR)/$(tester_suite_BIN)-strip2
+	$(CROSS_COMPILE)strip -K __start_tester_section -K __stop_tester_section \
+	    $(tester_suite_BUILDDIR)/$(tester_suite_BIN)-strip2
+	# test to read the section name from nm (expect error for fully strip)
+	-$(CROSS_COMPILE)nm -S $(tester_suite_BUILDDIR)/$(tester_suite_BIN)-strip | grep tester_section 
+	# test to read the section name from nm
+	$(CROSS_COMPILE)nm -S $(tester_suite_BUILDDIR)/$(tester_suite_BIN)-strip2 | grep tester_section 
+ARTIFACT+=$(tester_suite_BIN)-strip
+
+#------------------------------------
+#
 tester_cli2_ATTR+=
 
 tester_cli2_SRCS+=$(tester_aloe_SRCS)
@@ -174,7 +205,8 @@ $(eval $(call TESTER1_APP2,tester_cli2, \
 
 #------------------------------------
 #
-tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB USE_BT USE_BLUEZ
+tester_ev3_ATTR+=USE_WIFIMGR USE_V4L2 USE_X264 USE_USB USE_BT
+#tester_ev3_ATTR+=USE_BLUEZ
 ifneq ($(strip $(wildcard $(BUILD_SYSROOT)/lib/libwpa_client.a)),)
 tester_ev3_ATTR+=USE_WPASUPCLIENT
 endif

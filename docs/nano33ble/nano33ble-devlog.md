@@ -8,6 +8,38 @@ OpenOCD with FT232H
 
 [Programming with Adafruit FT232H BreakOut](adafruit-ft232h.md)
 
+check swd connection
+
+```sh
+LD_LIBRARY_PATH=../build/sysroot-ub20/lib ../build/sysroot-ub20/bin/openocd \
+    -s ../build/sysroot-ub20/share/openocd/scripts \
+    -f interface/ftdi/ft232h-module-swd.cfg \
+    -f target/nordic/nrf52.cfg \
+    -c 'adapter speed 250; init; reset halt; targets; reset run; shutdown'
+```
+
+backup existing firmware
+
+```sh
+LD_LIBRARY_PATH=../build/sysroot-ub20/lib ../build/sysroot-ub20/bin/openocd \
+    -s ../build/sysroot-ub20/share/openocd/scripts \
+    -f interface/ftdi/ft232h-module-swd.cfg \
+    -f target/nordic/nrf52.cfg \
+    -c 'init; reset halt; dump_image nano33-full-backup.bin 0 0x100000; reset run; shutdown'
+```
+
+programming
+
+```sh
+LD_LIBRARY_PATH=../build/sysroot-ub20/lib ../build/sysroot-ub20/bin/openocd \
+    -s ../build/sysroot-ub20/share/openocd/scripts \
+    -f interface/ftdi/ft232h-module-swd.cfg \
+    -f target/nordic/nrf52.cfg \
+    -c 'init; reset halt; nrf5 mass_erase' \
+    -c 'program ../build/nano33ble_smp_svr-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
+    -c 'program ../build/nano33ble_smp_svr-qemuarm64/nano33ble_smp_svr/zephyr/zephyr.signed.hex verify reset exit'
+```
+
 OpenOCD with Beagleplay GPIO
 ----
 

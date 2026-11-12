@@ -1977,6 +1977,70 @@ expat_%: | $(expat_BUILDDIR)/Makefile
 
 #------------------------------------
 #
+# Runtime IPKs use the existing destpkg archives; libc is supplied by the base image.
+IPK_DIR?=$(BUILDDIR)/ipk-$(APP_PLATFORM)
+IPK_ARCH?=$(APP_PLATFORM)
+IPK_RELEASE?=1
+.PHONY: expat_ipk dbus_ipk ipk
+expat_ipk: | $(expat_BUILDDIR)-destpkg.tar.xz
+	python3 $(PROJDIR)/builder/build-ipk.py expat $(expat_BUILDDIR)-destpkg.tar.xz $(IPK_DIR) --architecture $(IPK_ARCH) --release $(IPK_RELEASE)
+dbus_ipk: expat_ipk
+	$(MAKE) $(dbus_BUILDDIR)-destpkg.tar.xz
+	python3 $(PROJDIR)/builder/build-ipk.py dbus $(dbus_BUILDDIR)-destpkg.tar.xz $(IPK_DIR) --architecture $(IPK_ARCH) --release $(IPK_RELEASE)
+ipk: dbus_ipk
+
+opkg_CROSSFILE_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+opkg_CROSSFILE_arm=$(BUILDDIR)/cross-arm.cmake
+
+# Small libarchive build for opkg (gzip support through bundled target zlib).
+.PHONY: libarchive libarchive_defconfig libarchive_install opkg opkg_defconfig opkg_install
+libarchive_DIR?=$(PKGDIR2)/libarchive
+libarchive_BUILDDIR?=$(BUILDDIR2)/libarchive-$(APP_PLATFORM)
+libarchive_DESTDIR?=$(libarchive_BUILDDIR)/stage
+GENDIR+=$(libarchive_BUILDDIR)
+libarchive_defconfig $(libarchive_BUILDDIR)/Makefile: | $(libarchive_BUILDDIR) $(opkg_CROSSFILE_$(APP_BUILD))
+	cmake -S $(libarchive_DIR) -B $(libarchive_BUILDDIR) \
+	    $(opkg_CROSSFILE_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	    -DCMAKE_INSTALL_PREFIX=/ -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
+	    -DENABLE_TEST=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF \
+	    -DENABLE_UNZIP=OFF -DENABLE_SHARED=OFF -DENABLE_INSTALL=ON \
+	    -DENABLE_ZLIB=ON -DENABLE_BZip2=OFF -DENABLE_LZMA=OFF \
+	    -DENABLE_LZ4=OFF -DENABLE_ZSTD=OFF -DENABLE_OPENSSL=OFF \
+	    -DENABLE_LIBB2=OFF -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF \
+	    -DENABLE_PCREPOSIX=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF
+libarchive: | $(libarchive_BUILDDIR)/Makefile
+	cmake --build $(libarchive_BUILDDIR) -- $(PARALLEL_BUILD)
+libarchive_install: libarchive
+	DESTDIR=$(libarchive_DESTDIR) cmake --install $(libarchive_BUILDDIR)
+
+#------------------------------------
+#
+opkg_DEP+=libarchive
+opkg_DIR?=$(PKGDIR2)/opkg
+opkg_BUILDDIR?=$(BUILDDIR2)/opkg-$(APP_PLATFORM)
+opkg_CMAKE_ARGS?=-DWITH_CURL=OFF -DWITH_GPGME=OFF -DWITH_XZ=OFF \
+  -DUSE_SOLVER_LIBSOLV=OFF -DSTATIC_LIBOPKG=ON
+GENDIR+=$(opkg_BUILDDIR)
+opkg_defconfig $(opkg_BUILDDIR)/Makefile: libarchive_install | $(opkg_BUILDDIR) $(opkg_CROSSFILE_$(APP_BUILD))
+	$(BUILD_PKGCFG_ENV) cmake -S $(opkg_DIR) -B $(opkg_BUILDDIR) \
+	    $(opkg_CROSSFILE_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	    -DCMAKE_SYSTEM_PROCESSOR=$(APP_BUILD) -DHOST_CPU_STR=$(IPK_ARCH) \
+	    -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
+	    -DLibArchive_INCLUDE_DIR=$(libarchive_DESTDIR)/include \
+	    '-DLibArchive_LIBRARY=$(libarchive_DESTDIR)/lib/libarchive.a;$(BUILD_SYSROOT)/lib/libz.so' \
+	    -DCMAKE_C_FLAGS=-I$(libarchive_DESTDIR)/include $(opkg_CMAKE_ARGS)
+opkg: | $(opkg_BUILDDIR)/Makefile
+	cmake --build $(opkg_BUILDDIR) -- $(PARALLEL_BUILD)
+opkg_install: DESTDIR=$(BUILD_SYSROOT)
+opkg_install: opkg
+	DESTDIR=$(DESTDIR) cmake --install $(opkg_BUILDDIR)
+	mkdir -p $(DESTDIR)/etc/opkg $(DESTDIR)/var/lib/opkg
+	printf 'arch all 1\narch $(IPK_ARCH) 10\n' > $(DESTDIR)/etc/opkg/arch.conf
+	printf 'option intercepts_dir /usr/share/opkg/intercept\n' > $(DESTDIR)/etc/opkg/local.conf
+$(eval $(call DEF_DESTDEP,opkg))
+
+#------------------------------------
+#
 dbus_DEP+=expat
 dbus_DIR=$(PKGDIR2)/dbus
 dbus_BUILDDIR=$(BUILDDIR2)/dbus-$(APP_PLATFORM)
@@ -3709,6 +3773,13 @@ openocd_DIR=$(PKGDIR2)/openocd
 openocd_BUILDDIR=$(BUILDDIR2)/openocd-$(APP_BUILD)
 openocd_MAKE=$(MAKE) -C $(openocd_BUILDDIR)
 
+# Native builds use system USB libraries, but JimTcl is staged locally.
+# Its empty-prefix .pc file needs explicit paths, and libjim.a needs its
+# private link dependencies. Keep the system pkg-config search for those.
+openocd_ACENV_ub20=PKG_CONFIG_PATH="$(call ENVPATH,$(BUILD_SYSROOT)/lib/pkgconfig $(PKG_CONFIG_PATH))"
+openocd_ACARGS_ub20+=JIMTCL_CFLAGS="-I$(BUILD_SYSROOT)/include" \
+    JIMTCL_LIBS="-L$(BUILD_SYSROOT)/lib -ljim -lm $(shell pkg-config --libs openssl zlib)"
+
 GENDIR+=$(openocd_BUILDDIR)
 
 $(openocd_DIR)/configure: 
@@ -3721,7 +3792,7 @@ $(openocd_DIR)/configure:
 
 openocd_defconfig $(openocd_BUILDDIR)/Makefile: | $(openocd_BUILDDIR) $(openocd_DIR)/configure
 	cd $(openocd_BUILDDIR) \
-	  && $(BUILD_PKGCFG_ENV) $(openocd_DIR)/configure \
+	  && $(BUILD_PKGCFG_ENV) $(openocd_ACENV_$(APP_PLATFORM)) $(openocd_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= \
 		  --enable-bcm2835gpio --enable-am335xgpio \
 	      $(openocd_ACARGS_$(APP_PLATFORM))
