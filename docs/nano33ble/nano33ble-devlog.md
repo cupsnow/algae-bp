@@ -8,37 +8,77 @@ OpenOCD with FT232H
 
 [Programming with Adafruit FT232H BreakOut](adafruit-ft232h.md)
 
+Nano33 BLE SDW pins
+
+```
+| SWD   | Adafruit FT232H | Nano33 BLE | memo     |
+| ----- | --------------- | ---------- | -------- |
+| V3.3  | V3.3            | Pin1       | not used |
+| GND   | GND             | Pin5       |          |
+| SWCLK | D0              | Pin3       |          |
+| SWDIO | D1              | Pin2       |          |
+| RESET | D3              | Pin6       | not used |
+```
+
+Nano33 BLE SDW pins location (back view, usb connector toward up)
+
+```
+5 3 1
+6   2
+```
+
 check swd connection
 
 ```sh
-LD_LIBRARY_PATH=../build/sysroot-ub20/lib ../build/sysroot-ub20/bin/openocd \
+LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
     -s ../build/sysroot-ub20/share/openocd/scripts \
     -f interface/ftdi/ft232h-module-swd.cfg \
     -f target/nordic/nrf52.cfg \
-    -c 'adapter speed 250; init; reset halt; targets; reset run; shutdown'
+    -c 'adapter speed 1000; init; reset halt' \
+    -c 'targets; reset run; shutdown'
 ```
 
 backup existing firmware
 
 ```sh
-LD_LIBRARY_PATH=../build/sysroot-ub20/lib ../build/sysroot-ub20/bin/openocd \
+LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
     -s ../build/sysroot-ub20/share/openocd/scripts \
     -f interface/ftdi/ft232h-module-swd.cfg \
     -f target/nordic/nrf52.cfg \
-    -c 'init; reset halt; dump_image nano33-full-backup.bin 0 0x100000; reset run; shutdown'
+    -c 'adapter speed 1000; init; reset halt' \
+    -c 'dump_image nano33-full-backup.bin 0 0x100000; reset run; shutdown'
 ```
 
 programming
 
 ```sh
-LD_LIBRARY_PATH=../build/sysroot-ub20/lib ../build/sysroot-ub20/bin/openocd \
+LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
     -s ../build/sysroot-ub20/share/openocd/scripts \
     -f interface/ftdi/ft232h-module-swd.cfg \
     -f target/nordic/nrf52.cfg \
-    -c 'init; reset halt; nrf5 mass_erase' \
+    -c 'adapter speed 1000; init; reset halt' \
+    -c 'nrf5 mass_erase' \
     -c 'program ../build/nano33ble_smp_svr-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
     -c 'program ../build/nano33ble_smp_svr-qemuarm64/nano33ble_smp_svr/zephyr/zephyr.signed.hex verify reset exit'
 ```
+
+### 2026-11-12: MCUboot placement and LED boot fix
+
+The application header was present at `0xc000`, but address zero was erased
+and the CPU faulted with PC `0xfffffffe`. The MCUboot overlay incorrectly
+selected `slot0_partition`, so both HEX files targeted the application slot.
+Select `boot_partition` in `package/nano33ble_smp_svr/sysbuild/mcuboot.overlay`;
+the application overlay must continue to select `slot0_partition`.
+
+After `make nano33smp`, the MCUboot HEX starts at address zero and fits in
+the 48 KiB boot partition. Programming only the corrected MCUboot HEX with
+`program ... verify reset exit` reported `Verified OK` and booted the existing
+signed application. No mass erase was needed for this repair.
+
+SWD verification showed VTOR `0xc200`, PC `0x3123c` in the application,
+and GPIO0 OUT bit 24 changing from 1 to 0 across a 300 ms run interval.
+This confirms that the red RGB LED output is toggling. Visual blinking
+still needs observation on the board.
 
 OpenOCD with Beagleplay GPIO
 ----
@@ -90,3 +130,16 @@ There are two pins, DFU and FRST that bootloader will check upon reset/power:
 #define BUTTON_FRESET   BUTTON_2
 #endif
 ```
+
+
+
+garage
+====
+
+    openocd -f interface/ftdi/ft232h-module-swd.cfg -f target/nrf52.cfg \
+    -c "adapter speed 1000" \
+    -c "program /home/joelai/02_dev/nano33_blinky/build/merged.hex verify reset exit"
+
+    openocd -f interface/ftdi/ft232h-module-swd.cfg -f target/nrf52.cfg \
+    -c "adapter speed 1000" \
+    -c "program /home/joelai/02_dev/nano33_blinky/build/nano33_blinky/zephyr/zephyr.hex verify reset exit"

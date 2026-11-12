@@ -6,6 +6,7 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/stats/stats.h>
 #include <zephyr/usb/usb_device.h>
 
@@ -55,6 +56,21 @@ static struct fs_mount_t littlefs_mnt = {
 
 int main(void)
 {
+	const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+	bool led_ready = gpio_is_ready_dt(&led);
+	unsigned int blink_ticks = 0;
+
+	if (led_ready) {
+		int err = gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
+
+		if (err < 0) {
+			LOG_ERR("Error configuring LED [%d]", err);
+			led_ready = false;
+		}
+	} else {
+		LOG_ERR("LED GPIO device is not ready");
+	}
+
 	int rc = STATS_INIT_AND_REG(smp_svr_stats, STATS_SIZE_32,
 				    "smp_svr_stats");
 
@@ -93,12 +109,20 @@ int main(void)
 	 */
 	LOG_INF("build time: " __DATE__ " " __TIME__);
 
-	/* The system work queue handles all incoming mcumgr requests.  Let the
-	 * main thread idle while the mcumgr server runs.
-	 */
+	/* Toggle every 250 ms for a 2 Hz blink. MCUmgr runs on the work queue. */
 	while (1) {
-		k_sleep(K_MSEC(1000));
-		STATS_INC(smp_svr_stats, ticks);
+		if (led_ready) {
+			rc = gpio_pin_toggle_dt(&led);
+			if (rc < 0) {
+				LOG_ERR("Error toggling LED [%d]", rc);
+				led_ready = false;
+			}
+		}
+		k_sleep(K_MSEC(100));
+		if (++blink_ticks == 4) {
+			STATS_INC(smp_svr_stats, ticks);
+			blink_ticks = 0;
+		}
 	}
 	return 0;
 }

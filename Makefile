@@ -3639,6 +3639,20 @@ nano33smp_defconfig $(nano33smp_BUILDDIR)/build.ninja:
 	$(nano33smp_WEST) build -p always -b arduino_nano_33_ble@rev2 -d $(nano33smp_BUILDDIR) \
 	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
 
+nano33smp_OPENOCD= \
+  LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
+    -s ../build/sysroot-ub20/share/openocd/scripts \
+    -f interface/ftdi/ft232h-module-swd.cfg \
+    -f target/nordic/nrf52.cfg \
+    -c 'adapter speed 1000; init; reset halt'
+
+nano33smp_flash: | $(nano33smp_BUILDDIR)/build.ninja
+	$(nano33smp_OPENOCD) \
+      -c 'adapter speed 1000; init; reset halt' \
+      -c 'nrf5 mass_erase' \
+      -c 'program ../build/nano33ble_smp_svr-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
+      -c 'program ../build/nano33ble_smp_svr-qemuarm64/nano33ble_smp_svr/zephyr/zephyr.signed.hex verify reset exit'
+
 nano33smp_distclean:
 	$(RMTREE) $(nano33smp_BUILDDIR)
 

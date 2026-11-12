@@ -9,6 +9,8 @@ Wired
 - [Adafruit FT232H Breakout](https://learn.adafruit.com/adafruit-ft232h-breakout) I2C Mode switch turn **on**
 - Nano33 BLE powered with USB
 
+Nano33 BLE SDW pins
+
 ```
 | SWD   | Adafruit FT232H | Nano33 BLE | memo     |
 | ----- | --------------- | ---------- | -------- |
