@@ -3656,8 +3656,13 @@ nano33smp_flash: | $(nano33smp_BUILDDIR)/build.ninja
 nano33smp_distclean:
 	$(RMTREE) $(nano33smp_BUILDDIR)
 
-nano33smp: | $(nano33smp_BUILDDIR)/build.ninja
+nano33smp_DESTDIR?=$(PROJDIR)/destdir/nano33ble
+GENDIR+=$(nano33smp_DESTDIR)
+nano33smp: | $(nano33smp_BUILDDIR)/build.ninja $(nano33smp_DESTDIR)
 	$(nano33smp_WEST) build -d $(nano33smp_BUILDDIR)
+	cp -v $(nano33smp_BUILDDIR)/nano33ble_smp_svr/zephyr/zephyr.signed.bin \
+	    $(nano33smp_DESTDIR)/nano33smp-signed.bin
+
 
 #------------------------------------
 #

@@ -8,6 +8,8 @@ OpenOCD with FT232H
 
 [Programming with Adafruit FT232H BreakOut](adafruit-ft232h.md)
 
+- The Nano33 BLE is powered by usb, **Not from SDW 3.3v**
+
 Nano33 BLE SDW pins
 
 ```
@@ -27,7 +29,7 @@ Nano33 BLE SDW pins location (back view, usb connector toward up)
 6   2
 ```
 
-check swd connection
+Check SWD connection
 
 ```sh
 LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
@@ -38,7 +40,7 @@ LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub2
     -c 'targets; reset run; shutdown'
 ```
 
-backup existing firmware
+Backup existing firmware (Not wrok currently)
 
 ```sh
 LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
@@ -49,7 +51,7 @@ LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub2
     -c 'dump_image nano33-full-backup.bin 0 0x100000; reset run; shutdown'
 ```
 
-programming
+Programming
 
 ```sh
 LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
@@ -61,6 +63,10 @@ LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub2
     -c 'program ../build/nano33ble_smp_svr-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
     -c 'program ../build/nano33ble_smp_svr-qemuarm64/nano33ble_smp_svr/zephyr/zephyr.signed.hex verify reset exit'
 ```
+
+Upgrade from mobile
+
+The Android application is **nRF Connect Device Manager** (Not "nRF Connect for Mobile")
 
 ### 2026-11-12: MCUboot placement and LED boot fix
 
@@ -131,15 +137,6 @@ There are two pins, DFU and FRST that bootloader will check upon reset/power:
 #endif
 ```
 
-
-
 garage
 ====
 
-    openocd -f interface/ftdi/ft232h-module-swd.cfg -f target/nrf52.cfg \
-    -c "adapter speed 1000" \
-    -c "program /home/joelai/02_dev/nano33_blinky/build/merged.hex verify reset exit"
-
-    openocd -f interface/ftdi/ft232h-module-swd.cfg -f target/nrf52.cfg \
-    -c "adapter speed 1000" \
-    -c "program /home/joelai/02_dev/nano33_blinky/build/nano33_blinky/zephyr/zephyr.hex verify reset exit"

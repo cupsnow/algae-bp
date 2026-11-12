@@ -118,7 +118,7 @@ int main(void)
 				led_ready = false;
 			}
 		}
-		k_sleep(K_MSEC(100));
+		k_sleep(K_MSEC(1000 / 2 / 2));
 		if (++blink_ticks == 4) {
 			STATS_INC(smp_svr_stats, ticks);
 			blink_ticks = 0;
