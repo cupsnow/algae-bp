@@ -8,14 +8,7 @@ ARM_TOOLCHAIN_PATH?=${air192_DIR}/tool/arm-gnu-toolchain-15.2.rel1-x86_64-arm-no
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(ARM_TOOLCHAIN_BIN_PATH)/$(CROSS_COMPILE)gcc -print-sysroot))
-BUILD_INCDIR_POST2+=$(air192_DIR)/../build/sysroot-sa7715/usr/include
-BUILD_INCDIR_POST2+=$(air192_DIR)/../build/sysroot-sa7715/include
-BUILD_LIBDIR_POST2+=$(air192_DIR)/../build/sysroot-sa7715/usr/lib
-BUILD_LIBDIR_POST2+=$(air192_DIR)/../build/sysroot-sa7715/lib
 BUILD_STAGINGROOT+=$(air192_DIR)/../build/sysroot-sa7715
-
-# sysroot-sa7715 act as a staging root in build time, and sysroot in runtime
-# BUILD_PKGCFG_LIBDIR_POST2+=$(air192_DIR)/../build/sysroot-sa7715/lib/pkgconfig
 
 openssl_ACARGS_air192+=linux-armv4
 libgpiod_CROSSFILE_air192=$(BUILDDIR)/meson-arm-$(APP_PLATFORM).ini

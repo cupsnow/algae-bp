@@ -17,30 +17,25 @@ PKGDIR=$(PROJDIR)/package
 PKGDIR2=$(abspath $(PROJDIR)/..)
 BUILDDIR2=$(abspath $(PROJDIR)/../build)
 
-# The target attribute
-# ====
-
-# ubuntu/host
+# target ubuntu/host
 # - ub20
 APP_ATTR_ub20?=ub20
 
-# beagleplay
+# target beagleplay
 # - bp wl18xx powervr ti_linux bb_linux powervr gdbserver aic8800d80
 APP_ATTR_bp?=bp wl18xx powervr gdbserver
 
-# qemu arm64
+# target qemu arm64
 # - qemuarm64 aic8800d80
 APP_ATTR_qemuarm64?=qemuarm64
 
-# Set the target to build
-# ====
+# default build target
 APP_PLATFORM?=bp
 
-# Set the target attribute to build
-# locale_posix2c coreutils systemd
+# build target options
 APP_ATTR?=$(APP_ATTR_$(APP_PLATFORM)) coreutils
 
-# Set the namespace for build
+# build architecture, build components which shared across target
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 APP_BUILD=aarch64
 else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
@@ -49,95 +44,80 @@ else
 APP_BUILD=$(APP_PLATFORM)
 endif
 
-# The aarch64 toolchain
-# ====
-# AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/cross/aarch64-linux-gnu
-# AARCH64_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-aarch64
+# toolchain aarch64
 AARCH64_TOOLCHAIN_PATH?=$(firstword $(wildcard \
-    $(PROJDIR)/cross/aarch64-linux-gnu $(PROJDIR)/tool/gcc-aarch64))
+    $(PROJDIR)/tool/gcc-aarch64))
 AARCH64_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
-    $(AARCH64_TOOLCHAIN_PATH)/*-gcc $(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc)))
+    $(AARCH64_TOOLCHAIN_PATH)/*-gcc \
+    $(AARCH64_TOOLCHAIN_PATH)/bin/*-gcc)))
 AARCH64_CROSS_COMPILE?=$(shell $(AARCH64_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)-
 PATH_PUSH+=$(AARCH64_TOOLCHAIN_BIN_PATH)
 
-# The arm toolchain
-# ====
+# toolchain arm
 ARM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/gcc-arm
 ARM_TOOLCHAIN_BIN_PATH?=$(dir $(firstword $(wildcard \
-    $(ARM_TOOLCHAIN_PATH)/*-gcc $(ARM_TOOLCHAIN_PATH)/bin/*-gcc)))
+    $(ARM_TOOLCHAIN_PATH)/*-gcc \
+	$(ARM_TOOLCHAIN_PATH)/bin/*-gcc)))
 ARM_CROSS_COMPILE?=$(shell $(ARM_TOOLCHAIN_BIN_PATH)/*-gcc -dumpmachine)-
 PATH_PUSH+=$(ARM_TOOLCHAIN_BIN_PATH)
 
-# The llvm toolchain
-# ====
+# toolchain llvm
 LLVM_TOOLCHAIN_PATH?=$(PROJDIR)/tool/llvm
 PATH_PUSH+=$(LLVM_TOOLCHAIN_PATH)/bin
 
-# Set cross compilation toolchain and bundled sysroot
-# ====
+ENSURE_VAR_EXIST=$(if $(strip $(1)),,$(error $(or $(2),Missing variable)))
+ENSURE_PATH_EXIST=$(if $(wildcard $(1)),,$(error $(or $(2),Missing path $(1))))
+
+# toolchain and bundled sysroot
 ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(AARCH64_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(AARCH64_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(AARCH64_TOOLCHAIN_BIN_PATH)/$(CROSS_COMPILE)gcc -print-sysroot))
-$(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
+$(call ENSURE_PATH_EXIST,$(TOOLCHAIN_PATH),Missing aarch64 toolchain)
 else ifneq ($(strip $(filter bbb xm,$(APP_PLATFORM))),)
 TOOLCHAIN_PATH?=$(ARM_TOOLCHAIN_PATH)
 CROSS_COMPILE?=$(ARM_CROSS_COMPILE)
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(ARM_TOOLCHAIN_BIN_PATH)/$(CROSS_COMPILE)gcc -print-sysroot))
-$(info $(if $(wildcard $(TOOLCHAIN_PATH)),,$(error Missing $(TOOLCHAIN_PATH))))
+$(call ENSURE_PATH_EXIST,$(TOOLCHAIN_PATH),Missing arm toolchain)
 else
 TOOLCHAIN_SYSROOT?=$(abspath $(shell $(CROSS_COMPILE)gcc -print-sysroot))
 endif
 
-# Setup target sysroot, staging root path
-# ====
+# rootfs for build time
 BUILD_SYSROOT?=$(BUILDDIR2)/sysroot-$(or $1,$(APP_PLATFORM))
-BUILD_SYSROOT2?=$(BUILDDIR2)/sysroot2-$(or $1,$(APP_PLATFORM))
+$(call ENSURE_VAR_EXIST,$(BUILD_SYSROOT),Missing BUILD_SYSROOT)
 
-BUILD_STAGINGROOT+=$(BUILD_SYSROOT2)
+# extra root for build time
+BUILD_STAGINGROOT+=
 
-# Setup c/c++ header/library directory
-# ====
-
-# Add sysroot to c/c++ header/library directory
+# general c/c++ header/library directory
 ifneq ($(strip $(BUILD_SYSROOT)),)
 BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/include include)
-BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 usr/lib lib64 lib)
+BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,usr/lib64 lib64 usr/lib lib)
 endif
 
-ifneq ($(strip $(BUILD_SYSROOT2)),)
-BUILD_INCDIR+=$(addprefix $(BUILD_SYSROOT2)/,usr/include include)
-BUILD_LIBDIR+=$(addprefix $(BUILD_SYSROOT2)/,usr/lib64 usr/lib lib64 lib)
+ifneq ($(strip $(BUILD_STAGINGROOT)),)
+BUILD_INCDIR+=$(foreach dir,$(BUILD_STAGINGROOT),$(addprefix $(dir)/,usr/include include))
+BUILD_LIBDIR+=$(foreach dir,$(BUILD_STAGINGROOT),$(addprefix $(dir)/,usr/lib64 lib64 usr/lib lib))
 endif
 
-# Append
-BUILD_INCDIR+=$(BUILD_INCDIR_POST2)
-BUILD_LIBDIR+=$(BUILD_LIBDIR_POST2)
+# config from site.mk
+BUILD_INCDIR+=$(BUILD_INCDIR_SITE)
+BUILD_LIBDIR+=$(BUILD_LIBDIR_SITE)
 
-# Setup for use of pkg-config in cross compilation
-# ====
 # 0 remove .pc and .la after build
 # 1 remove .la after build
 BUILD_PKGCFG_USAGE=2
-ifneq ($(strip $(filter ub20,$(APP_PLATFORM))),)
-# use system pkg-config
-else ifeq ($(strip $(APP_PLATFORM)),)
-# use system pkg-config
-else ifneq ($(strip $(BUILD_SYSROOT)),)
-BUILD_PKGCFG_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/, \
-  usr/lib/pkgconfig usr/share/pkgconfig lib/pkgconfig share/pkgconfig)
-BUILD_PKGCFG_LIBDIR+=$(BUILD_PKGCFG_LIBDIR_POST2)
-BUILD_PKGCFG_ENV+=PKG_CONFIG_LIBDIR="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR) $(PKG_CONFIG_LIBDIR))" \
-    PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)"
+
+# pkg-config for BUILD_SYSROOT; ub20 use host pkg-config
+ifneq ($(strip $(filter-out ub20,$(APP_PLATFORM))),)
+BUILD_PKGCFG_LIBDIR+=$(addprefix $(BUILD_SYSROOT)/,$(addsuffix /pkgconfig, usr/lib usr/share lib share))
+BUILD_PKGCFG_ENV+=PKG_CONFIG_SYSROOT_DIR="$(BUILD_SYSROOT)" \
+    PKG_CONFIG_LIBDIR="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR) $(PKG_CONFIG_LIBDIR))"
 endif
 
-BUILD_PKGCFG_LIBDIR_HOST+=$(PROJDIR)/tool/lib/pkgconfig
-BUILD_PKGCFG_ENV_HOST+=PKG_CONFIG_PATH="$(call ENVPATH,$(BUILD_PKGCFG_LIBDIR_HOST) $(PKG_CONFIG_LIBDIR))"
-
-# Push host executable search path
 export PATH:=$(call ENVPATH,$(PROJDIR)/tool/bin $(PATH_PUSH) $(PATH))
 
-# The python virtual environment directory
 PYVENVDIR=$(PROJDIR)/.venv
 
 GENDIR:=
@@ -149,7 +129,7 @@ CLIARGS_VERBOSE=$(call CLIARGS_VAL,V)
 
 RSYNC_VERBOSE+=--debug=FILTER
 
-ifneq ($(strip $(filter x"1", x"$(CLIARGS_VERBOSE)")),)
+ifeq ($(strip $(CLIARGS_VERBOSE)),1)
 RSYNC_VERBOSE+=-v
 CP_VERBOSE+=-v
 MV_VERBOSE+=-v
@@ -164,11 +144,13 @@ endif
 #
 help: help_ansicolor
 help_ansicolor:
-	@echo "Ansi color: $(strip $(foreach i,RED GREEN BLUE CYAN YELLOW MAGENTA, \
-    $(ANSI_$(i))$(i))$(ANSI_NORMAL))"
+	@echo ""
+	@echo -e "Ansi color: $(strip $(foreach i, \
+	    RED GREEN BLUE CYAN YELLOW MAGENTA, \
+	    $(ANSI_$(i))$(i))$(ANSI_NORMAL))"
 
-help: help_buildattr2
-help_buildattr2:
+help: help_buildattr
+help_buildattr:
 	@echo ""
 	@echo "Build attributes"
 	$(foreach i,APP_ATTR CROSS_COMPILE, \
@@ -215,26 +197,26 @@ cmake_arm $(BUILDDIR)/cross-arm.cmake: | $(PROJDIR)/builder/cross-aarch64.cmake
 	sed -i "s|\$${BUILD_ROOTPATH}|$(BUILD_SYSROOT)|" $(BUILDDIR)/cross-arm.cmake
 
 CMD_DEPSHOW_RULE=echo "$(1): $(2)";
-# CMD_DEPSHOW_DOT=$(foreach iter,$(2),echo "  $(iter) -> $(1)";)
 CMD_DEPSHOW_DOT=$(if $(2),$(foreach iter,$(2),echo "  $(iter) -> $(1)";),echo "  $(1)";)
 CMD_DEPSHOW=$(if $($(1)_DEP), \
   $(foreach iter,$($(1)_DEP),$(call CMD_DEPSHOW,$(iter),$(2))) \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1),$($(1)_DEP)), \
   $(call $(or $(2),CMD_DEPSHOW_RULE),$(1)))
 
-DEPDOT_ID=$(firstword $(1))$(if $(word 2,$(1)),_$(words $(1))more)
+DEPDOT_ID=$(if $(word 2,$(1)),_$(words $(1))more,$(1))
 
 GENDIR+=$(BUILDDIR)
 
 depgraph: DEPDOT_PKGS+=tmux mmcutils mtdutils wpasup mosquitto
 depgraph: DEPDOT_PKGS+=coreutils
-depgraph: DEPDOT_PKGS+=glib systemd bluez
-depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(DEPDOT_PKGS))
+depgraph: DEPDOT_PKGS+=dbus
+# depgraph: DEPDOT_PKGS+=glib systemd bluez
+depgraph: DEPDOT_ID2=$(call DEPDOT_ID,$(sort $(DEPDOT_PKGS)))
 depgraph: | $(BUILDDIR)
 depgraph:
 	@{ \
 	  echo "digraph $(DEPDOT_ID2) {" \
-	  && $(foreach iter,$(DEPDOT_PKGS),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT)) \
+	  && $(foreach iter,$(sort $(DEPDOT_PKGS)),$(call CMD_DEPSHOW,$(iter),CMD_DEPSHOW_DOT)) \
 	  echo "}"; \
 	} >$(BUILDDIR)/dep-$(DEPDOT_ID2).dot
 	dot -Tsvg $(BUILDDIR)/dep-$(DEPDOT_ID2).dot >$(BUILDDIR)/dep-$(DEPDOT_ID2).svg
@@ -252,7 +234,7 @@ help_depgraph:
 #------------------------------------
 #
 ifneq ($(strip $(wildcard $(TOOLCHAIN_SYSROOT)/../lib64/libstdc++.so)),)
-CMD_RSYNC_TOOLCHAIN_STDCXX=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_STDCXX invalid argument")) \
+CMD_RSYNC_TOOLCHAIN_STDCXX=$(call ENSURE_VAR_EXIST,$(1),"CMD_RSYNC_TOOLCHAIN_STDCXX invalid argument") \
   cd $(TOOLCHAIN_SYSROOT)/.. \
     && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
         $(foreach i,*.a *.o *.la *.py,--exclude="${i}") \
@@ -262,18 +244,22 @@ else
 CMD_RSYNC_TOOLCHAIN_STDCXX=true
 endif
 
-CMD_RSYNC_TOOLCHAIN_SYSROOT=$(if $(1),,$(error "CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument")) \
+ifneq ($(strip $(TOOLCHAIN_SYSROOT)),)
+CMD_RSYNC_TOOLCHAIN_SYSROOT=$(call ENSURE_VAR_EXIST,$(1)"CMD_RSYNC_TOOLCHAIN_SYSROOT invalid argument") \
   cd $(TOOLCHAIN_SYSROOT) \
     && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
-        $(foreach i,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
-            *.a *.o *.la,--exclude="${i}") \
+        $(foreach ex,audit/ gconv/ locale/ libasan.* libgfortran.* libubsan.* \
+            *.a *.o *.la,--exclude="${ex}") \
         lib lib64 usr/lib usr/lib64 \
         $(1) \
     && rsync -aR --ignore-missing-args $(RSYNC_VERBOSE) \
-        $(foreach i,sbin/sln usr/bin/gdbserver,--exclude="${i}") \
+        $(foreach ex,sbin/sln usr/bin/gdbserver,--exclude="${ex}") \
         sbin usr/bin usr/sbin \
         $(1) \
   && $(call CMD_RSYNC_TOOLCHAIN_STDCXX,$(1))
+else
+CMD_RSYNC_TOOLCHAIN_SYSROOT=true
+endif
 
 GENDIR+=$(BUILD_SYSROOT)
 
@@ -486,58 +472,33 @@ wlregdb_DIR?=$(PKGDIR2)/wireless-regdb
 #------------------------------------
 # for install: make with variable INSTALL_HDR_PATH, INSTALL_MOD_PATH
 #
-
-ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter ti_linux,$(APP_ATTR_bp)))","bp_ti_linux")
-linux_DIR?=$(PKGDIR2)/ti-processor-sdk/board-support/ti-linux-kernel-6.1.83+gitAUTOINC+c1c2f1971f-ti
-linux_BUILDDIR?=$(BUILDDIR2)/ti-linux-$(APP_PLATFORM)
-else ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
-linux_DIR?=$(PKGDIR2)/linux-bb
-linux_BUILDDIR?=$(BUILDDIR2)/bb-linux-$(APP_PLATFORM)
-else
 linux_DIR?=$(PKGDIR2)/linux
 linux_BUILDDIR?=$(BUILDDIR2)/linux-$(APP_PLATFORM)
-endif
 
-linux_MAKE_BASE=$(MAKE) $(linux_MAKEARGS-$(APP_PLATFORM)) \
-    -C $(linux_DIR)
-linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS-$(APP_PLATFORM)) \
-    -C $(linux_DIR)
+linux_CONFIGFILE_bp=linux-bp.config
+linux_DEFCONFIG_bp=defconfig
+linux_MAKEARGS_bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
-ifeq ("$(strip $(filter bp,$(APP_ATTR)))_$(strip $(filter bb_linux,$(APP_ATTR_bp)))","bp_bb_linux")
-linux_configfile-bp=linux-bp-bb.config
-linux_defconfig-bp=bb.org_defconfig
-else
-linux_configfile-bp=linux-bp.config
-linux_defconfig-bp=defconfig
-endif
-linux_MAKEARGS-bp+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+linux_CONFIGFILE_qemuarm64=linux-qemuarm64.config
+linux_DEFCONFIG_qemuarm64=defconfig
+linux_MAKEARGS_qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
 
-linux_configfile-qemuarm64=linux-qemuarm64.config
-linux_defconfig-qemuarm64=defconfig
-linux_MAKEARGS-qemuarm64+=ARCH=arm64 CROSS_COMPILE=$(AARCH64_CROSS_COMPILE)
+linux_MAKE=$(MAKE) O=$(linux_BUILDDIR) $(linux_MAKEARGS_$(APP_PLATFORM)) -C $(linux_DIR)
+
+GENDIR+=$(linux_BUILDDIR)
 
 linux_defconfig $(linux_BUILDDIR)/.config: | $(linux_BUILDDIR)
-# 	$(linux_MAKE_BASE) mrproper
-	if [ -f "$(linux_configfile-$(APP_PLATFORM))" ]; then \
-	  echo "Apply $(linux_configfile-$(APP_PLATFORM))"; \
-# 	  rsync -aL $(RSYNC_VERBOSE) $(linux_configfile-$(APP_PLATFORM)) $(linux_BUILDDIR)/.config \
-# 	    && yes "" | $(linux_MAKE) oldconfig; \
-# 	  $(linux_MAKE) prepare; \
+	if [ -f "$(linux_CONFIGFILE_$(APP_PLATFORM))" ]; then \
+	  echo "Apply $(linux_CONFIGFILE_$(APP_PLATFORM))"; \
+	  rsync -aL $(RSYNC_VERBOSE) $(linux_CONFIGFILE_$(APP_PLATFORM)) $(linux_BUILDDIR)/.config \
+	    && yes "" | $(linux_MAKE) oldconfig; \
+	  $(linux_MAKE) prepare; \
 	else \
-	  echo "Apply $(linux_defconfig-$(APP_PLATFORM))"; \
-# 	  $(linux_MAKE) $(linux_defconfig-$(APP_PLATFORM)); \
+	  echo "Apply $(linux_DEFCONFIG_$(APP_PLATFORM))"; \
+	  $(linux_MAKE) $(linux_DEFCONFIG_$(APP_PLATFORM)); \
 	fi
 
 $(addprefix linux_,help):
-	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
-
-# dep: apt install dvipng imagemagick
-#      pip install sphinx_rtd_theme six
-$(addprefix linux_,htmldocs): | $(PYVENVDIR) $(linux_BUILDDIR)
-	. $(PYVENVDIR)/bin/activate \
-	  && $(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
-
-$(addprefix linux_,menuconfig savedefconfig oldconfig): | $(linux_BUILDDIR)/.config
 	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
 linux: | $(linux_BUILDDIR)/.config
@@ -547,47 +508,38 @@ linux_%: | $(linux_BUILDDIR)/.config
 	$(linux_MAKE) $(PARALLEL_BUILD) $(@:linux_%=%)
 
 kernelrelease=$(BUILDDIR)/kernelrelease-$(APP_PLATFORM)
-kernelrelease $(kernelrelease): | $(dir $(kernelrelease))
-	$(linux_MAKE) -s --no-print-directory kernelrelease > $(kernelrelease)
-	@cat "$(kernelrelease)"
-
 GENDIR+=$(dir $(kernelrelease))
 
-GENPYVENV+=sphinx_rtd_theme six
-
-GENDIR+=$(linux_BUILDDIR)
+kernelrelease $(kernelrelease): | $(dir $(kernelrelease))
+	@$(linux_MAKE) -s --no-print-directory kernelrelease >$(kernelrelease)
+	@echo "linux kernelrelease: $$(cat $(kernelrelease))"
 
 #------------------------------------
 # for install: make with variable CONFIG_PREFIX
 #
 busybox_DIR?=$(PKGDIR2)/busybox
 busybox_BUILDDIR?=$(BUILDDIR2)/busybox-$(APP_BUILD)
-ifneq ($(strip $(filter bp qemuarm64,$(APP_PLATFORM))),)
-busybox_MAKEARGS+=ARCH=arm64
-else ifneq ($(strip $(filter iq9,$(APP_PLATFORM))),)
-busybox_MAKEARGS+=ARCH=arm64
-busybox_MAKEARGS+=EXTRA_CFLAGS="--sysroot=$(TOOLCHAIN_SYSROOT)"
-busybox_MAKEARGS+=LDFLAGS="--sysroot=$(TOOLCHAIN_SYSROOT)"
-endif
-busybox_MAKE=$(MAKE) $(busybox_MAKEARGS) CROSS_COMPILE=$(CROSS_COMPILE) \
-    O=$(busybox_BUILDDIR) -C $(busybox_DIR)
+
+busybox_MAKEARGS_bp+=ARCH=arm64
+busybox_MAKEARGS_qemuarm64+=ARCH=arm64
+
+busybox_CONFIGFILE=busybox.config
+busybox_DEFCONFIG=defconfig
+
+busybox_MAKE=$(MAKE) $(busybox_MAKEARGS) $(busybox_MAKEARGS_$(APP_PLATFORM)) \
+    CROSS_COMPILE=$(CROSS_COMPILE) O=$(busybox_BUILDDIR) -C $(busybox_DIR)
 
 GENDIR+=$(busybox_BUILDDIR)
 
 busybox_defconfig $(busybox_BUILDDIR)/.config: | $(busybox_BUILDDIR)
-	if [ -f "$(PROJDIR)/busybox.config" ]; then \
-	  rsync -aL $(RSYNC_VERBOSE) $(PROJDIR)/busybox.config $(busybox_BUILDDIR)/.config && \
-	  yes "" | $(busybox_MAKE) oldconfig; \
+	if [ -f "$(busybox_CONFIGFILE)" ]; then \
+	  echo "Apply $(busybox_CONFIGFILE)"; \
+	  rsync -aL $(RSYNC_VERBOSE) $(busybox_CONFIGFILE) $(busybox_BUILDDIR)/.config \
+	    && yes "" | $(busybox_MAKE) oldconfig; \
 	else \
-	  $(busybox_MAKE) defconfig; \
+	  echo "Apply $(busybox_DEFCONFIG)"; \
+	  $(busybox_MAKE) $(busybox_DEFCONFIG); \
 	fi
-
-$(addprefix busybox_,mrproper):
-	$(filter-out O=%,$(busybox_MAKE)) $(@:busybox_%=%)
-
-$(addprefix busybox_,help doc html): | $(PYVENVDIR)
-	. $(PYVENVDIR)/bin/activate && \
-	  $(busybox_MAKE) $(@:busybox_%=%)
 
 busybox_install: DESTDIR=$(BUILD_SYSROOT)
 busybox_install: | $(busybox_BUILDDIR)/.config
@@ -2163,10 +2115,11 @@ p11-kit%:
 CLEAN += p11-kit
 
 #------------------------------------
+# https://github.com/thom311/libnl.git
 #
 libnl_DIR?=$(PKGDIR2)/libnl
 libnl_BUILDDIR?=$(BUILDDIR2)/libnl-$(APP_BUILD)
-libnl_MAKE=$(MAKE) -C $(libnl_BUILDDIR)
+libnl_MAKE=$(MAKE) -C $(libnl_BUILDDIR) 
 
 GENDIR+=$(libnl_BUILDDIR)
 
@@ -2178,9 +2131,9 @@ libnl_defconfig $(libnl_BUILDDIR)/Makefile: | $(libnl_DIR)/configure $(libnl_BUI
 	cd $(libnl_BUILDDIR) \
 	  && $(BUILD_PKGCFG_ENV) $(libnl_DIR)/configure \
 	      --host=`$(CC) -dumpmachine` --prefix= --disable-openssl \
-		  --disable-mbedtls --with-pic --verbose \
+		  --disable-mbedtls --with-pic \
+	      CPPFLAGS="$(libnl_CPPFLAGS) $(libnl_CPPFLAGS_$(APP_PLATFORM))" \
 	      $(libnl_ACARGS_$(APP_PLATFORM))
-# 	rsync -a $(RSYNC_VERBOSE) $(libnl_DIR)/*.sym $(libnl_BUILDDIR)/
 
 libnl_install: DESTDIR=$(BUILD_SYSROOT)
 libnl_install: | $(libnl_BUILDDIR)/Makefile
@@ -3127,8 +3080,6 @@ kmod_ACARGS_$(APP_PLATFORM)+=
 kmod_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig
 
-GENPYVENV+=meson ninja
-
 kmod_defconfig $(kmod_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 	. $(PYVENVDIR)/bin/activate \
 	  && $(BUILD_PKGCFG_ENV) meson setup \
@@ -3172,8 +3123,6 @@ v4lutils_ACARGS_$(APP_PLATFORM)+=
 
 v4lutils_ACARGS_PKGDIR+=$(BUILD_SYSROOT)/lib/pkgconfig \
     $(BUILD_SYSROOT)/share/pkgconfig
-
-GENPYVENV+=meson ninja
 
 v4lutils_defconfig $(v4lutils_BUILDDIR)/build.ninja: | $(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 	. $(PYVENVDIR)/bin/activate \
@@ -3228,8 +3177,6 @@ systemd_ACARGS_$(APP_PLATFORM)+=-Ddbussystemservicedir=/share/dbus-1/system-serv
 
 systemd_CROSSFILE_bp=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
 systemd_CROSSFILE_qemuarm64=$(BUILDDIR)/meson-aarch64-$(APP_PLATFORM).ini
-
-GENPYVENV+=meson ninja
 
 GENDIR+=$(systemd_BUILDDIR)
 
