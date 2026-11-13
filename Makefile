@@ -3602,6 +3602,31 @@ cc1352flash_%: | $(cc1352flash_BUILDDIR)
 
 #------------------------------------
 #
+zephyr_SETENV=. $(PYVENVDIR)/bin/activate \
+  && . ~/zephyrproject/zephyr/zephyr-env.sh \
+  && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+  && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1"
+
+zephyr_test2_DIR=$(PKGDIR)/zephyr_test2
+zephyr_test2_BUILDDIR=$(BUILDDIR2)/zephyr_test2-ub20
+zephyr_test2_WEST=$(zephyr_SETENV) \
+  && cd $(zephyr_test2_DIR) \
+  && west
+
+zephyr_test2_defconfig $(zephyr_test2_BUILDDIR)/build.ninja:
+	$(zephyr_test2_WEST) build -d $(zephyr_test2_BUILDDIR) -p always -b native_sim/native/64
+
+zephyr_test2_distclean:
+	$(RMTREE) $(zephyr_test2_BUILDDIR)
+
+zephyr_test2_menuconfig: | $(zephyr_test2_BUILDDIR)/build.ninja
+	$(zephyr_test2_WEST) build -d $(zephyr_test2_BUILDDIR) -t $(@:zephyr_test2_%=%)
+
+zephyr_test2: | $(zephyr_test2_BUILDDIR)/build.ninja
+	$(zephyr_test2_WEST) build -d $(zephyr_test2_BUILDDIR)
+
+#------------------------------------
+#
 ccblinky_DIR=$(PKGDIR)/cc_blinky
 ccblinky_BUILDDIR=$(BUILDDIR2)/cc_blinky-$(APP_PLATFORM)
 ccblinky_WEST=. $(PYVENVDIR)/bin/activate \
@@ -3624,30 +3649,25 @@ ccblinky: | $(ccblinky_BUILDDIR)/build.ninja
 
 #------------------------------------
 #
-nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
-nano33smp_BUILDDIR=$(BUILDDIR2)/nano33ble_smp_svr-$(APP_PLATFORM)
-nano33smp_WEST=. $(PYVENVDIR)/bin/activate \
-  && . ~/zephyrproject/zephyr/zephyr-env.sh \
-  && $(MKDIR) "$(BUILDDIR)/zephyr-cache/.cache" \
-  && export XDG_CACHE_HOME="$(BUILDDIR)/zephyr-cache" \
-  && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
-  && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1" \
-  && cd $(nano33smp_DIR) \
-  && west
-
-nano33smp_defconfig $(nano33smp_BUILDDIR)/build.ninja:
-	$(nano33smp_WEST) build -p always -b arduino_nano_33_ble@rev2 -d $(nano33smp_BUILDDIR) \
-	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
-
-nano33smp_OPENOCD= \
+nano33ble_OPENOCD= \
   LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
     -s ../build/sysroot-ub20/share/openocd/scripts \
     -f interface/ftdi/ft232h-module-swd.cfg \
     -f target/nordic/nrf52.cfg \
     -c 'adapter speed 1000; init; reset halt'
 
+nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
+nano33smp_BUILDDIR=$(BUILDDIR2)/nano33ble_smp_svr-$(APP_PLATFORM)
+nano33smp_WEST=$(zephyr_SETENV) \
+  && cd $(nano33smp_DIR) \
+  && west
+
+nano33smp_defconfig $(nano33smp_BUILDDIR)/build.ninja:
+	$(nano33smp_WEST) build -d $(nano33smp_BUILDDIR) -p always -b arduino_nano_33_ble@rev2 \
+	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
+
 nano33smp_flash: | $(nano33smp_BUILDDIR)/build.ninja
-	$(nano33smp_OPENOCD) \
+	$(nano33ble_OPENOCD) \
       -c 'adapter speed 1000; init; reset halt' \
       -c 'nrf5 mass_erase' \
       -c 'program ../build/nano33ble_smp_svr-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
@@ -3663,6 +3683,34 @@ nano33smp: | $(nano33smp_BUILDDIR)/build.ninja $(nano33smp_DESTDIR)
 	cp -v $(nano33smp_BUILDDIR)/nano33ble_smp_svr/zephyr/zephyr.signed.bin \
 	    $(nano33smp_DESTDIR)/nano33smp-signed.bin
 
+#------------------------------------
+#
+nano33test2_DIR=$(PKGDIR)/nano33ble_test2
+nano33test2_BUILDDIR=$(BUILDDIR2)/nano33ble_test2-$(APP_PLATFORM)
+nano33test2_WEST=$(zephyr_SETENV) \
+  && cd $(nano33test2_DIR) \
+  && west
+
+nano33test2_defconfig $(nano33test2_BUILDDIR)/build.ninja:
+	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR) -p always -b arduino_nano_33_ble@rev2 \
+	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
+
+nano33test2_flash: | $(nano33test2_BUILDDIR)/build.ninja
+	$(nano33ble_OPENOCD) \
+      -c 'adapter speed 1000; init; reset halt' \
+      -c 'nrf5 mass_erase' \
+      -c 'program ../build/nano33ble_test2-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
+      -c 'program ../build/nano33ble_test2-qemuarm64/nano33ble_test2/zephyr/zephyr.signed.hex verify reset exit'
+
+nano33test2_distclean:
+	$(RMTREE) $(nano33test2_BUILDDIR)
+
+nano33test2_DESTDIR?=$(PROJDIR)/destdir/nano33ble
+GENDIR+=$(nano33test2_DESTDIR)
+nano33test2: | $(nano33test2_BUILDDIR)/build.ninja $(nano33test2_DESTDIR)
+	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR)
+	cp -v $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \
+	    $(nano33test2_DESTDIR)/nano33test2-signed.bin
 
 #------------------------------------
 #

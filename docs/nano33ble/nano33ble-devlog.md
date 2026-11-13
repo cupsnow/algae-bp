@@ -68,6 +68,11 @@ Upgrade from mobile
 
 The Android application is **nRF Connect Device Manager** (Not "nRF Connect for Mobile")
 
+### Start develop with Nano33BLE - nordic way
+
+
+
+
 ### 2026-11-12: MCUboot placement and LED boot fix
 
 The application header was present at `0xc000`, but address zero was erased
