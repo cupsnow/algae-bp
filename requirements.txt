@@ -15,3 +15,9 @@ yamllint
 
 # python3.9
 importlib_resources
+
+# MCUboot image signing (nano33smp)
+cryptography>=40.0.0
+click
+intelhex
+cbor2

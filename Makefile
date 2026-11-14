@@ -133,6 +133,8 @@ ifeq ($(strip $(CLIARGS_VERBOSE)),1)
 RSYNC_VERBOSE+=-v
 CP_VERBOSE+=-v
 MV_VERBOSE+=-v
+LN_VERBOSE+=-v
+PATCH_VERBOSE=--verbose
 ELFSTRIP_VERBOSE+=-v
 MESON_VERBOSE+=-v
 
@@ -368,16 +370,16 @@ ubootenv: DESTDIR=$(BUILDDIR)
 ubootenv: $(PROJDIR)/tool/bin/mkenvimage
 ubootenv:
 	$(MAKE) APP_PLATFORM=bp-a53-emmc $@
-	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53-emmc.env
+	mv $(MV_VERBOSE) $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53-emmc.env
 	$(MAKE) APP_PLATFORM=bp-a53 $@
-	mv -v $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53.env
+	mv $(MV_VERBOSE) $(DESTDIR)/uboot.env $(DESTDIR)/uboot-bp-a53.env
 
 uboot_envtools_install: DESTDIR=$(BUILD_SYSROOT)
 uboot_envtools_install: uboot_envtools
 	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
 	rsync -a $(RSYNC_VERBOSE) $(call uboot_BUILDDIR,bp-a53)/tools/env/fw_printenv \
 	  $(DESTDIR)/sbin/
-	ln -sfn fw_printenv $(DESTDIR)/sbin/fw_setenv
+	ln -sfn $(LN_VERBOSE) fw_printenv $(DESTDIR)/sbin/fw_setenv
 
 uboot:
 	$(MAKE) APP_PLATFORM=bp-r5 uboot
@@ -432,7 +434,7 @@ uboot_envtools_install: uboot_envtools
 	[ -d $(DESTDIR)/bin ] || $(MKDIR) $(DESTDIR)/bin
 	rsync -a $(RSYNC_VERBOSE) $(uboot_BUILDDIR)/tools/env/fw_printenv \
 	  $(DESTDIR)/sbin/
-	ln -sfn fw_printenv $(DESTDIR)/sbin/fw_setenv
+	ln -sfn $(LN_VERBOSE) fw_printenv $(DESTDIR)/sbin/fw_setenv
 
 $(addprefix uboot_,menuconfig savedefconfig oldconfig): | $(uboot_BUILDDIR)/.config
 	$(uboot_MAKE) $(PARALLEL_BUILD) $(@:uboot_%=%)
@@ -723,7 +725,7 @@ libcap_defconfig $(libcap_BUILDDIR)/Makefile:
 	git clone --depth=1 $(libcap_DIR) $(libcap_BUILDDIR)
 	cd $(libcap_BUILDDIR) \
 	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/libcap-*.patch))); do \
-	      patch -p1 --verbose <$${i}; \
+	      patch -p1 $(PATCH_VERBOSE) <$${i}; \
 	  done
 
 libcap_install: DESTDIR=$(BUILD_SYSROOT)
@@ -1168,7 +1170,7 @@ swupdate_MAKE=$(MAKE) -C $(swupdate_BUILDDIR)
 GENDIR+=$(swupdate_BUILDDIR)
 
 swupdate_defconfig $(swupdate_BUILDDIR)/.config: | $(swupdate_BUILDDIR)
-	cp -v $(PROJDIR)/package/br2/swupdate/hc1703.config $(swupdate_BUILDDIR)/.config
+	cp $(CP_VERBOSE) $(PROJDIR)/package/br2/swupdate/hc1703.config $(swupdate_BUILDDIR)/.config
 	yes "" | $(swupdate_MAKE) oldconfig
 
 $(addprefix swupdate_,mrproper distclean clean):
@@ -1794,7 +1796,7 @@ mbedtls_dir:
 	cd $(dir $(mbedtls_DIR)) && \
 	  wget https://tls.mbed.org/download/mbedtls-2.2.1-apache.tgz && \
 	  tar -zxvf mbedtls-2.2.1-apache.tgz && \
-	  ln -sf mbedtls-2.2.1 $(notdir $(mbedtls_DIR))
+	  ln -sf $(LN_VERBOSE) mbedtls-2.2.1 $(notdir $(mbedtls_DIR))
 
 mbedtls: mbedtls_;
 
@@ -1819,7 +1821,7 @@ bzip2_dir:
 	cd $(dir $(bzip2_DIR)) && \
 	  wget "http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz" && \
 	  tar -zxvf bzip2-1.0.6.tar.gz && \
-	  ln -sf bzip2-1.0.6 $(bzip2_DIR)
+	  ln -sf $(LN_VERBOSE) bzip2-1.0.6 $(bzip2_DIR)
 
 bzip2%:
 	if [ ! -d $(bzip2_DIR) ]; then \
@@ -2269,7 +2271,7 @@ onvifsrvd_host_%:
 onvifsrvd_install: DESTDIR=$(BUILD_SYSROOT)
 onvifsrvd_install: onvifsrvd
 	[ -d "$(DESTDIR)/bin" ] || $(MKDIR) $(DESTDIR)/bin
-	cp -v $(onvifsrvd_BUILDDIR)/onvif_srvd $(DESTDIR)/bin/
+	cp $(CP_VERBOSE) $(onvifsrvd_BUILDDIR)/onvif_srvd $(DESTDIR)/bin/
 
 onvifsrvd: | $(onvifsrvd_BUILDDIR)/Makefile
 	$(onvifsrvd_MAKE) $(PARALLEL_BUILD)
@@ -2297,7 +2299,7 @@ wl18xx_defconfig $(wl18xx_BUILDDIR)/Makefile:
 	git clone --depth=1 $(wl18xx_DIR) $(wl18xx_BUILDDIR)
 	cd $(wl18xx_BUILDDIR) \
 	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/wl18xx-*.patch))); do \
-	      patch -p1 --verbose <$${i}; \
+	      patch -p1 $(PATCH_VERBOSE) <$${i}; \
 	  done
 
 wl18xx_install: DESTDIR=$(BUILD_SYSROOT)
@@ -2335,12 +2337,12 @@ wl18xx_install: wl18xx
 	rsync -a $(RSYNC_VERBOSE) \
 	    $(wl18xx_fw_DIR)/wl18xx-fw-4.bin \
 	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin-wl18xx_fw
-	ln -sf wl18xx-fw-4.bin-wl18xx_fw \
+	ln -sf $(LN_VERBOSE) wl18xx-fw-4.bin-wl18xx_fw \
 	    $(DESTDIR)/lib/firmware/ti-connectivity/wl18xx-fw-4.bin
 	rsync -a $(RSYNC_VERBOSE) \
 	    $(ti-linux-fw_DIR)/ti-connectivity/wl127x-nvs.bin \
 	    $(DESTDIR)/lib/firmware/ti-connectivity/wl127x-nvs.bin-ti-linux-fw
-	ln -sf wl127x-nvs.bin-ti-linux-fw \
+	ln -sf $(LN_VERBOSE) wl127x-nvs.bin-ti-linux-fw \
 	    $(DESTDIR)/lib/firmware/ti-connectivity/wl1271-nvs.bin
 
 $(eval $(call DEF_DESTDEP,wl18xx))
@@ -2364,7 +2366,7 @@ iperf_dir:
 	cd $(dir $(iperf_DIR)) && \
 	  wget https://iperf.fr/download/source/iperf-3.1.2-source.tar.gz && \
 	  tar -zxvf iperf-3.1.2-source.tar.gz && \
-	  ln -sf iperf-3.1.2 $(iperf_DIR)
+	  ln -sf $(LN_VERBOSE) iperf-3.1.2 $(iperf_DIR)
 
 iperf_clean iperf_distclean:
 	if [ -f $(iperf_DIR)/Makefile ]; then \
@@ -2555,7 +2557,7 @@ curl_dir:
 	cd $(dir $(curl_DIR)) && \
 	  wget https://curl.haxx.se/download/curl-7.49.0.tar.bz2 && \
 	  tar -jxvf curl-7.49.0.tar.bz2 && \
-	  ln -sf curl-7.49.0 $(curl_DIR) && \
+	  ln -sf $(LN_VERBOSE) curl-7.49.0 $(curl_DIR) && \
 	  $(RM) $(curl_DIR)/Makefile
 
 curl_clean curl_distclean:
@@ -2641,7 +2643,7 @@ socat_dir:
 	cd $(dir $(socat_DIR)) && \
 	  wget http://www.dest-unreach.org/socat/download/socat-2.0.0-b8.tar.bz2 && \
 	  tar -jxvf socat-2.0.0-b8.tar.bz2 && \
-	  ln -sf socat-2.0.0-b8 $(socat_DIR)
+	  ln -sf $(LN_VERBOSE) socat-2.0.0-b8 $(socat_DIR)
 
 socat_clean socat_distclean:
 	if [ -f $(socat_DIR)/Makefile ]; then \
@@ -3286,7 +3288,7 @@ wpasup_defconfig $(wpasup_BUILDDIR)/wpa_supplicant/.config: | $(wpasup_BUILDDIR)
 	    $(wpasup_BUILDDIR)/wpa_supplicant/.config
 	cd $(wpasup_BUILDDIR) \
 	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/wpasup-*.patch))); do \
-	    patch -p1 --verbose <$${i}; \
+	    patch -p1 $(PATCH_VERBOSE) <$${i}; \
 	  done; \
 
 wpasup_install: DESTDIR=$(BUILD_SYSROOT)
@@ -3340,7 +3342,7 @@ hostapd_defconfig $(hostapd_BUILDDIR)/hostapd/.config: | $(hostapd_BUILDDIR)
 	    $(hostapd_BUILDDIR)/hostapd/.config
 	cd $(hostapd_BUILDDIR) \
 	  && for i in $$($(call CMD_SORT_WS_SEP,$(wildcard $(PROJDIR)/hostapd-*.patch))); do \
-	    patch -p1 --verbose <$${i}; \
+	    patch -p1 $(PATCH_VERBOSE) <$${i}; \
 	  done; \
 
 hostapd_install: DESTDIR=$(BUILD_SYSROOT)
@@ -3554,6 +3556,15 @@ zephyr_SETENV=. $(PYVENVDIR)/bin/activate \
   && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
   && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1"
 
+zephyr_setenv=$(PROJDIR)/builder/zephyr_setenv.sh
+zephyr_setenv $(zephyr_setenv):
+	@echo '#!/bin/sh' > $(zephyr_setenv)
+	@echo '. $(PYVENVDIR)/bin/activate' >> $(zephyr_setenv)
+	@echo '. ~/zephyrproject/zephyr/zephyr-env.sh' >> $(zephyr_setenv)
+	@echo 'export ZEPHYR_TOOLCHAIN_VARIANT=zephyr' >> $(zephyr_setenv)
+	@echo 'export ZEPHYR_SDK_INSTALL_DIR="$${HOME}/zephyr-sdk-1.0.1"' >> $(zephyr_setenv)
+	@chmod +x $(zephyr_setenv)
+
 zephyr_test2_DIR=$(PKGDIR)/zephyr_test2
 zephyr_test2_BUILDDIR=$(BUILDDIR2)/zephyr_test2-ub20
 zephyr_test2_WEST=$(zephyr_SETENV) \
@@ -3575,7 +3586,7 @@ zephyr_test2: | $(zephyr_test2_BUILDDIR)/build.ninja
 #------------------------------------
 #
 ccblinky_DIR=$(PKGDIR)/cc_blinky
-ccblinky_BUILDDIR=$(BUILDDIR2)/cc_blinky-$(APP_PLATFORM)
+ccblinky_BUILDDIR=$(BUILDDIR2)/cc_blinky
 ccblinky_WEST=. $(PYVENVDIR)/bin/activate \
   && . ~/zephyrproject/zephyr/zephyr-env.sh \
   && $(MKDIR) "$(BUILDDIR)/zephyr-cache/.cache" \
@@ -3604,7 +3615,7 @@ nano33ble_OPENOCD= \
     -c 'adapter speed 1000; init; reset halt'
 
 nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
-nano33smp_BUILDDIR=$(BUILDDIR2)/nano33ble_smp_svr-$(APP_PLATFORM)
+nano33smp_BUILDDIR=$(BUILDDIR2)/nano33smp
 nano33smp_WEST=$(zephyr_SETENV) \
   && cd $(nano33smp_DIR) \
   && west
@@ -3627,13 +3638,13 @@ nano33smp_DESTDIR?=$(PROJDIR)/destdir/nano33ble
 GENDIR+=$(nano33smp_DESTDIR)
 nano33smp: | $(nano33smp_BUILDDIR)/build.ninja $(nano33smp_DESTDIR)
 	$(nano33smp_WEST) build -d $(nano33smp_BUILDDIR)
-	cp -v $(nano33smp_BUILDDIR)/nano33ble_smp_svr/zephyr/zephyr.signed.bin \
+	cp $(CP_VERBOSE) $(nano33smp_BUILDDIR)/nano33ble_smp_svr/zephyr/zephyr.signed.bin \
 	    $(nano33smp_DESTDIR)/nano33smp-signed.bin
 
 #------------------------------------
 #
 nano33test2_DIR=$(PKGDIR)/nano33ble_test2
-nano33test2_BUILDDIR=$(BUILDDIR2)/nano33ble_test2-$(APP_PLATFORM)
+nano33test2_BUILDDIR=$(BUILDDIR2)/nano33test2
 nano33test2_WEST=$(zephyr_SETENV) \
   && cd $(nano33test2_DIR) \
   && west
@@ -3656,7 +3667,7 @@ nano33test2_DESTDIR?=$(PROJDIR)/destdir/nano33ble
 GENDIR+=$(nano33test2_DESTDIR)
 nano33test2: | $(nano33test2_BUILDDIR)/build.ninja $(nano33test2_DESTDIR)
 	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR)
-	cp -v $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \
+	cp $(CP_VERBOSE) $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \
 	    $(nano33test2_DESTDIR)/nano33test2-signed.bin
 
 #------------------------------------
@@ -3799,7 +3810,7 @@ GENDIR+=$(openocd_BUILDDIR)
 $(openocd_DIR)/configure: 
 	cd $(dir $(@)) \
 	  && for i in $(wildcard $(PROJDIR)/openocd-*.patch); do \
-	      patch -p1 --verbose <$${i}; \
+	      patch -p1 $(PATCH_VERBOSE) <$${i}; \
 	  done
 	cd $(dir $(@)) \
 	  && autoreconf -fiv
@@ -3873,7 +3884,7 @@ admin2_%: $(admin2_BUILDDIR)/Makefile
 
 #------------------------------------
 #
-libconfuse_DIR=$(PROJDIR)/package/libconfuse
+libconfuse_DIR=$(PKGDIR2)/libconfuse
 libconfuse_BUILDDIR=$(BUILDDIR)/libconfuse-$(APP_BUILD)
 libconfuse_MAKE=$(MAKE) -C $(libconfuse_BUILDDIR)
 
@@ -3911,7 +3922,7 @@ libconfuse_%: | $(libconfuse_BUILDDIR)/Makefile
 #------------------------------------
 #
 genimage_DEP=libconfuse
-genimage_DIR=$(PROJDIR)/package/genimage
+genimage_DIR=$(PKGDIR2)/genimage
 genimage_BUILDDIR=$(BUILDDIR)/genimage-$(APP_BUILD)
 genimage_MAKE=$(MAKE) -C $(genimage_BUILDDIR)
 
@@ -4033,8 +4044,21 @@ CMD_RSYNC_PREBUILT=$(if $(2),,$(error "CMD_RSYNC_PREBUILT invalid argument")) \
 
 CMD_GENROOT_EXT4=$(if $(2),,$(error "CMD_GENROOT_EXT4 invalid argument")) \
   $(RMTREE) $(2) \
-    && truncate -s $(or $(3),400M) $(2) \
+    && truncate -s $(or $(3),700M) $(2) \
     && fakeroot mkfs.ext4 -F -d $(1) $(2)
+
+CMD_SHRINK_EXT4=$(if $(1),,$(error "CMD_SHRINK_EXT4 invalid argument")) \
+  e2fsck -fy $(1) \
+    && org_size=$$(stat -c %s $(1)) \
+    && resize2fs -M $(1) \
+    && blocks=$$(LC_ALL=C dumpe2fs -h $(1) 2>/dev/null \
+      | awk '/^Block count:/ {print $$3}') \
+    && block_size=$$(LC_ALL=C dumpe2fs -h $(1) 2>/dev/null \
+      | awk '/^Block size:/ {print $$3}') \
+    && shrink_size=$$((blocks * block_size)) \
+    && truncate -s "$$shrink_size" $(1) \
+    && shrunk_size=$$(stat -c %s $(1)) \
+    && echo "Shrunk $(1) from $$org_size to $$shrunk_size ($$shrink_size) bytes"
 
 CMD_VFATIMG_CREATE=$(if $(1),,$(error "CMD_VFATIMG_CREATE invalid argument")) \
   $(RMTREE) $(2) \
@@ -4102,7 +4126,7 @@ dist_rootfs_phase2:
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/common/*)
 	$(call CMD_RSYNC_PREBUILT,$(DESTDIR)/,$(PROJDIR)/prebuilt/$(APP_PLATFORM)/common/*)
 ifneq ($(strip $(filter gdbserver,$(APP_ATTR))),)
-	$(CP) -v $(TOOLCHAIN_SYSROOT)/usr/bin/gdbserver $(DESTDIR)/sbin/
+	cp $(CP_VERBOSE) $(TOOLCHAIN_SYSROOT)/usr/bin/gdbserver $(DESTDIR)/sbin/
 endif
 	rsync -L $(RSYNC_VERBOSE) $$(find $(DESTDIR)/etc/skel/ -maxdepth 1 -type f) \
 		$(DESTDIR)/root/
@@ -4110,8 +4134,8 @@ endif
 	rsync -a $(RSYNC_VERBOSE) $(wlregdb_DIR)/regulatory.db \
 	    $(wlregdb_DIR)/regulatory.db.p7s \
 	    $(DESTDIR)/lib/firmware/
-	ln -sfn /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
-	ln -sfn /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
+	ln -sfn $(LN_VERBOSE) /var/run/udhcpc/resolv.conf $(DESTDIR)/etc/resolv.conf
+	ln -sfn $(LN_VERBOSE) /var/run/ld.so.cache $(DESTDIR)/etc/ld.so.cache
 	rsync -L $(RSYNC_VERBOSE) $(PROJDIR)/builder/devsync.sh $(DESTDIR)/root/
 	{ $(foreach var,APP_PLATFORM APP_ATTR, \
 	    echo "$(var)=$($(var))";) \
@@ -4157,11 +4181,15 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
 
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/boot
 dist-qemuarm64_phase3: | $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
-	mv -v $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/* $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib
+# 	mv $(MV_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/* $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/
+	rsync -a $(RSYNC_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64/* \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib/
 	$(RMTREE) $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
-	ln -sf lib $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
+	ln -sf $(LN_VERBOSE) lib $(dist_DIR)/$(APP_PLATFORM)/rootfs/lib64
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img)
+	$(call CMD_SHRINK_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs.img, \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs)
 
 dist-qemuarm64_locale:
 	$(RMTREE) $(locale_BUILDDIR)*
@@ -4347,14 +4375,16 @@ GENDIR+=$(dist_DIR)/$(APP_PLATFORM)/rootfs/root
 dist-bp_phase3:
 	$(call CMD_GENROOT_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs, \
 	    $(dist_DIR)/$(APP_PLATFORM)/rootfs.img, 700M)
+	$(call CMD_SHRINK_EXT4,$(dist_DIR)/$(APP_PLATFORM)/rootfs.img, \
+	    $(dist_DIR)/$(APP_PLATFORM)/rootfs)
 	### genimage
 	$(RMTREE) $(BUILDDIR)/genimage_work
 	for i in root input output; do \
 	  $(MKDIR) $(BUILDDIR)/genimage_work/$$i; \
 	done
-	cp -v $(PROJDIR)/builder/genimage_bp.cfg \
+	ln -sfn $(LN_VERBOSE) $(PROJDIR)/builder/genimage_bp.cfg \
 	  $(BUILDDIR)/genimage_work/genimage.cfg
-	cp -v $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin \
+	ln -sfn $(LN_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/boot/tiboot3.bin \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/tispl.bin \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/u-boot.img \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot_sd/uboot.env \
@@ -4364,7 +4394,7 @@ dist-bp_phase3:
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/k3-am625-beagleplay-csi2-imx219.dtbo \
 	  $(dist_DIR)/$(APP_PLATFORM)/boot/linux.itb \
 	  $(BUILDDIR)/genimage_work/
-	cp -v $(dist_DIR)/$(APP_PLATFORM)/rootfs.img \
+	ln -sfn $(LN_VERBOSE) $(dist_DIR)/$(APP_PLATFORM)/rootfs.img \
 	  $(BUILDDIR)/genimage_work/rootfs.ext4
 	genimage \
 	  --rootpath $(BUILDDIR)/genimage_work/root \

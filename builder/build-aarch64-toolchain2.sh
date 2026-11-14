@@ -348,7 +348,6 @@ package_dist() {
 
   echo "✅ Cross toolchain built and packaged:"
   echo "   ${BUILDDIR}/$TARGET-toolchain.tar.gz"
-  echo "Add to PATH: export PATH=\${BUILDDIR}/$TARGET/bin:\$PATH"
   popd
 }
 
@@ -362,7 +361,7 @@ build_all() {
   build_gcc_stage2
   build_glibc_stage2
   build_target_library_stdcxx
-  # build_gdb
+  build_gdb
   package_dist
 }
 
@@ -371,9 +370,10 @@ show_help() {
 Usage: $(basename "$0") <COMMAND> [ARGUMENTS]
 
 Commands:
-  build_all    Build and package the complete cross toolchain
-  build_gdb    Build host GDB, target gdbserver, and target GDB after the
-               compiler, sysroot, sources, and target C++ runtime exist
+  build_all     Build and package the complete cross toolchain
+  build_gdb     Build host GDB, target gdbserver, and target GDB after the
+                compiler, sysroot, sources, and target C++ runtime exist
+  package_dist  packaging the output
 
 BUILDDIR=$BUILDDIR
 
@@ -385,7 +385,7 @@ dispatch() {
   [ "$#" -eq 0 ] || shift
 
   case "$_lo_command" in
-  build_all|build_gdb)
+  build_all|build_gdb|package_dist)
     "$_lo_command" "$@"
     ;;
   help|-h|--help)
