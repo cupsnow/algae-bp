@@ -4050,13 +4050,16 @@ CMD_GENROOT_EXT4=$(if $(2),,$(error "CMD_GENROOT_EXT4 invalid argument")) \
 CMD_SHRINK_EXT4=$(if $(1),,$(error "CMD_SHRINK_EXT4 invalid argument")) \
   e2fsck -fy $(1) \
     && org_size=$$(stat -c %s $(1)) \
+    && echo "step1 img" && LC_ALL=C dumpe2fs -h $(1) 2>/dev/null | tee build/abc1.txt \
     && resize2fs -M $(1) \
+    && echo "step2 img" && LC_ALL=C dumpe2fs -h $(1) 2>/dev/null | tee build/abc2.txt \
     && blocks=$$(LC_ALL=C dumpe2fs -h $(1) 2>/dev/null \
       | awk '/^Block count:/ {print $$3}') \
     && block_size=$$(LC_ALL=C dumpe2fs -h $(1) 2>/dev/null \
       | awk '/^Block size:/ {print $$3}') \
     && shrink_size=$$((blocks * block_size)) \
     && truncate -s "$$shrink_size" $(1) \
+    && echo "step3 img" && LC_ALL=C dumpe2fs -h $(1) 2>/dev/null | tee build/abc3.txt \
     && shrunk_size=$$(stat -c %s $(1)) \
     && echo "Shrunk $(1) from $$org_size to $$shrunk_size ($$shrink_size) bytes"
 
