@@ -28,21 +28,132 @@ LOG_MODULE_REGISTER(smp_sample);
 
 #include "common.h"
 
+#ifdef CONFIG_SHELL
+#include <zephyr/shell/shell.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct {
+	int lvl, lno;
+	const char *fn;
+	const struct shell *sh;
+} logging_t;
+
+/* Serialize complete log_m messages. Call only from thread context. */
+K_MUTEX_DEFINE(log_m_mutex);
+
+static int log_m(logging_t *logging, const char *fmt, ...) {
+	char fn_buf[20], ts_buf[20], lvl_buf[8], lno_buf[8];
+	int ret = 0, len = 0;
+	va_list va;
+	uint64_t us, seconds;
+
+	if ((ret = k_mutex_lock(&log_m_mutex, K_FOREVER)) != 0) return ret;
+
+	// function name or []
+	if (logging->fn) {
+		len = snprintf(fn_buf, sizeof(fn_buf), "[%s]", 
+				(logging->fn ? logging->fn : ""));
+		if (len >= sizeof(fn_buf)) fn_buf[sizeof(fn_buf) - 1] = '\0';
+	} else {
+		fn_buf[0] = '\0';
+	}
+
+	// [HH:MM:SS.mmm,uuu]
+	us = k_ticks_to_us_floor64(k_uptime_ticks());
+	seconds = us / 1000000U;
+	len = snprintf(ts_buf, sizeof(ts_buf), "[%02u:%02u:%02u.%03u,%03u]",
+			(unsigned)(seconds / 3600u), (unsigned)((seconds / 60u) % 60u),
+			(unsigned)(seconds % 60u), 
+			(unsigned)((us / 1000u) % 1000u), (unsigned)(us % 1000u));
+	if (len >= sizeof(ts_buf)) ts_buf[sizeof(ts_buf) - 1] = '\0';
+
+	// severity or none
+	len = snprintf(lvl_buf, sizeof(lvl_buf), "%s",
+			((logging->lvl & 0xf) == 3 ? "[DBG]" :
+			(logging->lvl & 0xf) == 2 ? "[INFO]" :
+			(logging->lvl & 0xf) == 1 ? "[ERR]" :
+			""));
+	if (len >= sizeof(lvl_buf)) lvl_buf[sizeof(lvl_buf) - 1] = '\0';
+
+	// line number or none
+	if (logging->lno > 0) {
+		len = snprintf(lno_buf, sizeof(lno_buf), "[#%d]", logging->lno);
+		if (len >= sizeof(lno_buf)) lno_buf[sizeof(lno_buf) - 1] = '\0';
+	} else {
+		lno_buf[0] = '\0';
+	}
+
+	shell_fprintf_normal(logging->sh, "%s%s%s%s", ts_buf, lvl_buf, fn_buf, 
+			lno_buf); 
+
+	va_start(va, fmt);
+	shell_vfprintf(logging->sh, SHELL_VT100_COLOR_DEFAULT, fmt, va);
+	va_end(va);
+
+	k_mutex_unlock(&log_m_mutex);
+	return ret;
+}
+
+#define log_n(_fmt, _args...) do { \
+	log_m(&(logging_t){0, 0, NULL, sh}, _fmt, ## _args); \
+} while(0)
+
+#define log_d(_fmt, _args...) do { \
+	log_m(&(logging_t){0x3, __LINE__, __func__, sh}, _fmt, ## _args); \
+} while(0)
+
+#define log_e(_fmt, _args...) do { \
+	log_m(&(logging_t){0x1, __LINE__, __func__, sh}, _fmt, ## _args); \
+} while(0)
+
+static int cmd_nano_info(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	log_d("enter %d\n", 8766);
+	log_n("message %d\n", 8766);
+	shell_print(sh, "Nano33 BLE test2, build " __DATE__ " " __TIME__);
+	shell_print(sh, "Uptime: %lld ms", (long long)k_uptime_get());
+	return 0;
+}
+
+static int cmd_nano_echo(const struct shell *sh, size_t argc, char **argv)
+{
+	for (size_t i = 1; i < argc; i++) {
+		shell_fprintf(sh, SHELL_NORMAL, "%s%s", i == 1 ? "" : " ", argv[i]);
+	}
+	shell_print(sh, "");
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(nano_commands,
+	SHELL_CMD_ARG(info, NULL, "Show build and uptime", cmd_nano_info, 1, 0),
+	SHELL_CMD_ARG(echo, NULL, "Echo arguments", cmd_nano_echo, 2, 15),
+	SHELL_SUBCMD_SET_END
+);
+SHELL_CMD_REGISTER(nano, &nano_commands, "Nano33 example commands", NULL);
+#else
+#define log_d(...)
+#define log_e(...)
+#endif
+
 #define STORAGE_PARTITION_LABEL	storage_partition
 #define STORAGE_PARTITION_ID	PARTITION_ID(STORAGE_PARTITION_LABEL)
 
 /* Define an example stats group; approximates seconds since boot. */
-STATS_SECT_START(smp_svr_stats)
+STATS_SECT_START(nano33ble_test2_stats)
 STATS_SECT_ENTRY(ticks)
 STATS_SECT_END;
 
 /* Assign a name to the `ticks` stat. */
-STATS_NAME_START(smp_svr_stats)
-STATS_NAME(smp_svr_stats, ticks)
-STATS_NAME_END(smp_svr_stats);
+STATS_NAME_START(nano33ble_test2_stats)
+STATS_NAME(nano33ble_test2_stats, ticks)
+STATS_NAME_END(nano33ble_test2_stats);
 
 /* Define an instance of the stats group. */
-STATS_SECT_DECL(smp_svr_stats) smp_svr_stats;
+STATS_SECT_DECL(nano33ble_test2_stats) nano33ble_test2_stats;
 
 #ifdef CONFIG_MCUMGR_GRP_FS
 FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(cstorage);
@@ -71,8 +182,8 @@ int main(void)
 		LOG_ERR("LED GPIO device is not ready");
 	}
 
-	int rc = STATS_INIT_AND_REG(smp_svr_stats, STATS_SIZE_32,
-				    "smp_svr_stats");
+	int rc = STATS_INIT_AND_REG(nano33ble_test2_stats, STATS_SIZE_32,
+				    "nano33ble_test2_stats");
 
 	if (rc < 0) {
 		LOG_ERR("Error initializing stats system [%d]", rc);
@@ -120,7 +231,7 @@ int main(void)
 		}
 		k_sleep(K_MSEC(1000 / 2 / 2));
 		if (++blink_ticks == 4) {
-			STATS_INC(smp_svr_stats, ticks);
+			STATS_INC(nano33ble_test2_stats, ticks);
 			blink_ticks = 0;
 		}
 	}

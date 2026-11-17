@@ -3651,14 +3651,16 @@ nano33test2_WEST=$(zephyr_SETENV) \
 
 nano33test2_defconfig $(nano33test2_BUILDDIR)/build.ninja:
 	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR) -p always -b arduino_nano_33_ble@rev2 \
-	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
+	    --sysbuild -- -DEXTRA_CONF_FILE="bt.conf;uart.conf" -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
+	cp $(CP_VERBOSE) $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \
+	    $(nano33test2_DESTDIR)/nano33test2-signed.bin
 
 nano33test2_flash: | $(nano33test2_BUILDDIR)/build.ninja
 	$(nano33ble_OPENOCD) \
       -c 'adapter speed 1000; init; reset halt' \
       -c 'nrf5 mass_erase' \
-      -c 'program ../build/nano33ble_test2-qemuarm64/mcuboot/zephyr/zephyr.hex verify' \
-      -c 'program ../build/nano33ble_test2-qemuarm64/nano33ble_test2/zephyr/zephyr.signed.hex verify reset exit'
+      -c 'program $(nano33test2_BUILDDIR)/mcuboot/zephyr/zephyr.hex verify' \
+      -c 'program $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.hex verify reset exit'
 
 nano33test2_distclean:
 	$(RMTREE) $(nano33test2_BUILDDIR)

@@ -1,5 +1,73 @@
 :orphan:
 
+Nano33 BLE test2 UART console
+****************************
+
+From the repository root, configure and build both MCUboot and the application::
+
+    make nano33test2_defconfig
+    make nano33test2
+
+The wrapper includes ``bt.conf;uart.conf``. MCUboot separately loads
+``sysbuild/mcuboot.conf``. Both images use physical UART0 at 115200 baud,
+8 data bits, no parity, 1 stop bit, no flow control. Connect a 3.3 V USB-UART
+adapter RX to Nano D1/TX (P1.03), adapter TX to D0/RX (P1.10), and common GND.
+The Nano USB connector is not this UART; ``cdc.conf`` is a separate optional
+MCUmgr transport and is not used by this build.
+
+Initial provisioning requires both images. ``make nano33test2_flash`` uses
+the repository FT232H/OpenOCD setup and **mass-erases the device**, including
+existing firmware and stored data. See ``docs/nano33ble/mcuboot.md`` for SWD
+wiring. Build outputs are under ``../build/nano33test2/``:
+
+* ``mcuboot/zephyr/zephyr.hex``: bootloader.
+* ``nano33ble_test2/zephyr/zephyr.signed.hex``: initial application.
+* ``nano33ble_test2/zephyr/zephyr.signed.bin``: firmware update payload,
+  also copied to ``destdir/nano33ble/nano33test2-signed.bin`` by the build target.
+
+Open a serial terminal, for example ``picocom -b 115200 /dev/ttyUSB0``, then
+reset the board to see MCUboot messages followed by application logs and the
+``nano33>`` shell prompt. Example commands::
+
+    help
+    nano info
+    nano echo hello world
+    nano echo "hello UART"
+
+``nano info`` reports the build timestamp and uptime in milliseconds.
+``nano echo`` demonstrates argument handling and shell output. See the
+``SHELL_CMD_REGISTER`` and ``SHELL_CMD_ARG`` examples in ``src/main.c``.
+
+Firmware upgrade over the same UART
+===================================
+
+The application accepts MCUmgr SMP over the shell UART alongside interactive
+commands. The shell owns UART input and routes framed SMP packets to MCUmgr;
+do not enable a second UART MCUmgr input driver on the same UART. Application
+logs go through the shell backend so they share output with the prompt.
+BLE management remains enabled.
+
+Close the terminal before using the Go ``mcumgr`` CLI on that serial port::
+
+    mcumgr --conntype serial --connstring 'dev=/dev/ttyUSB0,baud=115200' image list
+    mcumgr --conntype serial --connstring 'dev=/dev/ttyUSB0,baud=115200' image upload destdir/nano33ble/nano33test2-signed.bin
+    mcumgr --conntype serial --connstring 'dev=/dev/ttyUSB0,baud=115200' image list
+    mcumgr --conntype serial --connstring 'dev=/dev/ttyUSB0,baud=115200' image test <uploaded-image-hash>
+    mcumgr --conntype serial --connstring 'dev=/dev/ttyUSB0,baud=115200' reset
+    mcumgr --conntype serial --connstring 'dev=/dev/ttyUSB0,baud=115200' image confirm
+
+Replace ``<uploaded-image-hash>`` with the secondary-slot hash from ``image list``.
+Upload a different signed build, wait for it to boot successfully, then confirm
+it; an unconfirmed test image reverts on a later reset. The application receives
+the upload into slot 1 and MCUboot performs the swap on reset. MCUboot provides
+boot logging here, not an interactive shell or serial recovery upload mode;
+UART updates require a working application. UART commands and DFU still need
+hardware validation. This example retains the default MCUboot development key
+and unauthenticated management services.
+
+Upstream sample reference
+*************************
+
 .. zephyr:code-sample:: smp-svr
    :name: SMP server
 
