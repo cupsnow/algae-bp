@@ -8,6 +8,10 @@ From the repository root, configure and build both MCUboot and the application::
     make nano33test2_defconfig
     make nano33test2
 
+``nano33test2_defconfig`` only configures a pristine build directory; it does
+not compile firmware or copy an image. ``nano33test2`` builds both images and
+copies the signed update binary to the destination directory.
+
 The wrapper includes ``bt.conf;uart.conf``. MCUboot separately loads
 ``sysbuild/mcuboot.conf``. Both images use physical UART0 at 115200 baud,
 8 data bits, no parity, 1 stop bit, no flow control. Connect a 3.3 V USB-UART

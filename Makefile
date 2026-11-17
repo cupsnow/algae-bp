@@ -2485,6 +2485,9 @@ trivy_host_install:
 trivy_host:
 	$(MAKE) APP_PLATFORM=ub20 $(@:trivy_host%=trivy%)
 
+TRIVY_HOST_BIN=$(PROJDIR)/tool/bin/trivy
+$(TRIVY_HOST_BIN): trivy_host_install
+
 #------------------------------------
 #
 beszel_DIR=$(PKGDIR2)/beszel
@@ -3607,6 +3610,41 @@ ccblinky: | $(ccblinky_BUILDDIR)/build.ninja
 
 #------------------------------------
 #
+mcumgr_DIR=$(PKGDIR2)/mcumgr
+mcumgr_BUILDDIR=$(BUILDDIR2)/mcumgr-$(APP_PLATFORM)
+
+mcumgr_GOENV+=CGO_ENABLED=0 GOOS=linux
+mcumgr_GOENV_bp+=GOARCH=arm64
+mcumgr_GOENV_qemuarm64+=GOARCH=arm64
+
+GENDIR+=$(mcumgr_BUILDDIR)
+
+mcumgr_install: DESTDIR=$(BUILD_SYSROOT)
+mcumgr_install: mcumgr
+	install -Dm755 $(mcumgr_BUILDDIR)/mcumgr \
+	    $(DESTDIR)/bin/mcumgr
+
+$(eval $(call DEF_DESTDEP,mcumgr))
+
+mcumgr: | $(mcumgr_BUILDDIR)
+	cd $(mcumgr_DIR) \
+	  && $(mcumgr_GOENV) $(mcumgr_GOENV_$(APP_PLATFORM)) \
+	    go build \
+	        -o $(mcumgr_BUILDDIR)/mcumgr \
+	        ./mcumgr
+
+mcumgr_host_install: DESTDIR=$(PROJDIR)/tool
+mcumgr_host_install:
+	$(MAKE) APP_PLATFORM=ub20 DESTDIR=$(DESTDIR) mcumgr_install
+
+mcumgr_host:
+	$(MAKE) APP_PLATFORM=ub20 $(@:mcumgr_host%=mcumgr%)
+
+MCUMGR_HOST_BIN=$(PROJDIR)/tool/bin/mcumgr
+$(MCUMGR_HOST_BIN): mcumgr_host_install
+
+#------------------------------------
+#
 nano33ble_OPENOCD= \
   LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub20/bin/openocd \
     -s ../build/sysroot-ub20/share/openocd/scripts \
@@ -3650,10 +3688,9 @@ nano33test2_WEST=$(zephyr_SETENV) \
   && west
 
 nano33test2_defconfig $(nano33test2_BUILDDIR)/build.ninja:
-	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR) -p always -b arduino_nano_33_ble@rev2 \
-	    --sysbuild -- -DEXTRA_CONF_FILE="bt.conf;uart.conf" -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
-	cp $(CP_VERBOSE) $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \
-	    $(nano33test2_DESTDIR)/nano33test2-signed.bin
+	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR) \
+	    --cmake-only -p always -b arduino_nano_33_ble@rev2 --sysbuild \
+	    -- -DEXTRA_CONF_FILE="bt.conf;uart.conf" -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
 
 nano33test2_flash: | $(nano33test2_BUILDDIR)/build.ninja
 	$(nano33ble_OPENOCD) \
@@ -3662,11 +3699,41 @@ nano33test2_flash: | $(nano33test2_BUILDDIR)/build.ninja
       -c 'program $(nano33test2_BUILDDIR)/mcuboot/zephyr/zephyr.hex verify' \
       -c 'program $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.hex verify reset exit'
 
+# mcumgr flash step
+# 1. image upload
+# 2. image list
+# 3. image test <hash from the step 2 image list>
+# 4. reset
+# 5. image list to check the new image
+# 6. image confirm
+
+nano33test2_MCUMGR=$(MCUMGR_HOST_BIN) --conntype serial \
+    --connstring 'dev=/dev/ttyUSB0,baud=115200'
+
+nano33test2_mcumgr_upload: | $(MCUMGR_HOST_BIN)
+	$(nano33test2_MCUMGR) image upload $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin
+
+nano33test2_mcumgr_list: | $(MCUMGR_HOST_BIN)
+	$(nano33test2_MCUMGR) image list
+
+nano33test2_mcumgr_test: TEST_HASH=
+nano33test2_mcumgr_test: | $(MCUMGR_HOST_BIN)
+	[ -n "$(TEST_HASH)" ] || (echo "TEST_HASH is empty" && false)
+	$(nano33test2_MCUMGR) image test $(TEST_HASH)
+
+nano33test2_mcumgr_reset: | $(MCUMGR_HOST_BIN)
+	$(nano33test2_MCUMGR) reset
+
+nano33test2_mcumgr_confirm: | $(MCUMGR_HOST_BIN)
+	$(nano33test2_MCUMGR) confirm
+
 nano33test2_distclean:
 	$(RMTREE) $(nano33test2_BUILDDIR)
 
 nano33test2_DESTDIR?=$(PROJDIR)/destdir/nano33ble
+
 GENDIR+=$(nano33test2_DESTDIR)
+
 nano33test2: | $(nano33test2_BUILDDIR)/build.ninja $(nano33test2_DESTDIR)
 	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR)
 	cp $(CP_VERBOSE) $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \

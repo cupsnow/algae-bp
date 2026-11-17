@@ -87,6 +87,16 @@ logval() {
   echo ${_lo_cnt}
 }
 
+path_remove() {
+  _lo_path=$1
+  if [[ ":$PATH:" == *":$_lo_path:"* ]]; then
+    PATH=${PATH//":$_lo_path:"/":"}
+    PATH=${PATH/#"$_lo_path:"/}
+    PATH=${PATH/%":$_lo_path"/}
+    export PATH
+  fi
+}
+
 daemon_sh_start() {
   [ "$#" -ge 2 ] || { log_e "logval: missing arguments $#"; return 1; }
   _lo_pid_file=$1
