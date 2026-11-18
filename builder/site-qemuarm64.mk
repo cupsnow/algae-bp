@@ -1,5 +1,5 @@
 # APP_PLATFORM?=air192
-#APP_PLATFORM?=qemuarm64
+APP_PLATFORM?=qemuarm64
 
 APP_ATTR_air192?=air192
 ifneq ($(strip $(filter air192,$(APP_PLATFORM))),)

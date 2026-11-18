@@ -1080,6 +1080,47 @@ lzo_%: | $(lzo_BUILDDIR)/Makefile
 	$(lzo_MAKE) $(PARALLEL_BUILD) $(@:lzo_%=%)
 
 #------------------------------------
+#
+gnulib_DIR=$(PKGDIR2)/gnulib
+
+#------------------------------------
+#
+tar_DEP=
+tar_DIR=$(PKGDIR2)/tar
+tar_BUILDDIR=$(BUILDDIR2)/tar-$(APP_BUILD)
+tar_MAKE=$(MAKE) -C $(tar_BUILDDIR)
+
+tar_INCDIR=$(BUILD_INCDIR)
+tar_LIBDIR=$(BUILD_LIBDIR)
+
+GENDIR+=$(tar_BUILDDIR)
+
+tar_ACPREREQS+=$(tar_DIR)/configure $(tar_DIR)/paxutils/Make.rules \
+    $(tar_DIR)/gnulib/Makefile
+
+tar_configure $(tar_ACPREREQS): | $(wildcard $(tar_DIR)/bootstrap)
+	cd $(tar_DIR) \
+	  && ./bootstrap --skip-po --copy \
+	      $(if $(wildcard $(gnulib_DIR)/gnulib-tool),--gnulib-refdir=$(gnulib_DIR))
+
+tar_defconfig $(tar_BUILDDIR)/Makefile: | $(tar_ACPREREQS) $(tar_BUILDDIR)
+	cd $(tar_BUILDDIR) \
+	  && $(BUILD_PKGCFG_ENV) $(tar_DIR)/configure \
+	      --host=`$(CC) -dumpmachine` --prefix=
+
+tar_install: DESTDIR=$(BUILD_SYSROOT)
+tar_install: | $(tar_BUILDDIR)/Makefile
+	$(tar_MAKE) DESTDIR=$(DESTDIR) install
+
+$(eval $(call DEF_DESTDEP,tar))
+
+tar: | $(tar_BUILDDIR)/Makefile
+	$(tar_MAKE) $(PARALLEL_BUILD)
+
+tar_%: | $(tar_BUILDDIR)/Makefile
+	$(tar_MAKE) $(PARALLEL_BUILD) $(@:tar_%=%)
+
+#------------------------------------
 # ubifs dep: e2fsprogs,lzo
 # jfss2 dep: acl
 # dep: zlib openssl
@@ -1943,46 +1984,111 @@ dbus_ipk: expat_ipk
 	python3 $(PROJDIR)/builder/build-ipk.py dbus $(dbus_BUILDDIR)-destpkg.tar.xz $(IPK_DIR) --architecture $(IPK_ARCH) --release $(IPK_RELEASE)
 ipk: dbus_ipk
 
-opkg_CROSSFILE_aarch64=$(BUILDDIR)/cross-aarch64.cmake
-opkg_CROSSFILE_arm=$(BUILDDIR)/cross-arm.cmake
-
-# Small libarchive build for opkg (gzip support through bundled target zlib).
-.PHONY: libarchive libarchive_defconfig libarchive_install opkg opkg_defconfig opkg_install
+#------------------------------------
+#
 libarchive_DIR?=$(PKGDIR2)/libarchive
 libarchive_BUILDDIR?=$(BUILDDIR2)/libarchive-$(APP_PLATFORM)
-libarchive_DESTDIR?=$(libarchive_BUILDDIR)/stage
+
 GENDIR+=$(libarchive_BUILDDIR)
-libarchive_defconfig $(libarchive_BUILDDIR)/Makefile: | $(libarchive_BUILDDIR) $(opkg_CROSSFILE_$(APP_BUILD))
+
+libarchive_CROSSFILE_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+libarchive_CROSSFILE_arm=$(BUILDDIR)/cross-arm.cmake
+libarchive_CROSSFILE?=$(or $(libarchive_CROSSFILE_$(APP_PLATFORM)),$(libarchive_CROSSFILE_$(APP_BUILD)))
+
+libarchive_defconfig $(libarchive_BUILDDIR)/Makefile: | $(libarchive_BUILDDIR) $(libarchive_CROSSFILE)
 	cmake -S $(libarchive_DIR) -B $(libarchive_BUILDDIR) \
-	    $(opkg_CROSSFILE_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-	    -DCMAKE_INSTALL_PREFIX=/ -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
+	    $(opkg_CROSSFILE:%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	    -DCMAKE_PREFIX_PATH=$(BUILD_SYSROOT) \
 	    -DENABLE_TEST=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF \
 	    -DENABLE_UNZIP=OFF -DENABLE_SHARED=OFF -DENABLE_INSTALL=ON \
 	    -DENABLE_ZLIB=ON -DENABLE_BZip2=OFF -DENABLE_LZMA=OFF \
 	    -DENABLE_LZ4=OFF -DENABLE_ZSTD=OFF -DENABLE_OPENSSL=OFF \
 	    -DENABLE_LIBB2=OFF -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF \
-	    -DENABLE_PCREPOSIX=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF
+	    -DENABLE_PCREPOSIX=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF \
+	    -DCMAKE_INSTALL_PREFIX=/ \
+	    -DCMAKE_INSTALL_LIBDIR:PATH=/lib
+
+libarchive_install: DESTDIR=$(BUILD_SYSROOT)
+libarchive_install: libarchive
+	DESTDIR=$(DESTDIR) cmake --install $(libarchive_BUILDDIR)
+
+$(eval $(call DEF_DESTDEP,libarchive))
+
 libarchive: | $(libarchive_BUILDDIR)/Makefile
 	cmake --build $(libarchive_BUILDDIR) -- $(PARALLEL_BUILD)
-libarchive_install: libarchive
-	DESTDIR=$(libarchive_DESTDIR) cmake --install $(libarchive_BUILDDIR)
+
+libarchive_%: | $(libarchive_BUILDDIR)/Makefile
+	cmake --build $(libarchive_BUILDDIR) -- $(PARALLEL_BUILD) $*
 
 #------------------------------------
 #
-opkg_DEP+=libarchive
+libsolv_DEP+=zlib
+libsolv_DIR?=$(PKGDIR2)/libsolv
+libsolv_BUILDDIR?=$(BUILDDIR2)/libsolv-$(APP_PLATFORM)
+
+GENDIR+=$(libsolv_BUILDDIR)
+
+libsolv_CROSSFILE_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+libsolv_CROSSFILE_arm=$(BUILDDIR)/cross-arm.cmake
+libsolv_CROSSFILE?=$(or $(libsolv_CROSSFILE_$(APP_PLATFORM)),$(libsolv_CROSSFILE_$(APP_BUILD)))
+
+# libsolv_lah:
+# 	cmake -S $(libsolv_DIR) -B $(libsolv_BUILDDIR) -LAH \
+# 	    $(libsolv_CROSSFILE:%=-DCMAKE_TOOLCHAIN_FILE=%) \
+# 	    -DCMAKE_PREFIX_PATH=$(BUILD_SYSROOT)
+
+libsolv_defconfig $(libsolv_BUILDDIR)/Makefile: | $(libsolv_BUILDDIR) $(libsolv_CROSSFILE)
+	cmake -S $(libsolv_DIR) -B $(libsolv_BUILDDIR) \
+	    $(libsolv_CROSSFILE:%=-DCMAKE_TOOLCHAIN_FILE=%) \
+	    -DCMAKE_PREFIX_PATH=$(BUILD_SYSROOT) \
+	    -DZLIB_INCLUDE_DIR:PATH=$(BUILD_SYSROOT)/include \
+	    -DZLIB_LIBRARY:FILEPATH=$(BUILD_SYSROOT)/lib/libz.so \
+	    -DCMAKE_INSTALL_PREFIX=/ \
+	    -DCMAKE_INSTALL_INCLUDEDIR=/include -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
+	    -DCMAKE_INSTALL_BINDIR=/bin -DCMAKE_INSTALL_DATAROOTDIR=/share \
+	    -DCMAKE_INSTALL_MANDIR=/share/man
+
+libsolv_install: DESTDIR=$(BUILD_SYSROOT)
+libsolv_install: libsolv
+	DESTDIR=$(DESTDIR) cmake --install $(libsolv_BUILDDIR)
+
+$(eval $(call DEF_DESTDEP,libsolv))
+
+libsolv: | $(libsolv_BUILDDIR)/Makefile
+	cmake --build $(libsolv_BUILDDIR) -- $(PARALLEL_BUILD)
+
+libsolv_%: | $(libsolv_BUILDDIR)/Makefile
+	cmake --build $(libsolv_BUILDDIR) -- $(PARALLEL_BUILD) $*
+
+#------------------------------------
+#
+opkg_DEP+=libarchive libsolv
 opkg_DIR?=$(PKGDIR2)/opkg
 opkg_BUILDDIR?=$(BUILDDIR2)/opkg-$(APP_PLATFORM)
-opkg_CMAKE_ARGS?=-DWITH_CURL=OFF -DWITH_GPGME=OFF -DWITH_XZ=OFF \
-  -DUSE_SOLVER_LIBSOLV=OFF -DSTATIC_LIBOPKG=ON
+
+opkg_SYSPROCESSOR_bp=aarch64
+opkg_SYSPROCESSOR_qemuarm64=aarch64
+
 GENDIR+=$(opkg_BUILDDIR)
-opkg_defconfig $(opkg_BUILDDIR)/Makefile: libarchive_install | $(opkg_BUILDDIR) $(opkg_CROSSFILE_$(APP_BUILD))
+
+opkg_CROSSFILE_aarch64=$(BUILDDIR)/cross-aarch64.cmake
+opkg_CROSSFILE_arm=$(BUILDDIR)/cross-arm.cmake
+opkg_CROSSFILE?=$(or $(opkg_CROSSFILE_$(APP_PLATFORM)),$(opkg_CROSSFILE_$(APP_BUILD)))
+
+opkg_lah:
+	cmake -S $(opkg_DIR) -B $(opkg_BUILDDIR) -LAH \
+	    -DCMAKE_PREFIX_PATH=$(BUILD_SYSROOT) \
+	    -DWITH_CURL=OFF -DWITH_GPGME=OFF -DWITH_XZ=OFF
+
+opkg_defconfig $(opkg_BUILDDIR)/Makefile: | $(opkg_BUILDDIR) $(opkg_CROSSFILE_$(APP_BUILD))
 	$(BUILD_PKGCFG_ENV) cmake -S $(opkg_DIR) -B $(opkg_BUILDDIR) \
 	    $(opkg_CROSSFILE_$(APP_BUILD):%=-DCMAKE_TOOLCHAIN_FILE=%) \
-	    -DCMAKE_SYSTEM_PROCESSOR=$(APP_BUILD) -DHOST_CPU_STR=$(IPK_ARCH) \
-	    -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
-	    -DLibArchive_INCLUDE_DIR=$(libarchive_DESTDIR)/include \
-	    '-DLibArchive_LIBRARY=$(libarchive_DESTDIR)/lib/libarchive.a;$(BUILD_SYSROOT)/lib/libz.so' \
-	    -DCMAKE_C_FLAGS=-I$(libarchive_DESTDIR)/include $(opkg_CMAKE_ARGS)
+	    -DCMAKE_PREFIX_PATH=$(BUILD_SYSROOT) \
+		$(opkg_SYSPROCESSOR_bp:%=-DCMAKE_SYSTEM_PROCESSOR=%) \
+	    -DCMAKE_INSTALL_PREFIX=/ -DCMAKE_INSTALL_LIBDIR:PATH=/lib \
+	    -DWITH_CURL=OFF -DWITH_GPGME=OFF -DWITH_XZ=OFF \
+	    -DSTATIC_LIBOPKG=ON
+
 opkg: | $(opkg_BUILDDIR)/Makefile
 	cmake --build $(opkg_BUILDDIR) -- $(PARALLEL_BUILD)
 opkg_install: DESTDIR=$(BUILD_SYSROOT)
@@ -3741,15 +3847,28 @@ nano33test2: | $(nano33test2_BUILDDIR)/build.ninja $(nano33test2_DESTDIR)
 
 #------------------------------------
 #
-ESPIDFENV=. /home/joelai/.espressif/tools/activate_idf_v6.1.sh
+ESPIDFENV=. /home/joelai/.espressif/tools/activate_idf_master.sh
 ESPIDFPY=$(ESPIDFENV) && idf.py
 
 esp32hci_DIR=$(PKGDIR)/esp32_hci
-esp32hci_BUILDDIR=$(BUILDDIR)/esp32_hci-$(APP_PLATFORM)
+esp32hci_TARGET?=esp32s3
+esp32hci_BUILDDIR=$(BUILDDIR)/esp32_hci-$(esp32hci_TARGET)
 esp32hci_IDFPY=$(ESPIDFPY) --project-dir=$(esp32hci_DIR) --build-dir=$(esp32hci_BUILDDIR)
 
 $(addprefix esp32hci_,flash build all monitor menuconfig):
 	$(esp32hci_IDFPY) -p /dev/ttyACM0 $(@:esp32hci_%=%)
+
+#------------------------------------
+# https://github.com/espressif/esp-usb-bridge.git
+#
+esp32usbr_DIR=$(PKGDIR)/esp-usb-bridge
+esp32usbr_TARGET?=esp32s3
+esp32usbr_BUILDDIR=$(BUILDDIR)/esp32_usbr-$(esp32usbr_TARGET)
+esp32usbr_IDFPY=$(ESPIDFPY) --project-dir=$(esp32usbr_DIR) --build-dir=$(esp32usbr_BUILDDIR) \
+  -DIDF_TARGET=$(esp32usbr_TARGET) -DSDKCONFIG=$(esp32usbr_BUILDDIR)/sdkconfig
+
+$(addprefix esp32usbr_,flash build all monitor menuconfig):
+	$(esp32usbr_IDFPY) -p /dev/ttyACM0 $(@:esp32usbr_%=%)
 
 #------------------------------------
 #
