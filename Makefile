@@ -3885,7 +3885,7 @@ nano33ncs2_WEST=. $(ncs_setenv) \
 
 nano33ncs2_defconfig $(nano33ncs2_BUILDDIR)/build.ninja: | $(ncs_setenv)
 	$(nano33ncs2_WEST) build -d $(nano33ncs2_BUILDDIR) \
-	    --cmake-only -p always -b arduino_nano_33_ble@rev2 --sysbuild \
+	    --cmake-only -p always -b arduino_nano_33_ble --sysbuild \
 	    -- -DEXTRA_CONF_FILE="bt.conf;uart.conf" -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
 
 nano33ncs2_distclean:
@@ -3899,6 +3899,13 @@ nano33ncs2: | $(nano33ncs2_BUILDDIR)/build.ninja $(nano33ncs2_DESTDIR)
 	$(nano33ncs2_WEST) build -d $(nano33ncs2_BUILDDIR)
 	cp $(CP_VERBOSE) $(nano33ncs2_BUILDDIR)/nano33ble_ncs2/zephyr/zephyr.signed.bin \
 	    $(nano33ncs2_DESTDIR)/nano33ncs2-signed.bin
+
+nano33ncs2_flash: | $(nano33ncs2_BUILDDIR)/build.ninja
+	$(nano33ble_OPENOCD) \
+      -c 'adapter speed 1000; init; reset halt' \
+      -c 'nrf5 mass_erase' \
+      -c 'program $(nano33ncs2_BUILDDIR)/mcuboot/zephyr/zephyr.hex verify' \
+      -c 'program $(nano33ncs2_BUILDDIR)/nano33ble_ncs2/zephyr/zephyr.signed.hex verify reset exit'
 
 #------------------------------------
 #

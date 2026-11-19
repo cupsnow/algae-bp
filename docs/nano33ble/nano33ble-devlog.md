@@ -64,13 +64,32 @@ LD_LIBRARY_PATH=../build/sysroot-ub20/lib timeout -skill 60 ../build/sysroot-ub2
     -c 'program ../build/nano33ble_smp_svr-qemuarm64/nano33ble_smp_svr/zephyr/zephyr.signed.hex verify reset exit'
 ```
 
+Install nrf connect sdk
+----
+
+nrfutil install sdk-manager
+nrfutil sdk-manager search
+
+nrfutil sdk-manager install v3.4.2
+nrfutil sdk-manager toolchain launch --ncs-version v3.4.2 --shell
+
+
+nrfutil sdk-manager toolchain env --ncs-version v3.4.2 --as-script
+
+
+export NCS_DIR="$HOME/ncs/v3.4.2"
+cd /home/joelai/02_dev/algae-ws/algae-bp
+sh package/nano33ble_test2_ncs/build.sh configure
+sh package/nano33ble_test2_ncs/build.sh build
+
+
+
+
 Upgrade from mobile
 
 The Android application is **nRF Connect Device Manager** (Not "nRF Connect for Mobile")
 
 ### Start develop with Nano33BLE - nordic way
-
-
 
 
 ### 2026-11-12: MCUboot placement and LED boot fix
