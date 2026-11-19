@@ -3660,28 +3660,28 @@ cc1352flash_%: | $(cc1352flash_BUILDDIR)
 
 #------------------------------------
 #
-zephyr_SETENV=. $(PYVENVDIR)/bin/activate \
-  && . ~/zephyrproject/zephyr/zephyr-env.sh \
-  && export ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
-  && export ZEPHYR_SDK_INSTALL_DIR="$(HOME)/zephyr-sdk-1.0.1"
-
-zephyr_setenv=$(PROJDIR)/builder/zephyr_setenv.sh
+zephyr_setenv=$(PROJDIR)/build/zephyr_setenv.sh
 zephyr_setenv $(zephyr_setenv):
-	@echo '#!/bin/sh' > $(zephyr_setenv)
-	@echo '. $(PYVENVDIR)/bin/activate' >> $(zephyr_setenv)
-	@echo '. ~/zephyrproject/zephyr/zephyr-env.sh' >> $(zephyr_setenv)
-	@echo 'export ZEPHYR_TOOLCHAIN_VARIANT=zephyr' >> $(zephyr_setenv)
-	@echo 'export ZEPHYR_SDK_INSTALL_DIR="$${HOME}/zephyr-sdk-1.0.1"' >> $(zephyr_setenv)
-	@chmod +x $(zephyr_setenv)
+	{ \
+	  echo '#!/bin/sh' \
+	  && echo '. $(PYVENVDIR)/bin/activate' \
+	  && echo '. ~/zephyrproject/zephyr/zephyr-env.sh' \
+	  && echo 'export ZEPHYR_TOOLCHAIN_VARIANT=zephyr' \
+	  && echo 'export ZEPHYR_SDK_INSTALL_DIR="$${HOME}/zephyr-sdk-1.0.1"' \
+	  ; \
+	} >$(zephyr_setenv)
+	chmod +x $(zephyr_setenv)
 
 zephyr_test2_DIR=$(PKGDIR)/zephyr_test2
 zephyr_test2_BUILDDIR=$(BUILDDIR2)/zephyr_test2-ub20
-zephyr_test2_WEST=$(zephyr_SETENV) \
+
+zephyr_test2_WEST=. $(zephyr_setenv) \
   && cd $(zephyr_test2_DIR) \
   && west
 
-zephyr_test2_defconfig $(zephyr_test2_BUILDDIR)/build.ninja:
-	$(zephyr_test2_WEST) build -d $(zephyr_test2_BUILDDIR) -p always -b native_sim/native/64
+zephyr_test2_defconfig $(zephyr_test2_BUILDDIR)/build.ninja: | $(zephyr_setenv)
+	$(zephyr_test2_WEST) build -d $(zephyr_test2_BUILDDIR) \
+	    --cmake-only -p always -b native_sim/native/64
 
 zephyr_test2_distclean:
 	$(RMTREE) $(zephyr_test2_BUILDDIR)
@@ -3844,6 +3844,61 @@ nano33test2: | $(nano33test2_BUILDDIR)/build.ninja $(nano33test2_DESTDIR)
 	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR)
 	cp $(CP_VERBOSE) $(nano33test2_BUILDDIR)/nano33ble_test2/zephyr/zephyr.signed.bin \
 	    $(nano33test2_DESTDIR)/nano33test2-signed.bin
+
+
+#------------------------------------
+#
+ncsvenv_DIR=$(PROJDIR)/ncsvenv
+.PHONY: ncsvenv
+ncsvenv $(ncsvenv_DIR)/bin/activate:
+	eval "$$(nrfutil sdk-manager toolchain env --ncs-version v3.4.2 --as-script)" \
+	  && export NCS_DIR="$$HOME/ncs/v3.4.2" \
+	  && export ZEPHYR_BASE="$$NCS_DIR/zephyr" \
+	  && python3 -m venv $(ncsvenv_DIR) \
+	  && unset PYTHONHOME PYTHONPATH \
+	  && . $(ncsvenv_DIR)/bin/activate \
+	  && pip install --upgrade pip \
+	  && pip install west \
+	      -r ~/ncs/v3.4.2/zephyr/scripts/requirements.txt \
+	      -r ~/ncs/v3.4.2/nrf/scripts/requirements.txt \
+	      -r ~/ncs/v3.4.2/bootloader/mcuboot/scripts/requirements.txt
+
+ncs_setenv=$(PROJDIR)/build/ncs_setenv.sh
+ncs_setenv $(ncs_setenv):
+	{ \
+	  echo '#!/bin/sh' \
+	  && echo 'eval "$$(nrfutil sdk-manager toolchain env --ncs-version v3.4.2 --as-script)"' \
+	  && echo 'export NCS_DIR="$$HOME/ncs/v3.4.2"' \
+	  && echo 'export ZEPHYR_BASE="$$NCS_DIR/zephyr"' \
+	  && echo 'unset PYTHONHOME PYTHONPATH' \
+	  && echo '. $(ncsvenv_DIR)/bin/activate' \
+	  ; \
+	} >$(ncs_setenv)
+
+#------------------------------------
+#
+nano33ncs2_DIR=$(PKGDIR)/nano33ble_ncs2
+nano33ncs2_BUILDDIR=$(BUILDDIR2)/nano33ncs2
+nano33ncs2_WEST=. $(ncs_setenv) \
+  && cd $(nano33ncs2_DIR) \
+  && west
+
+nano33ncs2_defconfig $(nano33ncs2_BUILDDIR)/build.ninja: | $(ncs_setenv)
+	$(nano33ncs2_WEST) build -d $(nano33ncs2_BUILDDIR) \
+	    --cmake-only -p always -b arduino_nano_33_ble@rev2 --sysbuild \
+	    -- -DEXTRA_CONF_FILE="bt.conf;uart.conf" -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
+
+nano33ncs2_distclean:
+	$(RMTREE) $(nano33ncs2_BUILDDIR)
+
+nano33ncs2_DESTDIR?=$(PROJDIR)/destdir/nano33ble
+
+GENDIR+=$(nano33ncs2_DESTDIR)
+
+nano33ncs2: | $(nano33ncs2_BUILDDIR)/build.ninja $(nano33ncs2_DESTDIR)
+	$(nano33ncs2_WEST) build -d $(nano33ncs2_BUILDDIR)
+	cp $(CP_VERBOSE) $(nano33ncs2_BUILDDIR)/nano33ble_ncs2/zephyr/zephyr.signed.bin \
+	    $(nano33ncs2_DESTDIR)/nano33ncs2-signed.bin
 
 #------------------------------------
 #
