@@ -5,10 +5,10 @@ This is a separate copy of `../nano33ble_test2` for the Nano 33 BLE Sense Rev2
 shell commands, BLE SMP server, LittleFS and SMP over the physical UART shell.
 The original application and its Makefile targets are unchanged.
 
-**Status:** migration starting point; no Nordic SDK build or hardware test has
-been run. Board availability, Kconfig compatibility and flash layout must be
-checked against the SDK release you install. Arduino board support in Zephyr
-does not by itself establish Nordic's supported/tested board status.
+**Status:** NCS v3.4.2 pristine configuration and full MCUboot/application build
+passed with the Sense Rev2 overlay. UART output and sensor operation still
+require hardware validation. The application uses an overlay on the bundled
+Arduino board rather than a new Nordic-supported board target.
 
 ## 1. Install on Linux
 
@@ -179,3 +179,27 @@ support is not established by this selection. The application overlay in
 `boards/arduino_nano_33_ble.overlay` matches the existing MCUboot overlay:
 bootloader 0x00000–0x0bfff, slot 0 0x0c000–0x81fff, slot 1
 0x82000–0xf7fff, storage 0xf8000–0xfffff. Both images need that layout.
+
+## Sense Rev2 hardware and UART check
+
+`boards/sense-rev2.dtsi` ports the upstream Rev2 BMI270/BMM150 definitions,
+400 kHz internal sensor bus and P0.22 high-drive sensor supply enable. It also
+adds the Sense HS3003, LPS22HB, APDS9960 and PDM microphone wiring from the
+upstream Sense definitions. Sensor nodes describe wiring; this application
+still does not enable or exercise their sensor drivers. The MCUboot overlay
+keeps the same flash map and explicitly selects physical UART0.
+
+Both images select UART0 at 115200 baud without hardware flow control,
+TX D1/P1.03 and RX D0/P1.10. The application now enables its startup banner.
+The pre-change generated settings already selected this UART, so these changes
+do not establish the cause of a silent board.
+
+After rebuilding, flash both images using your established SWD workflow.
+The `nano33ncs2_flash` target mass-erases firmware and storage. Open a 3.3 V
+USB-UART adapter at 115200 8N1 (flow control off), then press reset. Adapter RX
+must connect to D1/TX, adapter TX to D0/RX, and GND to GND. Do not expect these
+messages on the Nano USB connector. Expect MCUboot messages, the application
+banner and `nano33>`; press Enter and try `nano info`. If completely silent,
+check whether the LED blinks, test the adapter by loopback, and inspect D1 with
+a logic analyzer during reset. No serial device was available in the build
+session, so live capture and target boot diagnosis remain outstanding.

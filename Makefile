@@ -3760,11 +3760,11 @@ nano33ble_OPENOCD= \
 
 nano33smp_DIR=$(PKGDIR)/nano33ble_smp_svr
 nano33smp_BUILDDIR=$(BUILDDIR2)/nano33smp
-nano33smp_WEST=$(zephyr_SETENV) \
+nano33smp_WEST=. $(zephyr_setenv) \
   && cd $(nano33smp_DIR) \
   && west
 
-nano33smp_defconfig $(nano33smp_BUILDDIR)/build.ninja:
+nano33smp_defconfig $(nano33smp_BUILDDIR)/build.ninja: | $(zephyr_setenv)
 	$(nano33smp_WEST) build -d $(nano33smp_BUILDDIR) -p always -b arduino_nano_33_ble@rev2 \
 	    --sysbuild -- -DEXTRA_CONF_FILE=bt.conf -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
 
@@ -3789,11 +3789,11 @@ nano33smp: | $(nano33smp_BUILDDIR)/build.ninja $(nano33smp_DESTDIR)
 #
 nano33test2_DIR=$(PKGDIR)/nano33ble_test2
 nano33test2_BUILDDIR=$(BUILDDIR2)/nano33test2
-nano33test2_WEST=$(zephyr_SETENV) \
+nano33test2_WEST=. $(zephyr_setenv) \
   && cd $(nano33test2_DIR) \
   && west
 
-nano33test2_defconfig $(nano33test2_BUILDDIR)/build.ninja:
+nano33test2_defconfig $(nano33test2_BUILDDIR)/build.ninja: | $(zephyr_setenv)
 	$(nano33test2_WEST) build -d $(nano33test2_BUILDDIR) \
 	    --cmake-only -p always -b arduino_nano_33_ble@rev2 --sysbuild \
 	    -- -DEXTRA_CONF_FILE="bt.conf;uart.conf" -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
